@@ -53,8 +53,9 @@ export async function POST(request: Request) {
     })
 
     return NextResponse.json(user, { status: 201 })
-  } catch (e: any) {
-    if (e.code === 'P2002') {
+  } catch (e: unknown) {
+    const err = e as { code?: string }
+    if (err.code === 'P2002') {
       return NextResponse.json({ error: 'Email already exists' }, { status: 409 })
     }
     return NextResponse.json({ error: 'Failed to create user' }, { status: 500 })

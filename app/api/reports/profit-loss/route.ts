@@ -20,8 +20,9 @@ export async function GET() {
     let totalInputTax = 0   // Vorsteuer recovered
     let totalOutputTax = 0  // Umsatzsteuer collected
 
-    const revenueLines: any[] = []
-    const expenseLines: any[] = []
+    interface ReportItem { code: string; name: string; amount: number; nativeAmount: number; currency: string; baseCurrency: string; feedSourced: boolean }
+    const revenueLines: ReportItem[] = []
+    const expenseLines: ReportItem[] = []
 
     // Richer per-currency breakdown (Phase 0 multi-currency enhancement)
     // key: currency code (e.g. "USD", "EUR")
@@ -36,7 +37,7 @@ export async function GET() {
 
     // Helper: convert a line amount to base currency (EUR) using fxRateToBase if present.
     // fxRateToBase means: baseAmount = foreignAmount * fxRateToBase
-    const toBase = (line: any, amount: number): number => {
+    const toBase = (line: { currency?: string | null; fxRateToBase?: unknown }, amount: number): number => {
       const cur = (line.currency || 'EUR').toUpperCase()
       if (cur === 'EUR') return amount
       const rate = line.fxRateToBase != null ? Number(line.fxRateToBase) : null
@@ -44,7 +45,7 @@ export async function GET() {
     }
 
     accounts.forEach(account => {
-      account.journalLines.forEach(line => {
+      account.journalLines.forEach((line) => {
         const debit = Number(line.debit)
         const credit = Number(line.credit)
 
@@ -91,7 +92,7 @@ export async function GET() {
       let nativeBalance = 0
       const currencies = new Set<string>()
 
-      account.journalLines.forEach(line => {
+      account.journalLines.forEach((line) => {
         const d = Number(line.debit)
         const c = Number(line.credit)
         const baseD = toBase(line, d)

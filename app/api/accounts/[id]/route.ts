@@ -21,7 +21,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid data' }, { status: 400 })
     }
 
-    const data: any = {}
+    const data: { code?: string; name?: string; type?: 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE' } = {}
     if (parsed.data.code) data.code = parsed.data.code.toUpperCase()
     if (parsed.data.name) data.name = parsed.data.name
     if (parsed.data.type) data.type = parsed.data.type
@@ -46,8 +46,9 @@ export async function PATCH(
     })
 
     return NextResponse.json(account)
-  } catch (error: any) {
-    if (error.code === 'P2002') {
+  } catch (error: unknown) {
+    const err = error as { code?: string }
+    if (err.code === 'P2002') {
       return NextResponse.json({ error: 'Code already exists' }, { status: 409 })
     }
     return NextResponse.json({ error: 'Failed to update account' }, { status: 500 })

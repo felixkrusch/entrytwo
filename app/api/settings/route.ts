@@ -4,7 +4,7 @@ import { z } from 'zod'
 
 const settingSchema = z.object({
   key: z.string(),
-  value: z.any(),
+  value: z.unknown(),
 })
 
 export async function GET() {
@@ -28,8 +28,8 @@ export async function POST(request: Request) {
 
     const setting = await prisma.setting.upsert({
       where: { key },
-      update: { value: value as any },
-      create: { key, value: value as any },
+      update: { value: value as import('@prisma/client').Prisma.InputJsonValue },
+      create: { key, value: value as import('@prisma/client').Prisma.InputJsonValue },
     })
 
     await prisma.event.create({
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
         eventType: 'MANUAL_ADJUSTMENT',
         entityType: 'Setting',
         entityId: setting.id,
-        payload: { action: 'SETTING_UPDATED', key, value },
+        payload: { action: 'SETTING_UPDATED', key, value: value as import('@prisma/client').Prisma.InputJsonValue },
       },
     })
 

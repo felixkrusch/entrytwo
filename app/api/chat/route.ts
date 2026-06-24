@@ -60,9 +60,10 @@ async function getCurrentBalancesSummary() {
   return summary.join('\n') || 'No activity yet.'
 }
 
-async function getAccountsMap() {
-  const accs = await prisma.account.findMany()
-  const map: Record<string, any> = {}
+interface AccountLite { id: string; code: string; name: string; type: string }
+async function getAccountsMap(): Promise<Record<string, AccountLite>> {
+  const accs = await prisma.account.findMany({ select: { id: true, code: true, name: true, type: true } })
+  const map: Record<string, AccountLite> = {}
   accs.forEach(a => { map[a.code] = a })
   return map
 }
@@ -74,7 +75,7 @@ async function getReversedEntryIds(): Promise<Set<string>> {
   })
   const ids = new Set<string>()
   events.forEach(e => {
-    const pid = (e.payload as any)?.originalId
+    const pid = (e.payload as { originalId?: string } | null)?.originalId
     if (pid) ids.add(pid)
   })
   return ids
@@ -329,7 +330,7 @@ Use the above memory and feed rates when they are relevant. Prefer real BANK_FEE
 
         // Enrich suggestion lines with rates if the model omitted fx metadata for foreign currency.
         // Phase 1 improvement: first try to find a real BANK_FEED rate from a previous import for the same merchant.
-        const merchantFromModel = (object as any)?.merchant || ''
+        const merchantFromModel = (object as { merchant?: string } | null)?.merchant || ''
         const merchantHint = merchantFromModel || (lastMessage.match(/from\s+([A-Za-z0-9 .&-]+)/i)?.[1] || '')
 
         let usedRealFeedForAny = false
@@ -370,17 +371,17 @@ Use the above memory and feed rates when they are relevant. Prefer real BANK_FEE
         // - If every foreign line has a BANK_FEED source (we reused a real previous feed rate) → no forced confirmation.
         let needsConfirmation = false
         if (object && Array.isArray(object.lines)) {
-          const foreignLines = object.lines.filter((l: any) => (l.currency || 'EUR').toUpperCase() !== 'EUR')
+          const foreignLines = object.lines.filter((l: { currency?: string }) => (l.currency || 'EUR').toUpperCase() !== 'EUR')
           if (foreignLines.length > 0) {
-            const allHaveFeed = foreignLines.every((l: any) => String(l.fxSource || '').startsWith('BANK_FEED'))
+            const allHaveFeed = foreignLines.every((l: { fxSource?: string }) => String(l.fxSource || '').startsWith('BANK_FEED'))
             needsConfirmation = !allHaveFeed
           }
         }
 
-        const finalMerchant = merchantHint || (object as any)?.merchant || undefined
+        const finalMerchant = merchantHint || (object as { merchant?: string } | null)?.merchant || undefined
 
         // Phase 2 memory: attach remembered categorization for this merchant
-        let memory: any = undefined
+        let memory: { merchant: string; suggestedAccountCode?: string; suggestedTaxRateId?: string; lastUsed?: string } | undefined = undefined
         if (finalMerchant) {
           try {
             const mem = await getMerchantMemory(finalMerchant)
@@ -438,8 +439,8 @@ async function generateFallback(text: string) {
   // Try to extract two amounts when user gives foreign + base settlement
   // e.g. "120 USD ... 111 EUR" or "$120 ... 111"
   const allAmounts = Array.from(text.matchAll(/(\d+[\.,]?\d*)/g)).map(m => parseFloat(m[1].replace(',', '.'))).filter(n => !isNaN(n))
-  let foreignAmount = allAmounts[0] ?? 100
-  let baseAmount = allAmounts[1] ?? null
+  const foreignAmount = allAmounts[0] ?? 100
+  const baseAmount = allAmounts[1] ?? null
 
   // If second amount exists and currencies differ, treat second as base
   const hasExplicitBase = baseAmount != null && baseAmount > 0 && currency !== 'EUR'
@@ -475,7 +476,8 @@ async function generateFallback(text: string) {
   const deInput = rates.find(r => r.jurisdiction === 'DE' && r.isInputTax)
 
   let response = ''
-  let suggestion: any
+  interface SuggestionLine { accountCode: string; debit?: number; credit?: number; description?: string; currency?: string; fxRateToBase?: number; fxSource?: string; fxDate?: string }
+  let suggestion: { description?: string; lines?: SuggestionLine[] } | undefined
 
   const isExpense = lower.includes('bought') || lower.includes('purchase') || lower.includes('paid for') || lower.includes('expense') || lower.includes('laptop') || lower.includes('computer') || lower.includes('equipment') || lower.includes('rent') || lower.includes('office') || lower.includes('supplies') || lower.includes('software') || lower.includes('subscription') || lower.includes('professional') || lower.includes('consult')
   const isRevenue = lower.includes('revenue') || lower.includes('client paid') || lower.includes('received') || lower.includes('sale') || lower.includes('payment received')
@@ -494,7 +496,7 @@ async function generateFallback(text: string) {
     if (deInput) taxRateId = deInput.id
 
     response = `${note} ~${amount}. Debit ${debitCode}, credit ${cash}${taxRateId ? ' (+ tax)' : ''}.`
-    const lines: any[] = [
+    const lines: SuggestionLine[] = [
       { accountCode: debitCode, debit: amount, description: note, currency }
     ]
     if (taxRateId && deInput) {

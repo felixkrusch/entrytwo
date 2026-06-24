@@ -136,7 +136,7 @@ export async function POST(request: Request) {
 
     // Dynamic import to avoid Turbopack bundling issues with pdf-parse
     const pdfParseMod = await import('pdf-parse')
-    const pdfParse = (pdfParseMod as any).default || pdfParseMod
+    const pdfParse = ((pdfParseMod as { default?: (b: Buffer) => Promise<{ text: string; numpages?: number }> }).default || pdfParseMod) as (b: Buffer) => Promise<{ text: string; numpages?: number }>
     const data = await pdfParse(buffer)
 
     const fullText = data.text || ''
@@ -149,12 +149,12 @@ export async function POST(request: Request) {
 
     // Load live tax rates so we can attach a taxRateId when we have a good hint
     let matchedTaxRateId: string | undefined
-    let matchedTaxRate: { id: string; rate: any; isInputTax: boolean; name: string; jurisdiction: string } | null = null
+    let matchedTaxRate: { id: string; rate: unknown; isInputTax: boolean; name: string; jurisdiction: string } | null = null
     try {
       const rates = await prisma.taxRate.findMany({ orderBy: [{ jurisdiction: 'asc' }, { rate: 'desc' }] })
       if (rates.length && taxHints.rate != null) {
         // Score: jurisdiction match (if we guessed one) + rate closeness + input/output preference
-        let best: any = null
+        let best: { id: string; rate: unknown; isInputTax: boolean; name: string; jurisdiction: string } | null = null
         let bestScore = -1
         for (const r of rates) {
           let score = 0
@@ -268,7 +268,7 @@ export async function POST(request: Request) {
               fxRateToBase: hasFx ? Number(line.fxRateToBase) : undefined,
               fxSource: hasFx ? (line.fxSource || undefined) : undefined,
               fxDate: hasFx && line.fxDate ? line.fxDate.toISOString().slice(0, 10) : undefined,
-            } as any
+            }
 
             // Strongest preference: lines that already carry real fx metadata from a feed
             if (hasFx && currencyDifferent) break
@@ -298,7 +298,7 @@ export async function POST(request: Request) {
             fxRateToBase: feedRate.fxRateToBase,
             fxSource: feedRate.fxSource,
             fxDate: feedRate.fxDate,
-          } as any
+          }
         }
       } catch {
         // non-fatal
@@ -323,9 +323,7 @@ export async function POST(request: Request) {
     const expenseCode = suggestExpenseAccountCode(fullText)
 
     // Always a concrete string for the credit/settlement side account code
-    const creditAccountCode: string = feedMatch
-      ? String((feedMatch as any).settlementAccountCode || '1100')
-      : '2000'
+    const creditAccountCode: string = feedMatch?.settlementAccountCode || '1100'
 
     // Helper to split gross into net + tax when we have a rate
     const splitGross = (gross: number, rate: number) => {
@@ -336,12 +334,13 @@ export async function POST(request: Request) {
 
     if (feedMatch) {
       // Prefer the authoritative rate from the matched feed line if it already has fx metadata.
-      const hasRealRate = feedMatch.fxRateToBase != null && isFinite(feedMatch.fxRateToBase as any) && (feedMatch.fxRateToBase as number) > 0
+      const fx = feedMatch.fxRateToBase
+      const hasRealRate = fx != null && isFinite(Number(fx)) && Number(fx) > 0
       const derivedRate = feedMatch.foreignAmount > 0
         ? feedMatch.baseAmount / feedMatch.foreignAmount
         : null
 
-      const rateToUse = hasRealRate ? (feedMatch.fxRateToBase as number) : (derivedRate ?? null)
+      const rateToUse = hasRealRate ? Number(fx) : (derivedRate ?? null)
       const sourceToUse = hasRealRate
         ? (feedMatch.fxSource || `BANK_FEED:derived:${feedMatch.date}`)
         : (rateToUse ? `BANK_FEED:derived:${feedMatch.date}` : undefined)
@@ -471,7 +470,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       filename: file.name,
-      pages: data.numpages,
+      pages: (data as { numpages?: number }).numpages ?? 0,
       text: preview,
       detected: {
         currency: currency || null,

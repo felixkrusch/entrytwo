@@ -164,7 +164,7 @@ async function main() {
         payload: {
           description: entry.description,
           date: entry.date,
-          lines: entry.lines.map((l: any) => ({
+          lines: entry.lines.map((l) => ({
             account: l.account.code,
             debit: Number(l.debit),
             credit: Number(l.credit)

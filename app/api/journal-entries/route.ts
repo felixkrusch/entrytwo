@@ -98,7 +98,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const toBase = (line: any, amount: number): number => {
+    const toBase = (line: { currency?: string | null; fxRateToBase?: number | string | null }, amount: number): number => {
       const cur = (line.currency || 'EUR').toUpperCase()
       if (cur === 'EUR') return amount
       const rate = line.fxRateToBase != null ? Number(line.fxRateToBase) : null
