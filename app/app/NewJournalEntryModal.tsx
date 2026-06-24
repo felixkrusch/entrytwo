@@ -222,10 +222,6 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   }, [isOpen, initialSuggestion, accounts, taxRates])
 
   // Helper functions defined early so effects can reference them without TDZ
-  const addLine = () => {
-    setLines([...lines, { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: 'EUR' }])
-  }
-
   const updateLineFx = (index: number, fx: { fxRateToBase?: number; fxSource?: string; fxDate?: string }) => {
     const newLines = [...lines]
     newLines[index] = { ...newLines[index], ...fx }
