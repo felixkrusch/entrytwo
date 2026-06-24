@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { PrismaClient, AccountType } from "@prisma/client";
+import { PrismaClient, AccountType, Prisma } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 
@@ -105,7 +105,8 @@ async function main() {
     },
   ];
 
-  await prisma.taxRate.createMany({ data: taxRates as any });
+  const taxRateData: Prisma.TaxRateCreateManyInput[] = taxRates;
+  await prisma.taxRate.createMany({ data: taxRateData });
   console.log(`Seeded ${taxRates.length} tax rates`);
 
   // Seed default company settings (used by Admin UI)
@@ -118,8 +119,8 @@ async function main() {
   for (const s of defaultSettings) {
     await prisma.setting.upsert({
       where: { key: s.key },
-      update: { value: s.value as any },
-      create: { key: s.key, value: s.value as any },
+      update: { value: s.value as Prisma.InputJsonValue },
+      create: { key: s.key, value: s.value as Prisma.InputJsonValue },
     });
   }
   console.log(`Seeded/updated ${defaultSettings.length} default settings`);
