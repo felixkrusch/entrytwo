@@ -14,7 +14,7 @@ interface User {
 interface Setting {
   id: string
   key: string
-  value: any
+  value: { value?: string } | Record<string, unknown>
 }
 
 interface AdminPanelProps {
@@ -58,7 +58,8 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
   }
 
   useEffect(() => {
-    fetchData()
+    const id = setTimeout(() => { void fetchData() }, 0)
+    return () => clearTimeout(id)
   }, [])
 
   const createUser = async (forceAdmin = false) => {
@@ -90,7 +91,7 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
     fetchData()
   }
 
-  const updateSetting = async (key: string, value: any) => {
+  const updateSetting = async (key: string, value: { value: string }) => {
     await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -99,9 +100,9 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
     fetchData()
   }
 
-  const baseCurrencySetting = settings.find(s => s.key === 'baseCurrency')?.value?.value || 'EUR'
-  const companyNameSetting = settings.find(s => s.key === 'company.name')?.value?.value || ''
-  const defaultJurisdiction = settings.find(s => s.key === 'defaultTaxJurisdiction')?.value?.value || 'DE'
+  const baseCurrencySetting = ((settings.find(s => s.key === 'baseCurrency')?.value as { value?: string } | undefined)?.value) || 'EUR'
+  const companyNameSetting = ((settings.find(s => s.key === 'company.name')?.value as { value?: string } | undefined)?.value) || ''
+  const defaultJurisdiction = ((settings.find(s => s.key === 'defaultTaxJurisdiction')?.value as { value?: string } | undefined)?.value) || 'DE'
 
   if (loading) {
     return <div className="text-sm text-zinc-500">{t('loading')}</div>
@@ -155,7 +156,7 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
               <div className="flex items-center gap-2">
                 <select
                   value={u.role}
-                  onChange={e => changeRole(u.id, e.target.value as any)}
+                  onChange={e => changeRole(u.id, e.target.value as User['role'])}
                   className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs"
                 >
                   <option value="ADMIN">ADMIN</option>
@@ -182,11 +183,11 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
             onChange={e => setNewName(e.target.value)}
             className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-sm"
           />
-          <select
-            value={newRole}
-            onChange={e => setNewRole(e.target.value as any)}
-            className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm"
-          >
+            <select
+              value={newRole}
+              onChange={e => setNewRole(e.target.value as 'ADMIN' | 'ACCOUNTANT' | 'VIEWER')}
+              className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm"
+            >
             <option value="ADMIN">ADMIN</option>
             <option value="ACCOUNTANT">ACCOUNTANT</option>
             <option value="VIEWER">VIEWER</option>

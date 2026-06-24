@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useTranslations, useFormatter } from 'next-intl'
+import toast from 'react-hot-toast'
 
 interface AccountBalance {
   code: string
@@ -13,41 +14,62 @@ interface AccountBalance {
   nativeBalance?: number   // sum in the dominant currency (if different)
 }
 
+interface ByCurrencyValue {
+  native: number
+  base: number
+}
+
 interface BSData {
   accounts: AccountBalance[]
-  byCurrency?: Record<string, { native: number; base: number }>
+  byCurrency?: Record<string, ByCurrencyValue>
 }
 
 interface ReportsPanelProps {
   onFilterAccount?: (code: string) => void
+  currentFilterCode?: string | null
 }
 
-export default function ReportsPanel({ onFilterAccount }: ReportsPanelProps) {
+export default function ReportsPanel({ onFilterAccount, currentFilterCode }: ReportsPanelProps) {
   const t = useTranslations('app.panels.reports')
   const format = useFormatter()
   const [data, setData] = useState<BSData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const fetchBalances = () => {
+    setLoading(true)
+    setError(null)
     fetch('/api/reports/balance-sheet')
-      .then(res => res.json())
-      .then((d: any) => {
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to load balance sheet')
+        return res.json()
+      })
+      .then((d: unknown) => {
         if (Array.isArray(d)) {
-          setData({ accounts: d })
-        } else if (d && Array.isArray(d.accounts)) {
-          setData(d)
+          setData({ accounts: d as AccountBalance[] })
+        } else if (d && typeof d === 'object' && Array.isArray((d as { accounts?: unknown }).accounts)) {
+          setData(d as BSData)
         }
       })
-      .catch(() => {})
+      .catch((e: unknown) => {
+        setError((e as Error)?.message || 'Failed to load report')
+      })
       .finally(() => setLoading(false))
   }
 
   useEffect(() => {
-    fetchBalances()
+    let mounted = true
+    const doFetch = () => {
+      if (mounted) fetchBalances()
+    }
+    doFetch()
 
-    const handler = () => fetchBalances()
+    const handler = () => doFetch()
     window.addEventListener('journal-updated', handler)
-    return () => window.removeEventListener('journal-updated', handler)
+    return () => {
+      mounted = false
+      window.removeEventListener('journal-updated', handler)
+    }
   }, [])
 
   const balances = data?.accounts || []
@@ -59,15 +81,54 @@ export default function ReportsPanel({ onFilterAccount }: ReportsPanelProps) {
   const totalLiabilities = liabilities.reduce((sum, a) => sum + a.balance, 0)
   const totalEquity = equity.reduce((sum, a) => sum + a.balance, 0)
 
+  const handleClickAccount = (code: string) => {
+    if (onFilterAccount) {
+      const isSame = currentFilterCode === code
+      onFilterAccount(isSame ? '' : code) // toggle off if clicking the same
+      if (!isSame) toast.success(`Filtered journal to ${code}`)
+    }
+  }
+
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+
+  const refresh = () => {
+    fetchBalances()
+    setLastUpdated(new Date())
+  }
+
   return (
     <div className="mt-8">
       <div className="flex items-center justify-between mb-4">
-        <div className="text-sm text-zinc-500">{t('title')}</div>
-        <div className="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-400">{t('live')}</div>
+        <div className="text-sm text-zinc-500 flex items-center gap-2">
+          {t('title')}
+          <button
+            onClick={refresh}
+            className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 hover:bg-zinc-800 text-zinc-400"
+            title="Refresh balance sheet"
+          >
+            ↻
+          </button>
+        </div>
+        <button
+          onClick={refresh}
+          className="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 hover:bg-emerald-900 transition"
+        >
+          {t('live')}
+        </button>
+        {currentFilterCode && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">filtered: {currentFilterCode}</span>
+        )}
       </div>
+      {lastUpdated && (
+        <div className="text-[10px] text-zinc-600 -mt-3 mb-2 text-right">
+          as of {lastUpdated.toLocaleTimeString()}
+        </div>
+      )}
 
       {loading ? (
         <div className="text-zinc-500 text-sm">{t('loading')}</div>
+      ) : error ? (
+        <div className="text-rose-400 text-sm">{error}</div>
       ) : (
         <div className="space-y-6 text-sm">
           <div>
@@ -78,8 +139,8 @@ export default function ReportsPanel({ onFilterAccount }: ReportsPanelProps) {
             {assets.length > 0 ? assets.map(a => (
               <div
                 key={a.code}
-                onClick={() => onFilterAccount?.(a.code)}
-                className="flex justify-between py-1 border-b border-zinc-800 pl-2 cursor-pointer hover:bg-zinc-800/60"
+                onClick={() => handleClickAccount(a.code)}
+                className={`flex justify-between py-1 border-b border-zinc-800 pl-2 cursor-pointer hover:bg-zinc-800/60 ${currentFilterCode === a.code ? 'bg-emerald-950/40 ring-1 ring-emerald-800' : ''}`}
                 title="Click to filter journal to this account"
               >
                 <span>{a.code} {a.name}</span>
@@ -99,7 +160,7 @@ export default function ReportsPanel({ onFilterAccount }: ReportsPanelProps) {
             {liabilities.length > 0 ? liabilities.map(a => (
               <div
                 key={a.code}
-                onClick={() => onFilterAccount?.(a.code)}
+                onClick={() => handleClickAccount(a.code)}
                 className="flex justify-between py-1 border-b border-zinc-800 pl-2 cursor-pointer hover:bg-zinc-800/60"
                 title="Click to filter journal to this account"
               >
@@ -120,7 +181,7 @@ export default function ReportsPanel({ onFilterAccount }: ReportsPanelProps) {
             {equity.length > 0 ? equity.map(a => (
               <div
                 key={a.code}
-                onClick={() => onFilterAccount?.(a.code)}
+                onClick={() => handleClickAccount(a.code)}
                 className="flex justify-between py-1 border-b border-zinc-800 pl-2 cursor-pointer hover:bg-zinc-800/60"
                 title="Click to filter journal to this account"
               >
@@ -137,7 +198,7 @@ export default function ReportsPanel({ onFilterAccount }: ReportsPanelProps) {
           {data?.byCurrency && Object.keys(data.byCurrency).length > 0 && (
             <div className="pt-2 text-[10px] text-zinc-400 font-mono">
               <div className="text-[9px] text-zinc-500 mb-0.5">{t('byCurrency')}</div>
-              {Object.entries(data.byCurrency).sort().map(([cur, v]: any) => (
+              {Object.entries(data.byCurrency).sort().map(([cur, v]: [string, { base: number; native?: number }]) => (
                 <div key={cur}>
                   {cur}: base {format.number(v.base, { style: 'currency', currency: 'EUR' })}
                   {cur !== 'EUR' && v.native != null ? ` • native ~${v.native.toFixed(2)}` : ''}

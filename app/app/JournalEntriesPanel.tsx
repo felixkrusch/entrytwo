@@ -9,6 +9,7 @@ interface JournalLine {
   id: string
   debit: string
   credit: string
+  description?: string | null   // line-level note (returned by API)
   account: { code: string; name: string }
   taxRate?: {
     id: string
@@ -41,24 +42,33 @@ export default function JournalEntriesPanel({ filterAccountId }: JournalEntriesP
   const format = useFormatter()
 
   const [entries, setEntries] = useState<JournalEntry[]>([])
-  const [reversedMap, setReversedMap] = useState<Map<string, string>>(new Map()) // originalId -> reversal description
+  const [reversedMap, setReversedMap] = useState<Map<string, string>>(new Map())
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [expandAll, setExpandAll] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   const fetchEntries = () => {
     fetch('/api/journal-entries')
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to load journal')
+        return res.json()
+      })
       .then(data => {
         if (Array.isArray(data)) setEntries(data)
       })
-      .catch(() => setEntries([]))
+      .catch(() => {
+        setError('Could not load journal entries')
+        setEntries([])
+      })
       .finally(() => setLoading(false))
   }
 
   const fetchReversals = () => {
     fetch('/api/events')
       .then(res => res.json())
-      .then((events: any[]) => {
+      .then((events: Array<{ eventType?: string; payload?: { originalId?: string }; description?: string | null }>) => {
         const map = new Map<string, string>()
         events.forEach(ev => {
           if (ev.eventType === 'JOURNAL_ENTRY_REVERSED' && ev.payload?.originalId) {
@@ -73,15 +83,21 @@ export default function JournalEntriesPanel({ filterAccountId }: JournalEntriesP
   }
 
   useEffect(() => {
-    fetchEntries()
-    fetchReversals()
-
-    const handler = () => {
+    let mounted = true
+    const doFetch = () => {
+      if (!mounted) return
       fetchEntries()
       fetchReversals()
+      setLastUpdated(new Date())
     }
+    doFetch()
+
+    const handler = () => doFetch()
     window.addEventListener('journal-updated', handler)
-    return () => window.removeEventListener('journal-updated', handler)
+    return () => {
+      mounted = false
+      window.removeEventListener('journal-updated', handler)
+    }
   }, [])
 
   const filteredEntries = filterAccountId
@@ -103,11 +119,34 @@ export default function JournalEntriesPanel({ filterAccountId }: JournalEntriesP
     })
   })
 
+  const refresh = () => {
+    setError(null)
+    fetchEntries()
+    fetchReversals()
+    setLastUpdated(new Date())
+  }
+
   return (
     <div className="mt-8">
       <div className="flex items-center justify-between mb-4">
-        <div className="text-sm text-zinc-500">
-          {t('title')} {filterAccountId && t('filtered')}
+        <div className="text-sm text-zinc-500 flex items-center gap-2">
+          {t('title')}
+          {filterAccountId && (
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('clear-account-filter'))}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 hover:bg-emerald-900"
+              title="Clear this filter"
+            >
+              filtered: {filterAccountId} ×
+            </button>
+          )}
+          <button
+            onClick={refresh}
+            className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 hover:bg-zinc-800 text-zinc-400"
+            title="Refresh journal"
+          >
+            ↻
+          </button>
         </div>
         <div className="flex items-center gap-2">
           {filterAccountId && (
@@ -118,17 +157,30 @@ export default function JournalEntriesPanel({ filterAccountId }: JournalEntriesP
               {t('clearFilter')}
             </button>
           )}
-          <button 
+            <button 
             onClick={() => openNewEntry()}
             className="text-xs px-3 py-1 rounded bg-white text-black hover:bg-zinc-200 transition font-medium"
           >
             {t('newEntry')}
           </button>
+          <button
+            onClick={() => setExpandAll(!expandAll)}
+            className="text-xs px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+          >
+            {expandAll ? 'Collapse all' : 'Expand all'}
+          </button>
         </div>
       </div>
+      {lastUpdated && (
+        <div className="text-[10px] text-zinc-600 -mt-3 mb-2 text-right">
+          as of {lastUpdated.toLocaleTimeString()}
+        </div>
+      )}
 
       {loading ? (
         <div className="text-zinc-500 text-sm">{t('loading')}</div>
+      ) : error ? (
+        <div className="text-rose-400 text-sm">{error}</div>
       ) : filteredEntries.length === 0 ? (
         <div className="text-zinc-500 text-sm">
           {t('empty', { filter: filterAccountId ? t('emptyFilter') : '' })}
@@ -137,7 +189,7 @@ export default function JournalEntriesPanel({ filterAccountId }: JournalEntriesP
         <>
           <div className="space-y-4">
             {filteredEntries.map(entry => {
-              const isOpen = expanded === entry.id
+              const isOpen = expandAll || expanded === entry.id
               const entryDebits = entry.lines.reduce((s, l) => s + parseFloat(l.debit), 0)
               const entryCredits = entry.lines.reduce((s, l) => s + parseFloat(l.credit), 0)
               const isReversal = entry.description?.startsWith('Reversal of')
@@ -155,34 +207,85 @@ export default function JournalEntriesPanel({ filterAccountId }: JournalEntriesP
                       {isReversal && (
                         <span className="text-[10px] px-1.5 py-px rounded bg-rose-900/40 text-rose-400 border border-rose-800">{t('reversal')}</span>
                       )}
-                      {hasBeenReversed && (
-                        <span className="text-[10px] px-1.5 py-px rounded bg-rose-900/40 text-rose-400 border border-rose-800">{t('reversed')}</span>
-                      )}
+                       {hasBeenReversed && (
+                         <span className="text-[10px] px-1.5 py-px rounded bg-rose-900/40 text-rose-400 border border-rose-800">{t('reversed')}</span>
+                       )}
+                       {(entry.description || '').match(/^Repeat (of|entry)/i) && (
+                         <span className="text-[10px] px-1.5 py-px rounded bg-sky-900/40 text-sky-400 border border-sky-800">repeated</span>
+                       )}
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-zinc-500 font-mono text-xs">{new Date(entry.date).toISOString().split('T')[0]}</div>
                       {!isReversal && !hasBeenReversed && (
-                        <button
-                          onClick={async (e) => {
-                            e.stopPropagation()
-                            if (!confirm(t('confirmReverse'))) return
-                            try {
-                              const res = await fetch('/api/journal-entries/reverse', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ originalId: entry.id })
+                        <>
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              // Respect chat lock (advisory mode)
+                              if (typeof window !== 'undefined' && localStorage.getItem('chatLocked') === 'true') {
+                                toast.error(t('lockedToast') || 'Chat is locked (advisory mode).')
+                                return
+                              }
+                              if (!confirm(t('confirmReverse'))) return
+                              try {
+                                const res = await fetch('/api/journal-entries/reverse', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ originalId: entry.id })
+                                })
+                                if (!res.ok) throw new Error(await res.text())
+                                toast.success(t('reversingSuccess'))
+                                window.dispatchEvent(new CustomEvent('journal-updated'))
+                               } catch {
+                                 toast.error(t('reversingError'))
+                               }
+                            }}
+                            className="text-[10px] px-2 py-0.5 rounded bg-rose-900/30 text-rose-400 hover:bg-rose-900/50 border border-rose-800 active:scale-[0.985]"
+                          >
+                            {t('reverse')}
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              // Respect chat lock (advisory mode)
+                              if (typeof window !== 'undefined' && localStorage.getItem('chatLocked') === 'true') {
+                                toast.error(t('lockedToast') || 'Chat is locked (advisory mode).')
+                                return
+                              }
+                              const lines = entry.lines.map(l => ({
+                                accountCode: l.account.code,
+                                debit: parseFloat(l.debit) || 0,
+                                credit: parseFloat(l.credit) || 0,
+                                description: l.description || undefined,
+                                currency: l.currency || 'EUR',
+                                fxRateToBase: l.fxRateToBase ? Number(l.fxRateToBase) : undefined,
+                                fxSource: l.fxSource || undefined,
+                                fxDate: l.fxDate || undefined,
+                                taxRateId: l.taxRate?.id,
+                              }))
+                              const originalDate = new Date(entry.date).toISOString().slice(0, 10)
+
+                              // Phase 2 reliability: when repeating a foreign-currency entry,
+                              // force confirmation so the user re-verifies the (potentially stale) FX rate.
+                              const hasForeign = entry.lines.some(l => (l.currency || 'EUR') !== 'EUR')
+
+                              openNewEntry({
+                                description: entry.description
+                                  ? `Repeat of ${originalDate}: ${entry.description}`
+                                  : `Repeat entry from ${originalDate}`,
+                                lines: lines,
+                                source: 'repeat',
+                                originalDate,
+                                needsConfirmation: hasForeign,
                               })
-                              if (!res.ok) throw new Error(await res.text())
-                              toast.success(t('reversingSuccess'))
-                              window.dispatchEvent(new CustomEvent('journal-updated'))
-                            } catch (err) {
-                              toast.error(t('reversingError'))
-                            }
-                          }}
-                          className="text-[10px] px-2 py-0.5 rounded bg-rose-900/30 text-rose-400 hover:bg-rose-900/50 border border-rose-800 active:scale-[0.985]"
-                        >
-                          {t('reverse')}
-                        </button>
+                              toast.success(t('repeatEntry') || 'Repeated entry – review and confirm')
+                            }}
+                            className="text-[10px] px-2 py-0.5 rounded bg-zinc-700 text-white hover:bg-zinc-600"
+                            title={t('repeatEntry') || 'Repeat this entry'}
+                          >
+                            {t('repeat') || 'Repeat'}
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -190,8 +293,15 @@ export default function JournalEntriesPanel({ filterAccountId }: JournalEntriesP
                   <div className="space-y-1 text-sm font-mono">
                     {entry.lines.map(line => (
                       <div key={line.id} className="flex justify-between items-center pl-2 border-l border-zinc-800">
-                        <span className="text-zinc-400">
-                          {line.account.code} {line.account.name}
+                       <span
+                         className="text-zinc-400 cursor-pointer hover:underline"
+                         onClick={(ev) => {
+                           ev.stopPropagation()
+                           window.dispatchEvent(new CustomEvent('filter-by-account', { detail: { code: line.account.code } }))
+                         }}
+                         title={`Filter to ${line.account.code}`}
+                       >
+                           {line.account.code} {line.account.name}
                           {line.taxRate && (
                             <span className="ml-1 text-[10px] px-1 rounded bg-amber-900/30 text-amber-400 border border-amber-800">
                               {line.taxRate.jurisdiction} {(line.taxRate.rate * 100).toFixed(0)}%

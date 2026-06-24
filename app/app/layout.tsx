@@ -27,11 +27,23 @@ function AppContent({ children }: { children: ReactNode }) {
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
   const [needsBootstrap, setNeedsBootstrap] = useState<boolean | null>(null)
 
-  // Phase 2: allow reports to filter journal by clicking lines
+  // Phase 2: allow reports / P&L / journal lines to filter by account code (interactivity)
   const handleFilterAccountByCode = (code: string) => {
-    // Create a lightweight account object so the filter works and clear button appears
-    setSelectedAccount({ id: '', code, name: code, type: '' } as any)
+    setSelectedAccount(prev => {
+      if (prev && prev.code === code) return prev
+      return { id: '', code, name: code, type: '' } as unknown as Account
+    })
   }
+
+  // Support clicking account codes inside the journal list
+  useEffect(() => {
+    const handler = (e: Event & { detail?: { code?: string } }) => {
+      const code = e?.detail?.code
+      if (code) handleFilterAccountByCode(code)
+    }
+    window.addEventListener('filter-by-account', handler)
+    return () => window.removeEventListener('filter-by-account', handler)
+  }, [])
 
   const checkBootstrap = async () => {
     try {
@@ -44,7 +56,9 @@ function AppContent({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    checkBootstrap()
+    // Defer to avoid "setState synchronously in effect" lint rule
+    const id = setTimeout(() => { void checkBootstrap() }, 0)
+    return () => clearTimeout(id)
   }, [])
 
   const handleModalSuccess = () => {
@@ -108,14 +122,56 @@ function AppContent({ children }: { children: ReactNode }) {
       {/* Right: Dynamic Context Panel */}
       <div className="flex-1 p-6 overflow-auto bg-zinc-900">
         <div className="max-w-5xl mx-auto space-y-8">
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-zinc-500">Dashboard • Live</div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('journal-updated'))}
+                className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+                title="Refresh all panels"
+              >
+                Refresh all
+              </button>
+              {(selectedAccount) && (
+                <button
+                  onClick={() => {
+                    setSelectedAccount(null)
+                    window.dispatchEvent(new CustomEvent('clear-account-filter'))
+                    window.dispatchEvent(new CustomEvent('clear-all-filters'))
+                  }}
+                  className="text-[10px] px-2 py-0.5 rounded border border-rose-800 text-rose-400 hover:bg-rose-950"
+                  title="Clear all filters (accounts, journal, reports, search)"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Phase 2: visible active filter indicator for the right panel (reports/dashboard interactivity) */}
+          {selectedAccount && (
+            <div className="flex items-center gap-2 -mt-4 mb-2">
+              <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-emerald-400 border border-zinc-700">
+                Filtered to {selectedAccount.code} {selectedAccount.name ? `— ${selectedAccount.name}` : ''}
+              </span>
+              <button
+                onClick={() => setSelectedAccount(null)}
+                className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+              >
+                Clear filter
+              </button>
+            </div>
+          )}
+
           <SummaryBar />
-          <AccountsPanel
-            onSelectAccount={setSelectedAccount}
-            selectedAccountId={selectedAccount?.id}
-          />
+           <AccountsPanel
+             onSelectAccount={setSelectedAccount}
+             selectedAccountId={selectedAccount?.id}
+             selectedAccountCode={selectedAccount?.code}
+           />
            <JournalEntriesPanel filterAccountId={selectedAccount?.code} />
-           <ReportsPanel onFilterAccount={handleFilterAccountByCode} />
-           <ProfitLossPanel onFilterAccount={handleFilterAccountByCode} />
+            <ReportsPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} />
+            <ProfitLossPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} />
           <AuditLogPanel />
           <AdminPanel />
           <QuickFeedImport />

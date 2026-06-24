@@ -47,7 +47,7 @@ export async function getFxRateToBase(currency: string, date?: string | Date): P
   try {
     const now = Date.now()
     if (!ecbCache || now - ecbCacheTime > CACHE_TTL) {
-      const res = await fetch(ECB_DAILY, { next: { revalidate: 3600 } } as any)
+      const res = await fetch(ECB_DAILY, { next: { revalidate: 3600 } } as unknown as RequestInit)
       if (res.ok) {
         const xml = await res.text()
         const rates: Record<string, number> = {}

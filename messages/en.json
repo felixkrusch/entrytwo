@@ -11,11 +11,14 @@
       "reviewReversal": "Review reversal →",
       "reviewAndConfirm": "Review & Confirm →",
       "usedRealFeedRate": "Using real rate from previous feed for {merchant}.",
-      "feeds": {
-        "title": "Quick Bank/Card Feed Import (authoritative FX)",
-        "import": "Import as BANK_FEED (authoritative)",
-        "close": "Close"
-      },
+       "feeds": {
+         "title": "Quick Bank/Card Feed Import (authoritative FX)",
+         "import": "Import as BANK_FEED (authoritative)",
+         "close": "Close",
+         "success": "BANK_FEED imported — real rate recorded",
+         "successMsg": "Feed imported. Authoritative rate recorded.",
+         "errorGeneric": "Feed import failed"
+       },
       "uploadPdf": "Upload PDF",
       "pdfProcessing": "Processing PDF...",
       "pdfParsed": "PDF parsed. Click \"Create journal entry\" below to review.",
@@ -74,9 +77,11 @@
         "debitsCredits": "Debits: {debits} | Credits: {credits}",
         "clickToCollapse": "Click to collapse",
         "confirmReverse": "Reverse this entry? This will create an offsetting reversing entry.",
-        "reversingSuccess": "Reversing entry created",
-        "reversingError": "Could not reverse entry",
-        "untitled": "Untitled Entry"
+         "reversingSuccess": "Reversing entry created",
+         "reversingError": "Could not reverse entry",
+         "untitled": "Untitled Entry",
+         "repeat": "Repeat",
+         "repeatEntry": "Repeat this entry"
       },
       "summary": {
         "assets": "Total Assets",
@@ -171,7 +176,8 @@
       "entryCreated": "Journal entry created",
       "entryCreatedFromChat": "Journal entry created from chat suggestion",
       "reversalPosted": "Reversal posted from chat suggestion",
-      "entryReversed": "Entry reversed"
+      "entryReversed": "Entry reversed",
+      "chatError": "Chat service unavailable, using local fallback."
     }
   }
 }

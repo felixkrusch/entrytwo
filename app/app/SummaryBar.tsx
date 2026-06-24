@@ -15,77 +15,144 @@ export default function SummaryBar() {
   const t = useTranslations('app.panels.summary')
   const format = useFormatter()
   const [data, setData] = useState<Summary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   const fetchSummary = async () => {
+    setLoading(true)
     try {
-      const [bs, pl, je, ev] = await Promise.all([
-        fetch('/api/reports/balance-sheet').then(r => r.json()),
-        fetch('/api/reports/profit-loss').then(r => r.json()),
-        fetch('/api/journal-entries').then(r => r.json()),
-        fetch('/api/events').then(r => r.json())
+      const settled = await Promise.allSettled([
+        fetch('/api/reports/balance-sheet'),
+        fetch('/api/reports/profit-loss'),
+        fetch('/api/journal-entries'),
+        fetch('/api/events'),
       ])
+      const [bsRes, plRes, jeRes, evRes] = settled
 
-      // Balances from balance-sheet are already base-currency (EUR) thanks to fxRateToBase conversion
-      const assets = (bs || []).filter((a: any) => a.type === 'ASSET').reduce((s: number, a: any) => s + a.balance, 0)
-      const net = pl?.netIncome || 0
-      const entries = Array.isArray(je) ? je.length : 0
-      const events = Array.isArray(ev) ? ev.length : 0
-
-      // Collect currencies present across journal lines (for the little "Currencies: ..." hint)
-      const curSet = new Set<string>()
-      if (Array.isArray(je)) {
-        je.forEach((e: any) => (e.lines || []).forEach((l: any) => {
-          if (l.currency) curSet.add(l.currency)
-        }))
+      const safeJson = async (p: PromiseSettledResult<Response>) => {
+        if (p.status !== 'fulfilled' || !p.value.ok) return null
+        try { return await p.value.json() } catch { return null }
       }
+
+      const bsJson: unknown = await safeJson(bsRes)
+      let bsAccounts: Array<{ type?: string; balance?: number }> = []
+      if (Array.isArray(bsJson)) {
+        bsAccounts = bsJson as Array<{ type?: string; balance?: number }>
+      } else if (bsJson && typeof bsJson === 'object' && Array.isArray((bsJson as { accounts?: unknown }).accounts)) {
+        bsAccounts = (bsJson as { accounts: Array<{ type?: string; balance?: number }> }).accounts
+      }
+
+      const plJson: unknown = await safeJson(plRes)
+      const net = (plJson && typeof plJson === 'object' && 'netIncome' in (plJson as Record<string, unknown>))
+        ? Number((plJson as { netIncome?: unknown }).netIncome) || 0
+        : 0
+
+      const jeJson: unknown = await safeJson(jeRes)
+      const je: Array<{ lines?: Array<{ currency?: string }> }> = Array.isArray(jeJson) ? (jeJson as Array<{ lines?: Array<{ currency?: string }> }>) : []
+
+      const evJson: unknown = await safeJson(evRes)
+      const ev: unknown[] = Array.isArray(evJson) ? (evJson as unknown[]) : []
+
+      const assets = bsAccounts
+        .filter((a) => a && a.type === 'ASSET')
+        .reduce((s, a) => s + (Number(a.balance) || 0), 0)
+
+      const entryCount = je.length
+      const eventCount = ev.length
+
+      const curSet = new Set<string>()
+      je.forEach((e) => {
+        if (Array.isArray(e?.lines)) {
+          e.lines.forEach((l) => { if (l && l.currency) curSet.add(String(l.currency)) })
+        }
+      })
       const currencies = Array.from(curSet).sort()
 
       setData({
-        totalAssets: parseFloat(assets.toFixed(2)),
-        netIncome: parseFloat(net.toFixed(2)),
-        entryCount: entries,
-        eventCount: events,
+        totalAssets: parseFloat((assets || 0).toFixed(2)),
+        netIncome: parseFloat((net || 0).toFixed(2)),
+        entryCount: Number(entryCount) || 0,
+        eventCount: Number(eventCount) || 0,
         currencies,
       })
+      setLastUpdated(new Date())
     } catch (e) {
-      // ignore
+      console.error('Summary load error (non-fatal):', e)
+      setData({ totalAssets: 0, netIncome: 0, entryCount: 0, eventCount: 0, currencies: [] })
+      setLastUpdated(new Date())
+    } finally {
+      setLoading(false)
     }
   }
 
   useEffect(() => {
-    fetchSummary()
-    const h = () => fetchSummary()
+    let mounted = true
+    const run = () => { if (mounted) fetchSummary() }
+    run()
+    const h = () => run()
     window.addEventListener('journal-updated', h)
-    return () => window.removeEventListener('journal-updated', h)
+    return () => {
+      mounted = false
+      window.removeEventListener('journal-updated', h)
+    }
   }, [])
 
-  if (!data) return null
+  if (loading && !data) {
+    return (
+      <div className="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[1,2,3,4].map(i => (
+          <div key={i} className="bg-zinc-950 border border-zinc-800 rounded-xl p-3 h-20 animate-pulse" />
+        ))}
+      </div>
+    )
+  }
+
+  if (!data) {
+    // Fallback: always render something visible (zeros) instead of blocking error
+    return (
+      <div className="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[0,1,2,3].map(i => (
+          <div key={i} className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+            <div className="text-xs text-zinc-500">—</div>
+            <div className="text-2xl font-mono text-zinc-500 mt-1">—</div>
+          </div>
+        ))}
+      </div>
+    )
+  }
 
   const curLabel = data.currencies.length > 0 ? data.currencies.join(', ') : 'EUR'
 
   return (
-    <div className="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
-      <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
-        <div className="text-xs text-zinc-500">{t('assets')}</div>
-        <div className="text-2xl font-mono text-emerald-400 mt-1">
-          {format.number(data.totalAssets, { style: 'currency', currency: 'EUR' })}
+    <div className="mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+          <div className="text-xs text-zinc-500">{t('assets')}</div>
+          <div className="text-2xl font-mono text-emerald-400 mt-1">
+            {format.number(data.totalAssets, { style: 'currency', currency: 'EUR' })}
+          </div>
+        </div>
+        <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+          <div className="text-xs text-zinc-500">{t('netIncome')}</div>
+          <div className={`text-2xl font-mono mt-1 ${data.netIncome >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {format.number(data.netIncome, { style: 'currency', currency: 'EUR' })}
+          </div>
+        </div>
+        <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+          <div className="text-xs text-zinc-500">{t('entries')}</div>
+          <div className="text-2xl font-mono text-white mt-1">{data.entryCount}</div>
+          <div className="text-[10px] text-zinc-500 mt-0.5">Currencies: {curLabel} (base EUR)</div>
+        </div>
+        <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+          <div className="text-xs text-zinc-500">{t('events')}</div>
+          <div className="text-2xl font-mono text-white mt-1">{data.eventCount}</div>
         </div>
       </div>
-      <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
-        <div className="text-xs text-zinc-500">{t('netIncome')}</div>
-        <div className={`text-2xl font-mono mt-1 ${data.netIncome >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-          {format.number(data.netIncome, { style: 'currency', currency: 'EUR' })}
+      {lastUpdated && (
+        <div className="text-[10px] text-zinc-600 mt-1 text-right">
+          updated {lastUpdated.toLocaleTimeString()}
         </div>
-      </div>
-      <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
-        <div className="text-xs text-zinc-500">{t('entries')}</div>
-        <div className="text-2xl font-mono text-white mt-1">{data.entryCount}</div>
-        <div className="text-[10px] text-zinc-500 mt-0.5">Currencies: {curLabel} (base EUR)</div>
-      </div>
-      <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
-        <div className="text-xs text-zinc-500">{t('events')}</div>
-        <div className="text-2xl font-mono text-white mt-1">{data.eventCount}</div>
-      </div>
+      )}
     </div>
   )
 }

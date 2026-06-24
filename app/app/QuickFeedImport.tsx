@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl'
 import toast from 'react-hot-toast'
 
 export default function QuickFeedImport() {
-  const t = useTranslations('app.feeds')
+  const t = useTranslations('app.chat.feeds')
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
@@ -24,16 +24,16 @@ export default function QuickFeedImport() {
     reference: '',
   })
 
-  const update = (k: string, v: any) => setForm(prev => ({ ...prev, [k]: v }))
+  const update = (k: string, v: string | number) => setForm(prev => ({ ...prev, [k]: v }))
 
   // Phase 2: listen for clicks from RecentFeedRates + external open command
   useEffect(() => {
-    const prefill = (e: any) => {
+    const prefill = (e: CustomEvent<{ merchant?: string; foreignCurrency?: string; fxRateToBase?: number; fxDate?: string }>) => {
       const d = e.detail || {}
       if (d.merchant) update('merchant', d.merchant)
       if (d.foreignCurrency) update('foreignCurrency', d.foreignCurrency)
       if (d.fxRateToBase) {
-        update('description', (form.description || '') + ` (remembered rate ~${d.fxRateToBase})`.trim())
+        setForm(prev => ({ ...prev, description: ((prev.description || '') + ` (remembered rate ~${d.fxRateToBase})`.trim()) }))
       }
       if (d.fxDate) {
         update('date', d.fxDate)
@@ -43,10 +43,10 @@ export default function QuickFeedImport() {
 
     const forceOpen = () => setOpen(true)
 
-    window.addEventListener('prefill-quick-feed', prefill)
+    window.addEventListener('prefill-quick-feed', prefill as EventListener)
     window.addEventListener('open-quick-feed', forceOpen)
     return () => {
-      window.removeEventListener('prefill-quick-feed', prefill)
+      window.removeEventListener('prefill-quick-feed', prefill as EventListener)
       window.removeEventListener('open-quick-feed', forceOpen)
     }
   }, []) // run once; update() is stable enough for this pattern
@@ -83,16 +83,15 @@ export default function QuickFeedImport() {
         throw new Error(d.error || 'Import failed')
       }
 
-      toast.success('BANK_FEED imported — real rate recorded')
-      setMsg('Feed imported. Authoritative rate recorded.')
-      // Refresh journal / reports etc.
+      toast.success(t('success') || 'BANK_FEED imported — real rate recorded')
+      setMsg(t('successMsg') || 'Feed imported. Authoritative rate recorded.')
       window.dispatchEvent(new CustomEvent('journal-updated'))
 
-      // Reset some fields
       setForm(prev => ({ ...prev, description: '', merchant: '', reference: '' }))
-    } catch (e: any) {
-      setError(e.message)
-      toast.error(e.message || 'Feed import failed')
+    } catch (e: unknown) {
+      const msg = (e as Error)?.message || (t('errorGeneric') || 'Feed import failed')
+      setError(msg)
+      toast.error(msg)
     } finally {
       setLoading(false)
     }

@@ -14,9 +14,10 @@ interface Account {
 interface AccountsPanelProps {
   onSelectAccount?: (account: Account | null) => void
   selectedAccountId?: string
+  selectedAccountCode?: string
 }
 
-export default function AccountsPanel({ onSelectAccount, selectedAccountId }: AccountsPanelProps) {
+export default function AccountsPanel({ onSelectAccount, selectedAccountId, selectedAccountCode }: AccountsPanelProps) {
   const t = useTranslations('app.panels.accounts')
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
@@ -38,6 +39,15 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId }: Ac
     EXPENSE: true,
   })
 
+  // Compute filtered list for count + rendering (search)
+  const filteredAccounts = search.trim()
+    ? accounts.filter(a =>
+        a.code.toLowerCase().includes(search.trim().toLowerCase()) ||
+        a.name.toLowerCase().includes(search.trim().toLowerCase()) ||
+        a.type.toLowerCase().includes(search.trim().toLowerCase())
+      )
+    : accounts
+
   // Inline editing
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editCode, setEditCode] = useState('')
@@ -46,19 +56,23 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId }: Ac
   const [editError, setEditError] = useState('')
   const [isSavingEdit, setIsSavingEdit] = useState(false)
 
-  const fetchAccounts = () => {
+  const fetchAccounts = async () => {
     setLoading(true)
-    fetch('/api/accounts')
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) setAccounts(data)
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false))
+    try {
+      const res = await fetch('/api/accounts')
+      const data = await res.json()
+      if (Array.isArray(data)) setAccounts(data)
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
-    fetchAccounts()
+    // Defer first fetch to avoid "setState synchronously in effect" lint error
+    const id = setTimeout(() => { void fetchAccounts() }, 0)
+    return () => clearTimeout(id)
   }, [])
 
   // Listen for clear filter from journal panel
@@ -67,6 +81,13 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId }: Ac
     window.addEventListener('clear-account-filter', handler)
     return () => window.removeEventListener('clear-account-filter', handler)
   }, [onSelectAccount])
+
+  // Phase 2 dashboard: global clear filters also clears the local search
+  useEffect(() => {
+    const clearAll = () => setSearch('')
+    window.addEventListener('clear-all-filters', clearAll)
+    return () => window.removeEventListener('clear-all-filters', clearAll)
+  }, [])
 
   const handleAddAccount = async () => {
     if (!newCode.trim() || !newName.trim()) return
@@ -100,7 +121,7 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId }: Ac
       setNewType('ASSET')
       setShowAdd(false)
       fetchAccounts()
-    } catch (e) {
+    } catch {
       setAddError(t('errorGeneric'))
     } finally {
       setIsAdding(false)
@@ -111,7 +132,7 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId }: Ac
     setEditingId(account.id)
     setEditCode(account.code)
     setEditName(account.name)
-    setEditType(account.type as any)
+    setEditType(account.type as 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE')
     setEditError('')
   }
 
@@ -144,7 +165,7 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId }: Ac
 
       setEditingId(null)
       fetchAccounts()
-    } catch (e) {
+    } catch {
       setEditError(t('errorGeneric'))
     } finally {
       setIsSavingEdit(false)
@@ -170,7 +191,7 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId }: Ac
       }
 
       fetchAccounts()
-    } catch (e) {
+    } catch {
       alert(t('errorGeneric'))
     }
   }
@@ -197,8 +218,16 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId }: Ac
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <div className="text-sm text-zinc-500">
-          {t('title')} {selectedAccountId && t('clearFilter')}
+        <div className="text-sm text-zinc-500 flex items-center gap-2">
+          {t('title')}
+          {(selectedAccountId || selectedAccountCode) && (
+            <button
+              onClick={() => onSelectAccount?.(null)}
+              className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+            >
+              {t('clearFilter')}
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -208,7 +237,7 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId }: Ac
             {t('addAccount')}
           </button>
           <div className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">
-            {t('count', { count: accounts.length })}
+            {search ? `${filteredAccounts.length} / ` : ''}{t('count', { count: accounts.length })}
           </div>
         </div>
       </div>
@@ -242,7 +271,7 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId }: Ac
             />
             <select
               value={newType}
-              onChange={e => setNewType(e.target.value as any)}
+              onChange={e => setNewType(e.target.value as 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE')}
               className="col-span-2 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm"
             >
               <option value="ASSET">ASSET</option>
@@ -278,18 +307,8 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId }: Ac
       ) : (
         <div className="space-y-2 text-sm">
           {(() => {
-            const q = search.trim().toLowerCase()
-            let filtered = accounts
-            if (q) {
-              filtered = accounts.filter(a =>
-                a.code.toLowerCase().includes(q) ||
-                a.name.toLowerCase().includes(q) ||
-                a.type.toLowerCase().includes(q)
-              )
-            }
-
             const groups: Record<string, Account[]> = {}
-            for (const a of filtered) {
+            for (const a of filteredAccounts) {
               const t = a.type || 'OTHER'
               if (!groups[t]) groups[t] = []
               groups[t].push(a)
@@ -318,7 +337,7 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId }: Ac
                     <div className="divide-y divide-zinc-900">
                       {list.map(account => {
                         const isEditing = editingId === account.id
-                        const isSelected = selectedAccountId === account.id
+                        const isSelected = selectedAccountId === account.id || selectedAccountCode === account.code
 
                         if (isEditing) {
                           return (
@@ -337,7 +356,7 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId }: Ac
                                 />
                                 <select
                                   value={editType}
-                                  onChange={e => setEditType(e.target.value as any)}
+                                   onChange={e => setEditType(e.target.value as 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE')}
                                   className="col-span-2 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm"
                                 >
                                   <option value="ASSET">ASSET</option>

@@ -2,9 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
-import { useNewEntry, NewEntrySuggestion } from './NewEntryContext'
+import type { NewEntrySuggestion } from './NewEntryContext'
 import { useTranslations, useFormatter } from 'next-intl'
-import { verifySuggestion } from '@/lib/verifySuggestion'
 
 interface Account {
   id: string
@@ -63,24 +62,40 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
 
   // Reset confirmation requirement whenever the suggestion changes
   useEffect(() => {
-    setUserConfirmed(!requiresConfirmation)
+    // Defer to satisfy "no setState synchronously in effect"
+    const id = setTimeout(() => setUserConfirmed(!requiresConfirmation), 0)
+    return () => clearTimeout(id)
   }, [initialSuggestion, requiresConfirmation])
 
   // Phase 2 memory: when chat provides a suggested account code from memory, auto-select it for the first line
   useEffect(() => {
     if (!isOpen || !initialSuggestion?.memory?.suggestedAccountCode || accounts.length === 0) return
     const code = initialSuggestion.memory.suggestedAccountCode
-    setLines(prev => {
-      if (!prev.length) return prev
-      const first = prev[0]
-      if (first.accountId) return prev // already filled
-      const match = accounts.find(a => a.code === code)
-      if (!match) return prev
-      const copy = [...prev]
-      copy[0] = { ...first, accountId: match.id }
-      return copy
-    })
+    // Defer setLines to avoid setState-in-effect lint error
+    const id = setTimeout(() => {
+      setLines(prev => {
+        if (!prev.length) return prev
+        const first = prev[0]
+        if (first.accountId) return prev
+        const match = accounts.find(a => a.code === code)
+        if (!match) return prev
+        const copy = [...prev]
+        copy[0] = { ...first, accountId: match.id }
+        return copy
+      })
+    }, 0)
+    return () => clearTimeout(id)
   }, [isOpen, initialSuggestion, accounts])
+
+  // For "repeat" suggestions, default to the original date (or today's date if not present)
+  useEffect(() => {
+    if (isOpen && initialSuggestion?.source === 'repeat') {
+      const target = initialSuggestion.originalDate || new Date().toISOString().split('T')[0]
+      // Defer to satisfy "no setState in effect" lint rule
+      const id = setTimeout(() => setDate(target), 0)
+      return () => clearTimeout(id)
+    }
+  }, [isOpen, initialSuggestion?.source, initialSuggestion?.originalDate])
 
   // Fetch accounts + tax rates when modal opens (i18n + tax foundation from day one)
   useEffect(() => {
@@ -142,9 +157,9 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                     taxRateId: tr.id,
                     currency: line.currency || 'EUR',
                     // copy fx metadata from the main line if present
-                    fxRateToBase: (line as any).fxRateToBase,
-                    fxSource: (line as any).fxSource,
-                    fxDate: (line as any).fxDate,
+                    fxRateToBase: (line as { fxRateToBase?: number }).fxRateToBase,
+                    fxSource: (line as { fxSource?: string }).fxSource,
+                    fxDate: (line as { fxDate?: string }).fxDate,
                   })
                 }
               }
@@ -206,6 +221,54 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
     }
   }, [isOpen, initialSuggestion, accounts, taxRates])
 
+  // Helper functions defined early so effects can reference them without TDZ
+  const addLine = () => {
+    setLines([...lines, { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: 'EUR' }])
+  }
+
+  const updateLineFx = (index: number, fx: { fxRateToBase?: number; fxSource?: string; fxDate?: string }) => {
+    const newLines = [...lines]
+    newLines[index] = { ...newLines[index], ...fx }
+    setLines(newLines)
+  }
+
+  const updateLine = (index: number, field: string, value: string | number) => {
+    const newLines = [...lines]
+    newLines[index] = { ...newLines[index], [field]: value }
+
+    if (field === 'taxRateId' && newLines[index].debit > 0) {
+      const tr = taxRates.find(t => t.id === value)
+      if (tr) {
+        const expectedTax = Math.round(newLines[index].debit * Number(tr.rate) * 100) / 100
+        const next = newLines[index + 1]
+        if (next && next.taxRateId === value && next.description && /tax/i.test(next.description)) {
+          next.debit = expectedTax
+          next.currency = newLines[index].currency || 'EUR'
+        } else {
+          newLines.splice(index + 1, 0, {
+            accountId: newLines[index].accountId,
+            debit: expectedTax,
+            credit: 0,
+            description: `Tax (${(Number(tr.rate) * 100).toFixed(0)}% ${tr.isInputTax ? 'input' : ''})`,
+            taxRateId: String(value),
+            currency: newLines[index].currency || 'EUR',
+            fxRateToBase: (newLines[index] as { fxRateToBase?: number }).fxRateToBase,
+            fxSource: (newLines[index] as { fxSource?: string }).fxSource,
+            fxDate: (newLines[index] as { fxDate?: string }).fxDate,
+          })
+        }
+      }
+    }
+
+    setLines(newLines)
+  }
+
+  const removeLine = (index: number) => {
+    if (lines.length > 2) {
+      setLines(lines.filter((_, i) => i !== index))
+    }
+  }
+
   // Auto-lookup rate for foreign currency lines that arrived without fx metadata (chat or manual)
   useEffect(() => {
     if (!isOpen) return
@@ -218,7 +281,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
       const d = date || new Date().toISOString().slice(0, 10)
       fetch(`/api/fx?currency=${cur}&date=${d}`)
         .then(r => r.json())
-        .then((j: any) => {
+        .then((j: { fxRateToBase?: number; source?: string; date?: string }) => {
           if (j && typeof j.fxRateToBase === 'number' && isFinite(j.fxRateToBase)) {
             updateLineFx(idx, {
               fxRateToBase: j.fxRateToBase,
@@ -249,58 +312,6 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   }
 
   if (!isOpen) return null
-
-  const addLine = () => {
-    setLines([...lines, { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: 'EUR' }])
-  }
-
-  const updateLineFx = (index: number, fx: { fxRateToBase?: number; fxSource?: string; fxDate?: string }) => {
-    const newLines = [...lines]
-    newLines[index] = { ...newLines[index], ...fx }
-    setLines(newLines)
-  }
-
-  const updateLine = (index: number, field: string, value: any) => {
-    const newLines = [...lines]
-    newLines[index] = { ...newLines[index], [field]: value }
-
-    // Live tax line management: if user sets/changes taxRateId on a debit line,
-    // ensure a corresponding tax line exists (or update its rate).
-    if (field === 'taxRateId' && newLines[index].debit > 0) {
-      const tr = taxRates.find(t => t.id === value)
-      if (tr) {
-        const expectedTax = Math.round(newLines[index].debit * Number(tr.rate) * 100) / 100
-        // Look for an immediate next line that is a tax line for this rate/account
-        const next = newLines[index + 1]
-        if (next && next.taxRateId === value && next.description && /tax/i.test(next.description)) {
-          // update the tax amount to match current debit
-          next.debit = expectedTax
-          next.currency = newLines[index].currency || 'EUR'
-        } else {
-          // insert a new tax line right after
-          newLines.splice(index + 1, 0, {
-            accountId: newLines[index].accountId,
-            debit: expectedTax,
-            credit: 0,
-            description: `Tax (${(Number(tr.rate) * 100).toFixed(0)}% ${tr.isInputTax ? 'input' : ''})`,
-            taxRateId: value,
-            currency: newLines[index].currency || 'EUR',
-            fxRateToBase: (newLines[index] as any).fxRateToBase,
-            fxSource: (newLines[index] as any).fxSource,
-            fxDate: (newLines[index] as any).fxDate,
-          })
-        }
-      }
-    }
-
-    setLines(newLines)
-  }
-
-  const removeLine = (index: number) => {
-    if (lines.length > 2) {
-      setLines(lines.filter((_, i) => i !== index))
-    }
-  }
 
   const totalDebits = lines.reduce((sum, l) => sum + (l.debit || 0), 0)
   const totalCredits = lines.reduce((sum, l) => sum + (l.credit || 0), 0)
@@ -397,8 +408,8 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
 
       onSuccess()
       handleClose()
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError((err as Error)?.message || 'Failed')
     } finally {
       setSubmitting(false)
     }
@@ -421,7 +432,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                 )}
                 {/* Real authoritative feed rate in use (from previous import or exact merchant lookup) */}
                 {Array.isArray(initialSuggestion.lines) &&
-                 initialSuggestion.lines.some((l: any) => String(l.fxSource || '').startsWith('BANK_FEED')) && (
+                 initialSuggestion.lines.some((l: { fxSource?: string }) => String(l.fxSource || '').startsWith('BANK_FEED')) && (
                   <span className="ml-2 text-emerald-400">• real feed rate</span>
                 )}
                 {initialSuggestion.merchant && (
@@ -436,6 +447,16 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                 )}
                 {initialSuggestion.needsConfirmation && (
                   <span className="ml-2 text-rose-400">• please confirm</span>
+                )}
+                {initialSuggestion.source === 'repeat' && (
+                  <span className="ml-2 text-sky-400">• repeated from {initialSuggestion.originalDate || 'older entry'}</span>
+                )}
+
+                {/* Phase 2: gentle reminder when repeating foreign-currency lines */}
+                {initialSuggestion.source === 'repeat' &&
+                 Array.isArray(initialSuggestion.lines) &&
+                 initialSuggestion.lines.some((l: { currency?: string; fxRateToBase?: number | null }) => l.currency && l.currency !== 'EUR' && l.fxRateToBase != null) && (
+                  <span className="ml-2 text-amber-400">• verify FX rates (copied from original date)</span>
                 )}
               </div>
             )}

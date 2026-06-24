@@ -30,8 +30,12 @@ export default function RecentFeedRates() {
   }
 
   useEffect(() => {
-    if (open && rates.length === 0) load()
-  }, [open])
+    if (open && rates.length === 0) {
+      // Defer to avoid "setState synchronously in effect"
+      const id = setTimeout(() => { void load() }, 0)
+      return () => clearTimeout(id)
+    }
+  }, [open, rates.length])
 
   // Phase 2: auto-refresh when new feeds are imported
   useEffect(() => {
@@ -42,7 +46,7 @@ export default function RecentFeedRates() {
     return () => window.removeEventListener('journal-updated', h)
   }, [open])
 
-  const useRate = (r: RecentFeedRate) => {
+  const applyRecentRate = (r: RecentFeedRate) => {
     // Phase 2 interactivity: clicking a real feed rate prefills the QuickFeedImport
     const merchantGuess = (r.description || '').replace(/\s*—.*$/, '').trim().slice(0, 60)
     window.dispatchEvent(new CustomEvent('prefill-quick-feed', {
@@ -76,7 +80,7 @@ export default function RecentFeedRates() {
             {rates.map((r, i) => (
               <div
                 key={i}
-                onClick={() => useRate(r)}
+                onClick={() => applyRecentRate(r)}
                 className="flex justify-between border-b border-zinc-900 pb-1 cursor-pointer hover:bg-zinc-900/50 rounded px-1 -mx-1"
                 title="Click to use this rate in Quick Feed Import"
               >

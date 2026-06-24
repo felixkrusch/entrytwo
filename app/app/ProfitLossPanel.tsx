@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useTranslations, useFormatter } from 'next-intl'
+import toast from 'react-hot-toast'
 
 interface ReportItem {
   code: string
@@ -30,29 +31,59 @@ interface PLData {
 
 interface ProfitLossPanelProps {
   onFilterAccount?: (code: string) => void
+  currentFilterCode?: string | null
 }
 
-export default function ProfitLossPanel({ onFilterAccount }: ProfitLossPanelProps) {
+export default function ProfitLossPanel({ onFilterAccount, currentFilterCode }: ProfitLossPanelProps) {
   const t = useTranslations('app.panels.profitLoss')
   const format = useFormatter()
+
+  // All hooks at the very top — never after conditionals or returns (Rules of Hooks)
   const [data, setData] = useState<PLData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
-  const fetchPL = () => {
-    fetch('/api/reports/profit-loss')
-      .then(res => res.json())
-      .then(d => {
-        if (d.revenue) setData(d)
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false))
+  const handleClickAccount = (code?: string) => {
+    if (code && onFilterAccount) {
+      const isSame = currentFilterCode === code
+      onFilterAccount(isSame ? '' : code)
+      if (!isSame) toast.success(`Filtered journal to ${code}`)
+    }
+  }
+
+  const loadPL = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/reports/profit-loss')
+      if (!res.ok) throw new Error('Failed to load P&L')
+      const d: unknown = await res.json()
+      if (d && typeof d === 'object' && (d as { revenue?: unknown }).revenue) {
+        setData(d as PLData)
+      }
+    } catch (e: unknown) {
+      setError((e as Error)?.message || 'Failed to load P&L')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const refresh = () => {
+    loadPL()
+    setLastUpdated(new Date())
   }
 
   useEffect(() => {
-    fetchPL()
-    const handler = () => fetchPL()
+    let mounted = true
+    const run = () => { if (mounted) loadPL() }
+    run()
+    const handler = () => run()
     window.addEventListener('journal-updated', handler)
-    return () => window.removeEventListener('journal-updated', handler)
+    return () => {
+      mounted = false
+      window.removeEventListener('journal-updated', handler)
+    }
   }, [])
 
   if (loading) {
@@ -68,7 +99,7 @@ export default function ProfitLossPanel({ onFilterAccount }: ProfitLossPanelProp
     return (
       <div className="mt-8">
         <div className="text-sm text-zinc-500 mb-4">{t('title')}</div>
-        <div className="text-zinc-500 text-sm">{t('noData')}</div>
+        <div className="text-zinc-500 text-sm">{error || t('noData')}</div>
       </div>
     )
   }
@@ -76,9 +107,28 @@ export default function ProfitLossPanel({ onFilterAccount }: ProfitLossPanelProp
   return (
     <div className="mt-8">
       <div className="flex items-center justify-between mb-4">
-        <div className="text-sm text-zinc-500">{t('title')}</div>
-        <div className="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-400">{t('live')}</div>
+        <div className="text-sm text-zinc-500 flex items-center gap-2">
+          {t('title')}
+          <button
+            onClick={refresh}
+            className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 hover:bg-zinc-800 text-zinc-400"
+            title="Refresh P&amp;L"
+          >
+            ↻
+          </button>
+        </div>
+        <button
+          onClick={refresh}
+          className="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 hover:bg-emerald-900 transition"
+        >
+          {t('live')}
+        </button>
       </div>
+      {lastUpdated && (
+        <div className="text-[10px] text-zinc-600 -mt-3 mb-2 text-right">
+          as of {lastUpdated.toLocaleTimeString()}
+        </div>
+      )}
 
       <div className="space-y-6 text-sm">
         {/* Revenue */}
@@ -88,11 +138,11 @@ export default function ProfitLossPanel({ onFilterAccount }: ProfitLossPanelProp
             <span className="font-mono text-blue-400">{format.number(data.revenue.total, { style: 'currency', currency: 'EUR' })}</span>
           </div>
            {data.revenue.items.length > 0 ? (
-             data.revenue.items.map((item: any) => (
+             data.revenue.items.map((item: ReportItem & { currency?: string; nativeAmount?: number; feedSourced?: boolean }) => (
                <div
                  key={item.code}
-                 onClick={() => onFilterAccount?.(item.code)}
-                 className="flex justify-between py-1 border-b border-zinc-800 pl-2 cursor-pointer hover:bg-zinc-800/60"
+                 onClick={() => handleClickAccount(item.code)}
+                 className={`flex justify-between py-1 border-b border-zinc-800 pl-2 cursor-pointer hover:bg-zinc-800/60 ${currentFilterCode === item.code ? 'bg-emerald-950/40 ring-1 ring-emerald-800' : ''}`}
                  title="Click to filter journal to this account"
                >
                  <span>{item.code} {item.name}</span>
@@ -114,18 +164,23 @@ export default function ProfitLossPanel({ onFilterAccount }: ProfitLossPanelProp
             <span className="font-mono text-rose-400">{format.number(data.expenses.total, { style: 'currency', currency: 'EUR' })}</span>
           </div>
           {data.expenses.items.length > 0 ? (
-            data.expenses.items.map((item: any) => (
-              <div key={item.code} className="flex justify-between py-1 border-b border-zinc-800 pl-2">
-                <span>{item.code} {item.name}</span>
-                <span className="font-mono text-rose-400">
-                  {format.number(item.amount, { style: 'currency', currency: 'EUR' })}
-                  {item.currency && item.currency !== 'EUR' ? ` (${item.currency}${item.nativeAmount != null ? ` ~${item.nativeAmount.toFixed(2)}` : ''})` : ''}
-                </span>
-              </div>
-            ))
-          ) : (
-            <div className="text-zinc-500 pl-2">{t('noExpenses')}</div>
-          )}
+             data.expenses.items.map((item: ReportItem & { currency?: string; nativeAmount?: number }) => (
+               <div
+                 key={item.code}
+                 onClick={() => handleClickAccount(item.code)}
+                 className={`flex justify-between py-1 border-b border-zinc-800 pl-2 cursor-pointer hover:bg-zinc-800/60 ${currentFilterCode === item.code ? 'bg-emerald-950/40 ring-1 ring-emerald-800' : ''}`}
+                 title="Click to filter journal to this account"
+               >
+                 <span>{item.code} {item.name}</span>
+                 <span className="font-mono text-rose-400">
+                   {format.number(item.amount, { style: 'currency', currency: 'EUR' })}
+                   {item.currency && item.currency !== 'EUR' ? ` (${item.currency}${item.nativeAmount != null ? ` ~${item.nativeAmount.toFixed(2)}` : ''})` : ''}
+                 </span>
+               </div>
+             ))
+           ) : (
+             <div className="text-zinc-500 pl-2">{t('noExpenses')}</div>
+           )}
         </div>
 
         {/* Net Income */}
@@ -140,7 +195,7 @@ export default function ProfitLossPanel({ onFilterAccount }: ProfitLossPanelProp
         {data.byCurrency && Object.keys(data.byCurrency).length > 0 && (
           <div className="pt-2 text-[10px] text-zinc-400 font-mono">
             <div className="text-[9px] text-zinc-500 mb-0.5">{t('byCurrency')}</div>
-            {Object.entries(data.byCurrency as Record<string, any>).sort().map(([cur, v]) => (
+            {Object.entries(data.byCurrency as Record<string, { netBase?: number; netNative?: number }>).sort().map(([cur, v]) => (
               <div key={cur}>
                 {cur}: {t('netBase')} {format.number(v.netBase || 0, { style: 'currency', currency: 'EUR' })}
                 {cur !== 'EUR' && v.netNative != null ? ` • ${t('netNative')} ~${v.netNative.toFixed(2)}` : ''}
@@ -152,8 +207,8 @@ export default function ProfitLossPanel({ onFilterAccount }: ProfitLossPanelProp
         {/* Multi-currency status (Phase 0) */}
         {(() => {
           const currencies = new Set<string>()
-          ;[...(data.revenue.items || []), ...(data.expenses.items || [])].forEach((i: any) => {
-            if (i.currency) currencies.add(i.currency)
+          ;[...(data.revenue.items || []), ...(data.expenses.items || [])].forEach((i) => {
+            if ((i as { currency?: string }).currency) currencies.add((i as { currency?: string }).currency as string)
           })
           const list = Array.from(currencies).sort().join(', ') || 'EUR'
           return <div className="pt-1 text-[10px] text-zinc-500">Currencies: {list} (per-line + FX ready)</div>

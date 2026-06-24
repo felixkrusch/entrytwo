@@ -158,7 +158,6 @@ export default function ChatPage() {
     setIsLoading(true)
 
     try {
-      // Send last 8 messages for context
       const history = newMessages.slice(-8).map(m => ({
         role: m.role,
         content: m.content
@@ -170,6 +169,10 @@ export default function ChatPage() {
         body: JSON.stringify({ messages: history })
       })
 
+      if (!res.ok) {
+        throw new Error('Chat request failed')
+      }
+
       const data = await res.json()
 
       setMessages(prev => [...prev, {
@@ -178,7 +181,8 @@ export default function ChatPage() {
         action: data.suggestion ? 'suggest_entry' : undefined,
         suggestion: data.suggestion
       }])
-    } catch (e) {
+    } catch {
+      toast.error(tToasts('chatError') || 'Chat service unavailable, using local fallback.')
       const { response, suggestion } = generateResponse(current)
       setMessages(prev => [...prev, {
         role: 'assistant',
@@ -276,7 +280,7 @@ export default function ChatPage() {
         toast.dismiss(loadingId)
         toast.error(t('pdfNoText'))
       }
-    } catch (err) {
+    } catch {
       toast.dismiss(loadingId)
       toast.error(t('pdfFailed') || 'Failed to process PDF')
     }
@@ -319,7 +323,7 @@ export default function ChatPage() {
                     {msg.suggestion.merchant && (
                       <span className="text-amber-400">from {msg.suggestion.merchant}</span>
                     )}
-                    {Array.isArray(msg.suggestion.lines) && msg.suggestion.lines.some((l: any) => String(l.fxSource || '').startsWith('BANK_FEED')) && (
+                     {Array.isArray(msg.suggestion.lines) && msg.suggestion.lines.some((l: { fxSource?: string | null }) => String(l.fxSource || '').startsWith('BANK_FEED')) && (
                       <span className="text-emerald-400">real feed rate</span>
                     )}
                     {msg.suggestion.merchant && !msg.suggestion.needsConfirmation && !msg.suggestion.reversingOriginalId && (
