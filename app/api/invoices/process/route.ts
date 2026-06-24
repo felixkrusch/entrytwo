@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getFxRateToBase } from '@/lib/fx'
+import { findRecentBankFeedRateForMerchant } from '@/lib/feedMatching'
 
 // Basic currency detector for PDF text (supports common symbols and codes)
 function detectCurrency(text: string): { currency: string | null; confidence: 'high' | 'medium' | 'low' } {
@@ -252,7 +253,7 @@ export async function POST(request: Request) {
             entryDesc.includes(vendorLower.slice(0, 6)) || vendorLower.includes(entryDesc.slice(0, 6))
           )
 
-          if ((currencyDifferent && sizeReasonable) || merchantHintMatch) {
+            if ((currencyDifferent && sizeReasonable) || merchantHintMatch) {
             const hasFx = line.fxRateToBase != null
 
             feedMatch = {
@@ -279,6 +280,29 @@ export async function POST(request: Request) {
       }
     } catch (e) {
       // non-fatal
+    }
+
+    // Phase 1 improvement: if we have a vendor but no good feed match yet,
+    // try to find a previous authoritative BANK_FEED rate for that exact merchant.
+    if (!feedMatch && vendor) {
+      try {
+        const feedRate = await findRecentBankFeedRateForMerchant(vendor.toLowerCase())
+        if (feedRate) {
+          // We don't know the exact base amount here, but we can at least carry the real rate.
+          // The PDF side will still be the foreign amount; the rate is the important authoritative part.
+          feedMatch = {
+            baseAmount: 0,
+            foreignAmount: total || 0,
+            currency: feedRate.currency,
+            date: feedRate.fxDate || new Date().toISOString().slice(0, 10),
+            fxRateToBase: feedRate.fxRateToBase,
+            fxSource: feedRate.fxSource,
+            fxDate: feedRate.fxDate,
+          } as any
+        }
+      } catch {
+        // non-fatal
+      }
     }
 
     // Build suggestion lines
@@ -459,9 +483,16 @@ export async function POST(request: Request) {
       },
       suggestion: {
         description: `Invoice: ${file.name}${vendor ? ` — ${vendor}` : ''}`,
+        merchant: vendor || undefined,
         lines: suggestionLines,
         source: 'pdf',
-        needsConfirmation: confidence !== 'high' || !currency || !feedInfo.matched || !!taxInfo,
+        needsConfirmation: !(
+          // High confidence currency + we have an authoritative feed-sourced rate (either loose match or merchant lookup)
+          (confidence === 'high' || (feedMatch && String(feedMatch.fxSource || '').startsWith('BANK_FEED'))) &&
+          !!currency &&
+          (feedInfo.matched || (feedMatch && String(feedMatch.fxSource || '').startsWith('BANK_FEED'))) &&
+          !taxInfo
+        ),
         feedMatch: feedInfo.matched ? feedInfo : undefined,
       },
       message: [

@@ -4,6 +4,8 @@ import { createOpenAI } from '@ai-sdk/openai'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { getFxRateToBase } from '@/lib/fx'
+import { getRecentFeedRatesPromptText } from '@/lib/recentFeedRates'
+import { getMerchantMemoryPrompt, getMerchantMemory } from '@/lib/agentMemory'
 
 const openai = createOpenAI({
   apiKey: process.env.OPENAI_API_KEY || '',
@@ -11,13 +13,14 @@ const openai = createOpenAI({
 
 const SuggestionSchema = z.object({
   description: z.string().optional(),
+  merchant: z.string().optional(),      // important for feed matching + PDF cross-check
   lines: z.array(z.object({
     accountCode: z.string(),
     debit: z.number().min(0),
     credit: z.number().min(0),
     description: z.string().optional(),
-    taxRateId: z.string().optional(),   // carry tax foundation from chat
-    currency: z.string().optional(),    // multi-currency
+    taxRateId: z.string().optional(),
+    currency: z.string().optional(),
     fxRateToBase: z.number().optional(),
     fxSource: z.string().optional(),
     fxDate: z.string().optional(),
@@ -75,6 +78,46 @@ async function getReversedEntryIds(): Promise<Set<string>> {
     if (pid) ids.add(pid)
   })
   return ids
+}
+
+// Phase 1 improvement: look for a recent authoritative BANK_FEED rate for a given merchant hint.
+// This lets the chat use the *real* rate from previous imports instead of guessing.
+async function findRecentBankFeedRateForMerchant(merchantLower: string) {
+  if (!merchantLower) return null
+  try {
+    const since = new Date(Date.now() - 1000 * 60 * 60 * 24 * 90) // last 90 days
+    const lines = await prisma.journalLine.findMany({
+      where: {
+        fxSource: { startsWith: 'BANK_FEED' },
+        journalEntry: {
+          date: { gte: since },
+        },
+      },
+      include: {
+        journalEntry: { select: { description: true, date: true } },
+      },
+      orderBy: { journalEntry: { date: 'desc' } },
+      take: 50,
+    })
+
+    for (const line of lines) {
+      const desc = (line.journalEntry.description || '').toLowerCase()
+      const lineDesc = (line.description || '').toLowerCase()
+      if (desc.includes(merchantLower) || lineDesc.includes(merchantLower)) {
+        if (line.fxRateToBase != null && line.currency && line.fxDate) {
+          return {
+            fxRateToBase: Number(line.fxRateToBase),
+            fxSource: line.fxSource || 'BANK_FEED',
+            fxDate: line.fxDate.toISOString().slice(0, 10),
+            currency: (line.currency || 'EUR').toUpperCase(),
+          }
+        }
+      }
+    }
+  } catch {
+    // non-fatal
+  }
+  return null
 }
 
 async function answerDataQuery(text: string) {
@@ -234,6 +277,16 @@ export async function POST(req: NextRequest) {
     const balances = await getCurrentBalancesSummary()
     const taxContext = await getTaxRatesContext()
 
+    // Phase 2: compute a preliminary merchant hint from the user message
+    // so we can inject memory + recent feed rates into the system prompt *before* calling the LLM.
+    const preliminaryMerchant = (lastMessage.match(/from\s+([A-Za-z0-9 .&'-]+)/i)?.[1] || '').trim()
+
+    // Phase 2: inject lightweight memory + recent real feed rates into the prompt
+    const [feedRatesText, memoryText] = await Promise.all([
+      getRecentFeedRatesPromptText(6),
+      getMerchantMemoryPrompt(preliminaryMerchant || undefined),
+    ])
+
     const system = `You are a precise double-entry AI accountant.
 Always balance debits = credits. Use exact codes from the list.
 Current balances (multi-currency shown in brackets when present):
@@ -254,6 +307,12 @@ Multi-currency + FX rules (Phase 0, no exceptions):
 - Bank/credit card feed rates are authoritative. If you have or can infer a feed-derived rate, use fxSource starting with "BANK_FEED:".
 - Never silently convert; always surface the original currency + the fx metadata on the foreign line.
 - Suggestions must be balanced in base currency after applying fxRateToBase.
+- If the user mentions a vendor, merchant, company or "from X", extract it into a top-level "merchant" field on the suggestion (this helps automatic feed matching later).
+- Always try to return a "merchant" when the transaction looks like it came from a specific supplier or client.
+
+${feedRatesText ? feedRatesText + '\n' : ''}
+${memoryText ? memoryText + '\n' : ''}
+Use the above memory and feed rates when they are relevant. Prefer real BANK_FEED rates over published rates.
 `
 
     const looksLikeTx = lower.match(/bought|paid|received|purchase|expense|revenue|supplies|software|client|services|capital|office|consult|bill|subscription|equipment|laptop|rent|salary|invoice|sale|record|post/)
@@ -268,22 +327,86 @@ Multi-currency + FX rules (Phase 0, no exceptions):
         let text = ''
         for await (const d of textRes.textStream) text += d
 
-        // Enrich suggestion lines with rates if the model omitted fx metadata for foreign currency
+        // Enrich suggestion lines with rates if the model omitted fx metadata for foreign currency.
+        // Phase 1 improvement: first try to find a real BANK_FEED rate from a previous import for the same merchant.
+        const merchantFromModel = (object as any)?.merchant || ''
+        const merchantHint = merchantFromModel || (lastMessage.match(/from\s+([A-Za-z0-9 .&-]+)/i)?.[1] || '')
+
+        let usedRealFeedForAny = false
+
         if (object && Array.isArray(object.lines)) {
           for (const line of object.lines) {
             const cur = (line.currency || 'EUR').toUpperCase()
             if (cur !== 'EUR' && line.fxRateToBase == null) {
-              const rate = await getFxRateToBase(cur)
-              if (rate != null) {
-                line.fxRateToBase = rate
-                line.fxSource = 'ECB'
-                line.fxDate = new Date().toISOString().slice(0, 10)
+              let usedRealFeed = false
+
+              // 1. Try previous authoritative feed for this merchant (best case)
+              if (merchantHint) {
+                const feedRate = await findRecentBankFeedRateForMerchant(merchantHint.toLowerCase())
+                if (feedRate && feedRate.currency === cur) {
+                  line.fxRateToBase = feedRate.fxRateToBase
+                  line.fxSource = feedRate.fxSource
+                  line.fxDate = feedRate.fxDate
+                  usedRealFeed = true
+                  usedRealFeedForAny = true
+                }
+              }
+
+              // 2. Fallback to published rate (ECB etc.)
+              if (!usedRealFeed) {
+                const rate = await getFxRateToBase(cur)
+                if (rate != null) {
+                  line.fxRateToBase = rate
+                  line.fxSource = 'ECB'
+                  line.fxDate = new Date().toISOString().slice(0, 10)
+                }
               }
             }
           }
         }
 
-        return Response.json({ response: text.trim() || 'Balanced journal entry suggestion:', suggestion: object })
+        // Phase 1 rule:
+        // - If we have non-EUR lines that ended up WITHOUT a BANK_FEED source → require confirmation.
+        // - If every foreign line has a BANK_FEED source (we reused a real previous feed rate) → no forced confirmation.
+        let needsConfirmation = false
+        if (object && Array.isArray(object.lines)) {
+          const foreignLines = object.lines.filter((l: any) => (l.currency || 'EUR').toUpperCase() !== 'EUR')
+          if (foreignLines.length > 0) {
+            const allHaveFeed = foreignLines.every((l: any) => String(l.fxSource || '').startsWith('BANK_FEED'))
+            needsConfirmation = !allHaveFeed
+          }
+        }
+
+        const finalMerchant = merchantHint || (object as any)?.merchant || undefined
+
+        // Phase 2 memory: attach remembered categorization for this merchant
+        let memory: any = undefined
+        if (finalMerchant) {
+          try {
+            const mem = await getMerchantMemory(finalMerchant)
+            if (mem) {
+              memory = {
+                merchant: finalMerchant,
+                suggestedAccountCode: mem.accountCode,
+                suggestedTaxRateId: mem.taxRateId,
+                lastUsed: mem.lastUsedDate,
+              }
+            }
+          } catch {}
+        }
+
+        const suggestion = object
+          ? { ...object, needsConfirmation, merchant: finalMerchant, memory }
+          : undefined
+
+        let finalText = text.trim() || 'Balanced journal entry suggestion:'
+        if (needsConfirmation && suggestion) {
+          finalText += '\n\nPlease review the currency, amounts and any FX rate. Confirm explicitly before creating the entry.'
+        } else if (usedRealFeedForAny && finalMerchant) {
+          finalText += `\n\nUsing real rate from previous feed for ${finalMerchant}.`
+        }
+
+        return Response.json({ response: finalText, suggestion })
       } catch {
         return Response.json(await generateFallback(lastMessage))
       }

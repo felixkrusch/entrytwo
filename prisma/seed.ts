@@ -17,16 +17,47 @@ async function main() {
   await prisma.taxRate.deleteMany();
 
   const accounts = [
+    // Assets
     { code: "1000", name: "Cash", type: AccountType.ASSET },
-    { code: "1100", name: "Bank Account", type: AccountType.ASSET },
-    { code: "1200", name: "Accounts Receivable", type: AccountType.ASSET },
+    { code: "1010", name: "Bank Account - Checking", type: AccountType.ASSET },
+    { code: "1020", name: "Bank Account - Savings", type: AccountType.ASSET },
+    { code: "1100", name: "Accounts Receivable", type: AccountType.ASSET },
+    { code: "1200", name: "Inventory", type: AccountType.ASSET },
+    { code: "1300", name: "Prepaid Expenses", type: AccountType.ASSET },
+    { code: "1500", name: "Equipment", type: AccountType.ASSET },
+    { code: "1510", name: "Vehicles", type: AccountType.ASSET },
+    { code: "1600", name: "Accumulated Depreciation", type: AccountType.ASSET },
+
+    // Liabilities
     { code: "2000", name: "Accounts Payable", type: AccountType.LIABILITY },
-    { code: "2100", name: "VAT Payable", type: AccountType.LIABILITY },
-    { code: "3000", name: "Owner's Equity", type: AccountType.EQUITY },
-    { code: "4000", name: "Revenue", type: AccountType.REVENUE },
-    { code: "5000", name: "Office Supplies", type: AccountType.EXPENSE },
-    { code: "5100", name: "Software & Subscriptions", type: AccountType.EXPENSE },
-    { code: "5200", name: "Professional Services", type: AccountType.EXPENSE },
+    { code: "2100", name: "Credit Cards", type: AccountType.LIABILITY },
+    { code: "2200", name: "Sales Tax Payable", type: AccountType.LIABILITY },
+    { code: "2300", name: "Payroll Liabilities", type: AccountType.LIABILITY },
+    { code: "2500", name: "Loans Payable", type: AccountType.LIABILITY },
+    { code: "2600", name: "Mortgage Payable", type: AccountType.LIABILITY },
+
+    // Equity
+    { code: "3000", name: "Owner's Capital", type: AccountType.EQUITY },
+    { code: "3100", name: "Owner's Drawings", type: AccountType.EQUITY },
+    { code: "3200", name: "Retained Earnings", type: AccountType.EQUITY },
+
+    // Revenue
+    { code: "4000", name: "Sales / Service Revenue", type: AccountType.REVENUE },
+    { code: "4100", name: "Consulting Revenue", type: AccountType.REVENUE },
+    { code: "4200", name: "Other Income", type: AccountType.REVENUE },
+
+    // Expenses
+    { code: "5000", name: "Cost of Goods Sold", type: AccountType.EXPENSE },
+    { code: "5100", name: "Rent Expense", type: AccountType.EXPENSE },
+    { code: "5200", name: "Utilities", type: AccountType.EXPENSE },
+    { code: "5300", name: "Salaries & Wages", type: AccountType.EXPENSE },
+    { code: "5400", name: "Marketing & Advertising", type: AccountType.EXPENSE },
+    { code: "5500", name: "Office Supplies", type: AccountType.EXPENSE },
+    { code: "5600", name: "Travel & Meals", type: AccountType.EXPENSE },
+    { code: "5700", name: "Professional Fees", type: AccountType.EXPENSE },
+    { code: "5800", name: "Insurance", type: AccountType.EXPENSE },
+    { code: "5900", name: "Depreciation Expense", type: AccountType.EXPENSE },
+    { code: "6000", name: "Miscellaneous Expense", type: AccountType.EXPENSE },
   ];
 
   await prisma.account.createMany({ data: accounts });

@@ -104,15 +104,15 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
   const defaultJurisdiction = settings.find(s => s.key === 'defaultTaxJurisdiction')?.value?.value || 'DE'
 
   if (loading) {
-    return <div className="text-sm text-zinc-500">{t('loading') || 'Loading admin...'}</div>
+    return <div className="text-sm text-zinc-500">{t('loading')}</div>
   }
 
   // Bootstrap / First Admin mode - prominent card
   if (isBootstrap) {
     return (
       <div className="mt-8 border border-amber-500/40 bg-zinc-950 rounded-lg p-6">
-        <div className="text-amber-400 text-sm font-medium mb-1">{t('firstAdminTitle') || 'Create First Admin'}</div>
-        <div className="text-xs text-zinc-400 mb-4">{t('firstAdminDesc') || 'No administrator exists yet. Create the initial ADMIN user to unlock the application.'}</div>
+        <div className="text-amber-400 text-sm font-medium mb-1">{t('firstAdminTitle')}</div>
+        <div className="text-xs text-zinc-400 mb-4">{t('firstAdminDesc')}</div>
 
         <div className="flex flex-wrap gap-2">
           <input
@@ -131,10 +131,10 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
             onClick={() => createUser(true)}
             className="px-4 py-2 rounded bg-amber-500 text-black font-medium text-sm hover:bg-amber-400"
           >
-            {t('createUser') || 'Create First Admin'}
+            {t('createFirstAdmin')}
           </button>
         </div>
-        <div className="text-[10px] text-zinc-500 mt-3">This user will be created with ADMIN role. After creation, the full application will be available.</div>
+        <div className="text-[10px] text-zinc-500 mt-3">{t('bootstrapNote')}</div>
       </div>
     )
   }
@@ -191,13 +191,13 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
             <option value="ACCOUNTANT">ACCOUNTANT</option>
             <option value="VIEWER">VIEWER</option>
           </select>
-          <button onClick={() => createUser(false)} className="px-3 py-1 rounded bg-white text-black text-sm">Create User</button>
+          <button onClick={() => createUser(false)} className="px-3 py-1 rounded bg-white text-black text-sm">{t('createUser')}</button>
         </div>
       </div>
 
       {/* Settings */}
       <div>
-        <div className="font-medium mb-2">Company Settings</div>
+        <div className="font-medium mb-2">{t('companySettingsHeader')}</div>
         <div className="space-y-3 text-sm">
           <div className="flex items-center gap-3">
             <label className="w-48 text-zinc-400">Company Name</label>

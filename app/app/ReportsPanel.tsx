@@ -18,7 +18,11 @@ interface BSData {
   byCurrency?: Record<string, { native: number; base: number }>
 }
 
-export default function ReportsPanel() {
+interface ReportsPanelProps {
+  onFilterAccount?: (code: string) => void
+}
+
+export default function ReportsPanel({ onFilterAccount }: ReportsPanelProps) {
   const t = useTranslations('app.panels.reports')
   const format = useFormatter()
   const [data, setData] = useState<BSData | null>(null)
@@ -72,7 +76,12 @@ export default function ReportsPanel() {
               <span className="font-mono">{format.number(totalAssets, { style: 'currency', currency: 'EUR' })}</span>
             </div>
             {assets.length > 0 ? assets.map(a => (
-              <div key={a.code} className="flex justify-between py-1 border-b border-zinc-800 pl-2">
+              <div
+                key={a.code}
+                onClick={() => onFilterAccount?.(a.code)}
+                className="flex justify-between py-1 border-b border-zinc-800 pl-2 cursor-pointer hover:bg-zinc-800/60"
+                title="Click to filter journal to this account"
+              >
                 <span>{a.code} {a.name}</span>
                 <span className="font-mono text-emerald-400">
                   {format.number(a.balance, { style: 'currency', currency: 'EUR' })}
@@ -88,7 +97,12 @@ export default function ReportsPanel() {
               <span className="font-mono">{format.number(totalLiabilities, { style: 'currency', currency: 'EUR' })}</span>
             </div>
             {liabilities.length > 0 ? liabilities.map(a => (
-              <div key={a.code} className="flex justify-between py-1 border-b border-zinc-800 pl-2">
+              <div
+                key={a.code}
+                onClick={() => onFilterAccount?.(a.code)}
+                className="flex justify-between py-1 border-b border-zinc-800 pl-2 cursor-pointer hover:bg-zinc-800/60"
+                title="Click to filter journal to this account"
+              >
                 <span>{a.code} {a.name}</span>
                 <span className="font-mono text-amber-400">
                   {format.number(a.balance, { style: 'currency', currency: 'EUR' })}
@@ -104,7 +118,12 @@ export default function ReportsPanel() {
               <span className="font-mono">{format.number(totalEquity, { style: 'currency', currency: 'EUR' })}</span>
             </div>
             {equity.length > 0 ? equity.map(a => (
-              <div key={a.code} className="flex justify-between py-1 border-b border-zinc-800 pl-2">
+              <div
+                key={a.code}
+                onClick={() => onFilterAccount?.(a.code)}
+                className="flex justify-between py-1 border-b border-zinc-800 pl-2 cursor-pointer hover:bg-zinc-800/60"
+                title="Click to filter journal to this account"
+              >
                 <span>{a.code} {a.name}</span>
                 <span className="font-mono text-purple-400">
                   {format.number(a.balance, { style: 'currency', currency: 'EUR' })}

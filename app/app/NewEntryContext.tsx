@@ -29,11 +29,20 @@ export interface FeedMatchInfo {
 
 export interface NewEntrySuggestion {
   description?: string
+  merchant?: string              // vendor / client name - helps feed matching and UX
   lines?: SuggestedLine[]
   reversingOriginalId?: string   // when present, this is a reversal suggestion
   source?: 'pdf' | 'chat'        // origin of the suggestion
   needsConfirmation?: boolean    // true when currency or rate should be reviewed by user (esp. from PDF when no confident feed match)
   feedMatch?: FeedMatchInfo      // when PDF was cross-checked against a bank/card feed
+
+  // Phase 2 lightweight memory (remembered from previous transactions for this merchant)
+  memory?: {
+    merchant?: string
+    suggestedAccountCode?: string
+    suggestedTaxRateId?: string
+    lastUsed?: string
+  }
 }
 
 interface NewEntryContextType {

@@ -28,7 +28,11 @@ interface PLData {
   }>
 }
 
-export default function ProfitLossPanel() {
+interface ProfitLossPanelProps {
+  onFilterAccount?: (code: string) => void
+}
+
+export default function ProfitLossPanel({ onFilterAccount }: ProfitLossPanelProps) {
   const t = useTranslations('app.panels.profitLoss')
   const format = useFormatter()
   const [data, setData] = useState<PLData | null>(null)
@@ -83,19 +87,24 @@ export default function ProfitLossPanel() {
             <span>{t('revenue')}</span>
             <span className="font-mono text-blue-400">{format.number(data.revenue.total, { style: 'currency', currency: 'EUR' })}</span>
           </div>
-          {data.revenue.items.length > 0 ? (
-            data.revenue.items.map((item: any) => (
-              <div key={item.code} className="flex justify-between py-1 border-b border-zinc-800 pl-2">
-                <span>{item.code} {item.name}</span>
-                <span className="font-mono text-blue-400">
-                  {format.number(item.amount, { style: 'currency', currency: 'EUR' })}
-                  {item.currency && item.currency !== 'EUR' ? ` (${item.currency}${item.nativeAmount != null ? ` ~${item.nativeAmount.toFixed(2)}` : ''}${item.feedSourced ? ' • feed' : ''})` : ''}
-                </span>
-              </div>
-            ))
-          ) : (
-            <div className="text-zinc-500 pl-2">{t('noRevenue')}</div>
-          )}
+           {data.revenue.items.length > 0 ? (
+             data.revenue.items.map((item: any) => (
+               <div
+                 key={item.code}
+                 onClick={() => onFilterAccount?.(item.code)}
+                 className="flex justify-between py-1 border-b border-zinc-800 pl-2 cursor-pointer hover:bg-zinc-800/60"
+                 title="Click to filter journal to this account"
+               >
+                 <span>{item.code} {item.name}</span>
+                 <span className="font-mono text-blue-400">
+                   {format.number(item.amount, { style: 'currency', currency: 'EUR' })}
+                   {item.currency && item.currency !== 'EUR' ? ` (${item.currency}${item.nativeAmount != null ? ` ~${item.nativeAmount.toFixed(2)}` : ''}${item.feedSourced ? ' • feed' : ''})` : ''}
+                 </span>
+               </div>
+             ))
+           ) : (
+             <div className="text-zinc-500 pl-2">{t('noRevenue')}</div>
+           )}
         </div>
 
         {/* Expenses */}

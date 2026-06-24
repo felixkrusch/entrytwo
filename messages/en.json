@@ -9,6 +9,13 @@
       "thinking": "Thinking...",
       "createEntry": "Create journal entry →",
       "reviewReversal": "Review reversal →",
+      "reviewAndConfirm": "Review & Confirm →",
+      "usedRealFeedRate": "Using real rate from previous feed for {merchant}.",
+      "feeds": {
+        "title": "Quick Bank/Card Feed Import (authoritative FX)",
+        "import": "Import as BANK_FEED (authoritative)",
+        "close": "Close"
+      },
       "uploadPdf": "Upload PDF",
       "pdfProcessing": "Processing PDF...",
       "pdfParsed": "PDF parsed. Click \"Create journal entry\" below to review.",
@@ -23,14 +30,33 @@
       "unlockedToast": "Chat unlocked. Actions enabled."
     },
     "panels": {
-      "accounts": {
-        "title": "Chart of Accounts",
-        "clearFilter": "(click to clear filter)",
-        "count": "{count} accounts",
-        "noAccounts": "No accounts. Run seed.",
-        "lines": "{count} lines",
-        "loading": "Loading accounts..."
-      },
+       "accounts": {
+         "title": "Chart of Accounts",
+         "clearFilter": "(click to clear filter)",
+         "count": "{count} accounts",
+         "noAccounts": "No accounts. Run seed.",
+         "lines": "{count} lines",
+         "loading": "Loading accounts...",
+         "addAccount": "+ Add Account",
+         "addTitle": "Add New Account",
+         "code": "Code",
+         "name": "Name",
+         "type": "Type",
+         "create": "Add Account",
+         "cancel": "Cancel",
+         "codePlaceholder": "e.g. 1050",
+         "namePlaceholder": "Account name",
+         "creating": "Adding...",
+         "errorCodeExists": "Code already exists",
+         "errorGeneric": "Failed to add account",
+         "edit": "Edit",
+         "delete": "Delete",
+         "save": "Save",
+          "deleteConfirm": "Delete this account? (only possible if it has no journal lines)",
+          "deleteBlocked": "Cannot delete: account has journal entries",
+          "editTitle": "Edit Account",
+          "searchPlaceholder": "Search accounts..."
+        },
       "journal": {
         "title": "Recent Journal Entries",
         "filtered": "(filtered)",
@@ -100,17 +126,19 @@
        "admin": {
          "title": "Admin",
          "loading": "Loading admin...",
-         "users": "Users",
-         "settings": "Company Settings",
+         "usersHeader": "Users",
+         "companySettingsHeader": "Company Settings",
          "companyName": "Company Name",
          "baseCurrency": "Base Currency",
          "defaultTaxJurisdiction": "Default Tax Jurisdiction",
          "createUser": "Create User",
+         "createFirstAdmin": "Create First Admin",
          "delete": "Delete",
          "noUsers": "No users yet.",
          "changesAudited": "Changes are saved immediately and audited.",
          "firstAdminTitle": "Create First Admin",
-         "firstAdminDesc": "No administrator exists yet. Create the initial ADMIN user to unlock the application."
+         "firstAdminDesc": "No administrator exists yet. Create the initial ADMIN user to unlock the application.",
+         "bootstrapNote": "This user will be created with ADMIN role. After creation, the full application will be available."
        }
      },
     "modal": {
@@ -135,7 +163,9 @@
       "create": "Create Journal Entry",
       "creating": "Creating...",
       "postReversal": "Post Reversal",
-      "reversingLoading": "Reversing..."
+      "reversingLoading": "Reversing...",
+      "confirmAndCreate": "Confirm & Create Journal Entry",
+      "confirmationRequired": "Please review currency, amounts, tax, and any feed match. Check the box below to enable posting."
     },
     "toasts": {
       "entryCreated": "Journal entry created",

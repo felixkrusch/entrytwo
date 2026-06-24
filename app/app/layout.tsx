@@ -8,6 +8,8 @@ import ProfitLossPanel from './ProfitLossPanel'
 import AuditLogPanel from './AuditLogPanel'
 import AdminPanel from './AdminPanel'
 import SummaryBar from './SummaryBar'
+import QuickFeedImport from './QuickFeedImport'
+import RecentFeedRates from './RecentFeedRates'
 import NewJournalEntryModal from './NewJournalEntryModal'
 import { NewEntryProvider, useNewEntry } from './NewEntryContext'
 import { useTranslations } from 'next-intl'
@@ -24,6 +26,12 @@ function AppContent({ children }: { children: ReactNode }) {
   const t = useTranslations('app.toasts')
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
   const [needsBootstrap, setNeedsBootstrap] = useState<boolean | null>(null)
+
+  // Phase 2: allow reports to filter journal by clicking lines
+  const handleFilterAccountByCode = (code: string) => {
+    // Create a lightweight account object so the filter works and clear button appears
+    setSelectedAccount({ id: '', code, name: code, type: '' } as any)
+  }
 
   const checkBootstrap = async () => {
     try {
@@ -105,11 +113,13 @@ function AppContent({ children }: { children: ReactNode }) {
             onSelectAccount={setSelectedAccount}
             selectedAccountId={selectedAccount?.id}
           />
-          <JournalEntriesPanel filterAccountId={selectedAccount?.code} />
-          <ReportsPanel />
-          <ProfitLossPanel />
+           <JournalEntriesPanel filterAccountId={selectedAccount?.code} />
+           <ReportsPanel onFilterAccount={handleFilterAccountByCode} />
+           <ProfitLossPanel onFilterAccount={handleFilterAccountByCode} />
           <AuditLogPanel />
           <AdminPanel />
+          <QuickFeedImport />
+          <RecentFeedRates />
         </div>
       </div>
 

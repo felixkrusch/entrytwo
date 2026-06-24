@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { useNewEntry, NewEntrySuggestion } from './NewEntryContext'
 import { useTranslations, useFormatter } from 'next-intl'
+import { verifySuggestion } from '@/lib/verifySuggestion'
 
 interface Account {
   id: string
@@ -54,8 +55,32 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   const CURRENCIES = ['EUR', 'USD', 'GBP']
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [userConfirmed, setUserConfirmed] = useState(false)
+  const [verificationWarnings, setVerificationWarnings] = useState<string[]>([])
 
   const isReversal = !!initialSuggestion?.reversingOriginalId
+  const requiresConfirmation = !!initialSuggestion?.needsConfirmation
+
+  // Reset confirmation requirement whenever the suggestion changes
+  useEffect(() => {
+    setUserConfirmed(!requiresConfirmation)
+  }, [initialSuggestion, requiresConfirmation])
+
+  // Phase 2 memory: when chat provides a suggested account code from memory, auto-select it for the first line
+  useEffect(() => {
+    if (!isOpen || !initialSuggestion?.memory?.suggestedAccountCode || accounts.length === 0) return
+    const code = initialSuggestion.memory.suggestedAccountCode
+    setLines(prev => {
+      if (!prev.length) return prev
+      const first = prev[0]
+      if (first.accountId) return prev // already filled
+      const match = accounts.find(a => a.code === code)
+      if (!match) return prev
+      const copy = [...prev]
+      copy[0] = { ...first, accountId: match.id }
+      return copy
+    })
+  }, [isOpen, initialSuggestion, accounts])
 
   // Fetch accounts + tax rates when modal opens (i18n + tax foundation from day one)
   useEffect(() => {
@@ -286,6 +311,47 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
     setSubmitting(true)
 
     try {
+      // Phase 2 verification layer: double-check the suggestion before POST
+      if (initialSuggestion) {
+        const toVerify = {
+          description: description || initialSuggestion.description,
+          merchant: initialSuggestion.merchant,
+          lines: lines.map(l => {
+            const acc = accounts.find(a => a.id === l.accountId)
+            return {
+              accountCode: acc?.code,
+              accountId: l.accountId || undefined,
+              debit: Number(l.debit) || 0,
+              credit: Number(l.credit) || 0,
+              currency: l.currency || 'EUR',
+              fxRateToBase: l.fxRateToBase,
+              fxSource: l.fxSource,
+              taxRateId: l.taxRateId || undefined,
+            }
+          }),
+        }
+        try {
+          const vRes = await fetch('/api/verify-suggestion', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(toVerify),
+          })
+          const v = await vRes.json()
+          if (!v?.ok) {
+            setError('Verification failed: ' + (v?.warnings?.join('; ') || 'unknown'))
+            setSubmitting(false)
+            return
+          }
+          if (Array.isArray(v.warnings) && v.warnings.length > 0) {
+            setVerificationWarnings(v.warnings)
+          } else {
+            setVerificationWarnings([])
+          }
+        } catch {
+          // Non-fatal: if the verify endpoint is unreachable we still let the normal POST happen (user already confirmed)
+        }
+      }
+
       // If this is a reversal suggestion, use the dedicated reversal endpoint
       if (isReversal && initialSuggestion?.reversingOriginalId) {
         const revRes = await fetch('/api/journal-entries/reverse', {
@@ -352,6 +418,21 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                 )}
                 {initialSuggestion.feedMatch?.matched && (
                   <span className="ml-2 text-emerald-400">• matched to feed</span>
+                )}
+                {/* Real authoritative feed rate in use (from previous import or exact merchant lookup) */}
+                {Array.isArray(initialSuggestion.lines) &&
+                 initialSuggestion.lines.some((l: any) => String(l.fxSource || '').startsWith('BANK_FEED')) && (
+                  <span className="ml-2 text-emerald-400">• real feed rate</span>
+                )}
+                {initialSuggestion.merchant && (
+                  <span className="ml-2 text-amber-400">• {initialSuggestion.merchant}</span>
+                )}
+
+                {/* Phase 2 memory hint */}
+                {initialSuggestion.memory?.suggestedAccountCode && (
+                  <span className="ml-2 text-violet-400">
+                    • remember: {initialSuggestion.memory.suggestedAccountCode}
+                  </span>
                 )}
                 {initialSuggestion.needsConfirmation && (
                   <span className="ml-2 text-rose-400">• please confirm</span>
@@ -482,6 +563,29 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
               {isBalanced ? t('balanced') : t('notBalanced')}
             </div>
           </div>
+
+           {requiresConfirmation && !isReversal && (
+             <div className="mt-3 p-3 rounded-lg border border-rose-500/50 bg-rose-950/40 text-sm">
+               <label className="flex items-start gap-2 cursor-pointer select-none">
+                 <input
+                   type="checkbox"
+                   checked={userConfirmed}
+                   onChange={(e) => setUserConfirmed(e.target.checked)}
+                   className="mt-0.5 accent-rose-400"
+                 />
+                 <span className="text-rose-300">
+                   {t('confirmationRequired') || 'I have reviewed the currency, amounts, tax, and any bank/card feed match. The values are correct and I want to post this entry.'}
+                 </span>
+               </label>
+             </div>
+           )}
+
+           {/* Phase 2: show verification warnings (non-blocking) */}
+           {verificationWarnings.length > 0 && (
+             <div className="mt-2 text-[11px] text-amber-400 bg-amber-950/30 p-2 rounded">
+               {verificationWarnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+             </div>
+           )}
         </div>
 
         <div className="flex gap-3 mt-8">
@@ -493,12 +597,19 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
           </button>
             <button
               onClick={handleSubmit}
-              disabled={!isBalanced || submitting || accounts.length === 0}
+              disabled={
+                !isBalanced ||
+                submitting ||
+                accounts.length === 0 ||
+                (requiresConfirmation && !isReversal && !userConfirmed)
+              }
               className="flex-1 py-2.5 rounded-xl bg-white text-black disabled:opacity-50 disabled:cursor-not-allowed hover:bg-zinc-200 transition font-medium"
             >
               {submitting
                 ? (isReversal ? t('reversingLoading') : t('creating'))
-                : (isReversal ? t('postReversal') : t('create'))}
+                : (requiresConfirmation && !isReversal && !userConfirmed)
+                  ? (t('confirmAndCreate') || 'Confirm & Create')
+                  : (isReversal ? t('postReversal') : t('create'))}
             </button>
           </div>
       </div>

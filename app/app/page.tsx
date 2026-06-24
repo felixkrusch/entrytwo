@@ -130,6 +130,20 @@ export default function ChatPage() {
       response = "I can draft journal entries. Try 'bought supplies for 65', 'client paid 800', or 'reverse last entry'."
     }
 
+    // Phase 1: client fallback non-EUR → needs confirmation.
+    // Also extract merchant (e.g. "Adobe invoice") for future feed rate lookup.
+    const merchantMatch = text.match(/from\s+([A-Za-z0-9 .&'-]+)/i)
+    const extractedMerchant = merchantMatch ? merchantMatch[1].trim() : undefined
+
+    if (suggestion) {
+      if (currency !== 'EUR') {
+        suggestion = { ...suggestion, needsConfirmation: true }
+      }
+      if (extractedMerchant && !suggestion.merchant) {
+        suggestion = { ...suggestion, merchant: extractedMerchant }
+      }
+    }
+
     return { response, suggestion }
   }
 
@@ -288,16 +302,31 @@ export default function ChatPage() {
               msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-zinc-800'
             }`}>
               {msg.content}
-              {msg.action === 'suggest_entry' && (
-                <button
-                  onClick={() => handleSuggest(msg.suggestion)}
-                  className="mt-2 block text-xs px-3 py-1 bg-white text-black rounded-full hover:bg-zinc-200 transition"
-                >
-                   {msg.suggestion?.description?.toLowerCase().includes('reversal')
-                     ? t('reviewReversal')
-                     : t('createEntry')}
-                </button>
-              )}
+                {msg.action === 'suggest_entry' && (
+                  <button
+                    onClick={() => handleSuggest(msg.suggestion)}
+                    className="mt-2 block text-xs px-3 py-1 bg-white text-black rounded-full hover:bg-zinc-200 transition"
+                  >
+                     {msg.suggestion?.reversingOriginalId
+                       ? t('reviewReversal')
+                       : (msg.suggestion?.needsConfirmation ? t('reviewAndConfirm') : t('createEntry'))}
+                  </button>
+                )}
+
+                {/* Phase 1: show merchant + real feed rate usage */}
+                {msg.suggestion && (
+                  <div className="mt-1 text-[10px] space-x-2">
+                    {msg.suggestion.merchant && (
+                      <span className="text-amber-400">from {msg.suggestion.merchant}</span>
+                    )}
+                    {Array.isArray(msg.suggestion.lines) && msg.suggestion.lines.some((l: any) => String(l.fxSource || '').startsWith('BANK_FEED')) && (
+                      <span className="text-emerald-400">real feed rate</span>
+                    )}
+                    {msg.suggestion.merchant && !msg.suggestion.needsConfirmation && !msg.suggestion.reversingOriginalId && (
+                      <span className="text-zinc-500">(authoritative)</span>
+                    )}
+                  </div>
+                )}
             </div>
           </div>
         ))}
@@ -322,14 +351,14 @@ export default function ChatPage() {
             disabled={isChatLocked}
             className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-3 text-sm focus:outline-none focus:border-zinc-700 disabled:opacity-60"
           />
-          <button
-            onClick={toggleChatLock}
-            className="p-3 text-zinc-400 hover:text-zinc-200 transition-colors"
-            title={isChatLocked ? t('unlock') : t('lock')}
-            aria-label={isChatLocked ? t('unlock') : t('lock')}
-          >
-            {isChatLocked ? <Unlock className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
-          </button>
+           <button
+             onClick={toggleChatLock}
+             className={`p-3 transition-colors ${isChatLocked ? 'text-amber-400 hover:text-amber-300' : 'text-zinc-400 hover:text-zinc-200'}`}
+             title={isChatLocked ? t('unlock') : t('lock')}
+             aria-label={isChatLocked ? t('unlock') : t('lock')}
+           >
+             {isChatLocked ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
+           </button>
           <button
             onClick={sendMessage}
             disabled={!input.trim() || isLoading}
