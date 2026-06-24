@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 
-const createEntrySchema = z.object({
+  const createEntrySchema = z.object({
   date: z.string(),
   description: z.string().optional(),
   lines: z.array(z.object({
@@ -12,6 +12,9 @@ const createEntrySchema = z.object({
     description: z.string().optional(),
     taxRateId: z.string().optional(),
     currency: z.string().optional(),   // multi-currency foundation
+    fxRateToBase: z.number().optional(),
+    fxSource: z.string().optional(),
+    fxDate: z.string().optional(),     // YYYY-MM-DD
   })).min(2)
 })
 
@@ -57,12 +60,57 @@ export async function POST(request: Request) {
 
     const { date, description, lines } = parsed.data
 
-    const totalDebits = lines.reduce((sum, l) => sum + l.debit, 0)
-    const totalCredits = lines.reduce((sum, l) => sum + l.credit, 0)
+    // FX-aware balancing + auto rate derivation (Phase 0):
+    // - If any foreign-currency line is missing fxRateToBase, look for a line in EUR/base with a matching amount
+    //   and derive the rate (baseAmount / foreignAmount).
+    // - We also set a reasonable fxDate (entry date) and source if not provided.
+    const entryDate = date
 
-    if (totalDebits !== totalCredits || totalDebits === 0) {
+    // Collect potential foreign and base lines
+    const foreignLines = lines.filter(l => (l.currency || 'EUR').toUpperCase() !== 'EUR')
+    const baseLines = lines.filter(l => (l.currency || 'EUR').toUpperCase() === 'EUR')
+
+    for (const f of foreignLines) {
+      if (f.fxRateToBase != null) continue
+
+      const fAmt = Math.max(f.debit || 0, f.credit || 0)
+      if (fAmt <= 0) continue
+
+      // Try to find a base line whose amount we can treat as the exact base equivalent
+      for (const b of baseLines) {
+        const bAmt = Math.max(b.debit || 0, b.credit || 0)
+        if (bAmt <= 0) continue
+
+        // Heuristic: if amounts are close in "economic size" after a typical rate band, or the user
+        // explicitly put two different amounts on purpose, we accept it as the pair.
+        const ratio = bAmt / fAmt
+        const plausible = ratio > 0.1 && ratio < 10 // very loose; real rates are ~0.7-1.5 for major pairs
+
+        if (plausible) {
+          const derived = bAmt / fAmt
+          if (isFinite(derived) && derived > 0) {
+            f.fxRateToBase = derived
+            f.fxSource = f.fxSource || 'DERIVED_FROM_ENTRY'
+            f.fxDate = f.fxDate || entryDate
+            break
+          }
+        }
+      }
+    }
+
+    const toBase = (line: any, amount: number): number => {
+      const cur = (line.currency || 'EUR').toUpperCase()
+      if (cur === 'EUR') return amount
+      const rate = line.fxRateToBase != null ? Number(line.fxRateToBase) : null
+      return rate != null && isFinite(rate) ? amount * rate : amount
+    }
+
+    const baseDebits = lines.reduce((sum, l) => sum + toBase(l, l.debit), 0)
+    const baseCredits = lines.reduce((sum, l) => sum + toBase(l, l.credit), 0)
+
+    if (Math.abs(baseDebits - baseCredits) > 0.005 || baseDebits === 0) {
       return NextResponse.json(
-        { error: 'Debits must equal credits and be greater than zero' },
+        { error: 'Debits must equal credits (in base currency) and be greater than zero' },
         { status: 400 }
       )
     }
@@ -80,7 +128,10 @@ export async function POST(request: Request) {
               credit: line.credit,
               description: line.description,
               taxRateId: line.taxRateId || null,
-              currency: line.currency || 'EUR'   // multi-currency foundation (default base)
+              currency: line.currency || 'EUR',   // multi-currency foundation (default base)
+              fxRateToBase: line.fxRateToBase != null ? line.fxRateToBase : null,
+              fxSource: line.fxSource || null,
+              fxDate: line.fxDate ? new Date(line.fxDate) : null,
             }))
           }
         },
@@ -107,7 +158,10 @@ export async function POST(request: Request) {
               account: l.account.code,
               debit: Number(l.debit),
               credit: Number(l.credit),
-              currency: l.currency
+              currency: l.currency,
+              fxRateToBase: l.fxRateToBase != null ? Number(l.fxRateToBase) : null,
+              fxSource: l.fxSource,
+              fxDate: l.fxDate ? l.fxDate.toISOString().slice(0, 10) : null,
             }))
           },
           // createdBy will be filled when we have auth

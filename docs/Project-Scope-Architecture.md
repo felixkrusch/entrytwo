@@ -166,6 +166,20 @@ entrytwo follows a **hybrid interface** approach:
 | **Accountant**| Can manage financial data       | Most actions                    |
 | **Viewer**    | Read-only access                | View reports and data only      |
 
+### Admin UI & Settings (Explicit Deliverable)
+
+A proper **Admin UI** is required:
+
+- User management (list, create, change role `ADMIN` / `ACCOUNTANT` / `VIEWER`)
+- Company / global settings:
+  - Company / legal name
+  - Base currency (default `EUR`)
+  - Default tax jurisdiction
+  - Other future preferences (stored via `Setting` model or similar)
+- First-admin bootstrap: on a fresh database with no `ADMIN` user, the system must allow creating the initial administrator (this flow is only available once).
+
+All admin actions must be audited.
+
 ### Audit & Attribution
 
 Every change to financial data records:
@@ -193,6 +207,7 @@ The AI Agent interacts with the Accounting Core through a controlled set of tool
 | Phase | Focus                              | Key Deliverables                                      |
 |-------|------------------------------------|-------------------------------------------------------|
 | 0     | Accounting Foundation (with i18n + Tax + Multi-Currency from Day One) | Double-entry core + audit logging + **full i18n** + **TaxRate + tax lines + tax-aware P&L** + **Multi-currency on lines + base currency + FX rates + automatic date-pinned conversion to base + currency-aware reports** |
+| 0.5   | Setup & Admin UI                   | Proper local/production setup guide + **Admin UI** (users + roles + company settings + first-admin bootstrap) |
 | 1     | AI Agent MVP                       | Chat interface + PDF processing + basic agent (tax-aware suggestions) |
 | 2     | Reliability Layer                  | Memory system + verification + rollback               |
 | 3     | Productization                     | Licensing, onboarding, migration tools                |
@@ -205,7 +220,13 @@ The AI Agent interacts with the Accounting Core through a controlled set of tool
 - The project is being built with long-term product potential in mind.
 - **Internationalization (i18n) is mandatory from day one.** Every single user-facing string (UI labels, chat responses, error messages, report headers, descriptions, audit log text, emails, etc.) must be externalized through a proper i18n framework. Locale-aware formatting for numbers, dates, and currencies is required. Hardcoded English is not acceptable at any layer.
 - **Tax / VAT / Sales Tax handling is a foundational requirement.** The system must correctly support jurisdiction-specific taxes (VAT, MwSt in Germany, sales tax, GST, etc.) including standard/reduced/exempt/zero/reverse charge rates, input vs. output tax, effective dates, and correct reporting from Phase 0 onward. This is not optional and no technical debt is permitted.
-- **Implementation status (2026-06-24):** i18n fully wired. Tax foundation live. Multi-currency foundation is now a documented non-negotiable (data model + flows + reports + AI must be currency-aware from Phase 0). **Automatic currency conversion pinned to transaction/payment date** (fxDate + fxRateToBase) is explicitly required in scope. Public FX APIs (ECB, Bank of Canada, etc.) may be used to source historical rates.
+- **Implementation status (2026-06-24):** All Phase 0 foundations + Admin UI + Setup complete:
+  - i18n fully wired (zero English).
+  - Tax + multi-currency fully implemented in core + reports + PDF + feeds.
+  - **Admin UI fully built**: `AdminPanel`, users CRUD, live `Setting` model, audited changes.
+  - **First-admin bootstrap gate** implemented (`/api/bootstrap/status` + layout-level blocking UI until first ADMIN exists).
+  - `docs/SETUP.md`, `docs/ADMIN-UI.md`, updated `README.md`, default settings in seed, `.env.example`.
+  See `docs/ADMIN-UI.md` for exact current state.
 - This document is a living document and will be updated as decisions are made.
 
 ---

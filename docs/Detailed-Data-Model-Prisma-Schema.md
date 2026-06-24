@@ -29,6 +29,8 @@ This document defines the detailed database schema for entrytwo using Prisma. It
   - Proper linking so that tax amounts are correctly recorded and reportable (UStVA, VAT returns, etc.)
   "We'll fix the tax model later" is forbidden. The model must be correct and extensible from the beginning.
 
+- **Admin / Settings**: A `Setting` model (key/value) is used for global configuration (company name, base currency, default tax jurisdiction, etc.). This supports the Admin UI.
+
 ---
 
 ## 3. Prisma Schema

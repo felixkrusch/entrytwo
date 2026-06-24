@@ -9,12 +9,31 @@ export interface SuggestedLine {
   description?: string
   taxRateId?: string   // tax foundation from chat
   currency?: string    // multi-currency from chat
+
+  // FX metadata (populated especially from PDF + feed cross-check)
+  fxRateToBase?: number
+  fxSource?: string
+  fxDate?: string      // YYYY-MM-DD
+}
+
+export interface FeedMatchInfo {
+  matched: boolean
+  baseAmount?: number
+  foreignAmount?: number
+  settlementCurrency?: string
+  date?: string
+  description?: string
+  fxRateToBase?: number
+  fxSource?: string
 }
 
 export interface NewEntrySuggestion {
   description?: string
   lines?: SuggestedLine[]
   reversingOriginalId?: string   // when present, this is a reversal suggestion
+  source?: 'pdf' | 'chat'        // origin of the suggestion
+  needsConfirmation?: boolean    // true when currency or rate should be reviewed by user (esp. from PDF when no confident feed match)
+  feedMatch?: FeedMatchInfo      // when PDF was cross-checked against a bank/card feed
 }
 
 interface NewEntryContextType {

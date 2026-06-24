@@ -42,7 +42,10 @@ export async function POST(request: Request) {
               credit: Number(line.debit),
               description: `Reversal: ${line.description || ''}`,
               currency: line.currency || 'EUR',   // preserve multi-currency
-              taxRateId: line.taxRateId || null    // preserve tax foundation
+              taxRateId: line.taxRateId || null,   // preserve tax foundation
+              fxRateToBase: line.fxRateToBase != null ? Number(line.fxRateToBase) : null,
+              fxSource: line.fxSource || null,
+              fxDate: line.fxDate || null,
             }))
           }
         },
@@ -64,7 +67,11 @@ export async function POST(request: Request) {
             lines: created.lines.map(l => ({
               account: l.account.code,
               debit: Number(l.debit),
-              credit: Number(l.credit)
+              credit: Number(l.credit),
+              currency: l.currency,
+              fxRateToBase: l.fxRateToBase != null ? Number(l.fxRateToBase) : null,
+              fxSource: l.fxSource,
+              fxDate: l.fxDate ? l.fxDate.toISOString().slice(0, 10) : null,
             }))
           }
         }

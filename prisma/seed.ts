@@ -77,6 +77,22 @@ async function main() {
   await prisma.taxRate.createMany({ data: taxRates as any });
   console.log(`Seeded ${taxRates.length} tax rates`);
 
+  // Seed default company settings (used by Admin UI)
+  const defaultSettings = [
+    { key: 'company.name', value: { value: 'Acme GmbH' } },
+    { key: 'baseCurrency', value: { value: 'EUR' } },
+    { key: 'defaultTaxJurisdiction', value: { value: 'DE' } },
+  ];
+
+  for (const s of defaultSettings) {
+    await prisma.setting.upsert({
+      where: { key: s.key },
+      update: { value: s.value as any },
+      create: { key: s.key, value: s.value as any },
+    });
+  }
+  console.log(`Seeded/updated ${defaultSettings.length} default settings`);
+
   await prisma.contact.create({
     data: {
       name: "Acme Corp",

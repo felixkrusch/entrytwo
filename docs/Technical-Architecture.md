@@ -110,12 +110,14 @@ The AI Agent interacts with the Accounting Core through well-defined tools, with
 
 **Current Implementation (2026-06-24):**
 - next-intl fully integrated. All user text externalized.
-- TaxRate model + taxRateId on JournalLine + live tax selector in modal.
-- Chat context includes tax rates. P&L includes taxSummary.
-- Journal lines display tax jurisdiction + rate badges when present.
-- **Automatic currency conversion pinned to date**: JournalLine.fxDate / fxRateToBase / fxSource fields exist in schema and are stored on creation. UI surfaces currency per line. 
-  - For feed imports, the actual rate applied by the bank or card issuer (derived from the exact amounts in the feed) is recorded with `fxSource = "BANK_FEED:..."` and is considered authoritative.
-  - The system is designed to optionally call public central bank FX APIs (ECB Statistical Data Warehouse https://data.ecb.europa.eu/help/api/data, Bank of Canada Valet https://www.bankofcanada.ca/valet/docs, etc.) to fetch a published rate when feed data is not available.
-  Full automatic base-currency rollups and date-pinned rate lookup (including API integration) are documented as Phase 0 requirements.
+- TaxRate model + taxRateId on JournalLine + live tax selector.
+- Multi-currency fully live (JournalLine + fx + feed rates authoritative + automatic date-pinned conversion + reports + PDF).
+- **Admin UI + Setup complete**:
+  - `AdminPanel` (users + roles + company settings)
+  - `Setting` model + live editing
+  - First-admin bootstrap gate (entire app blocked until first ADMIN)
+  - `docs/SETUP.md`, `docs/ADMIN-UI.md`, `.env.example`, default seed settings
+- Chat Lock (advisory-only) implemented.
+- All admin actions audited via Event table.
 
-**Document Status:** Draft v1 (updated with mandatory i18n + tax architecture requirements — implementation complete)
+**Document Status:** Draft v1 (Phase 0 + Admin UI + Setup + Bootstrap all implemented)

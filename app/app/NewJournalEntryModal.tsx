@@ -36,7 +36,17 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   const [taxRates, setTaxRates] = useState<TaxRate[]>([])
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [description, setDescription] = useState('')
-  const [lines, setLines] = useState([
+  const [lines, setLines] = useState<Array<{
+    accountId: string
+    debit: number
+    credit: number
+    description: string
+    taxRateId: string
+    currency: string
+    fxRateToBase?: number
+    fxSource?: string
+    fxDate?: string
+  }>>([
     { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: 'EUR' },
     { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: 'EUR' }
   ])
@@ -62,46 +72,140 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
 
   // Prefill from chat suggestion when suggestion changes (robust to async accounts)
   useEffect(() => {
-    const applySuggestion = (accList: Account[]) => {
+    const applySuggestion = (accList: Account[], taxList: TaxRate[]) => {
       if (!initialSuggestion) return
       if (initialSuggestion.description) {
         setDescription(initialSuggestion.description)
       }
       if (initialSuggestion.lines && initialSuggestion.lines.length > 0) {
-        const mapped = initialSuggestion.lines.map(l => {
-          const match = accList.find(a => a.code === l.accountCode)
-          return {
-            accountId: match?.id || '',
-            debit: l.debit || 0,
-            credit: l.credit || 0,
-            description: l.description || '',
-            taxRateId: l.taxRateId || '',
-            currency: l.currency || 'EUR'
+          const mapped = initialSuggestion.lines.map(l => {
+            const match = accList.find(a => a.code === l.accountCode)
+            return {
+              accountId: match?.id || '',
+              debit: l.debit || 0,
+              credit: l.credit || 0,
+              description: l.description || '',
+              taxRateId: l.taxRateId || '',
+              currency: l.currency || 'EUR',
+              // carry FX metadata through when PDF+feed provided it
+              fxRateToBase: l.fxRateToBase,
+              fxSource: l.fxSource,
+              fxDate: l.fxDate,
+            }
+          })
+
+        // If a line has a taxRateId (e.g. from PDF detection), auto-insert a tax line for clarity.
+        // Only do this if we don't already see a separate tax line in the suggestion (PDF API may have split gross).
+        const looksLikeAlreadySplit = mapped.some((m, i) =>
+          i > 0 && m.taxRateId && (m.description || '').toLowerCase().includes('tax')
+        )
+        const hasTaxOnMain = mapped.some(m => m.taxRateId && m.debit > 0)
+        if (hasTaxOnMain && taxList.length > 0 && !looksLikeAlreadySplit) {
+          const newLines: typeof mapped = []
+          mapped.forEach(line => {
+            newLines.push(line)
+            if (line.taxRateId && line.debit > 0) {
+              const tr = taxList.find(t => t.id === line.taxRateId)
+              if (tr) {
+                const taxAmt = Math.round(line.debit * Number(tr.rate) * 100) / 100
+                if (taxAmt > 0) {
+                  newLines.push({
+                    accountId: line.accountId,
+                    debit: taxAmt,
+                    credit: 0,
+                    description: `Tax (${(Number(tr.rate) * 100).toFixed(0)}% ${tr.isInputTax ? 'input' : ''})`,
+                    taxRateId: tr.id,
+                    currency: line.currency || 'EUR',
+                    // copy fx metadata from the main line if present
+                    fxRateToBase: (line as any).fxRateToBase,
+                    fxSource: (line as any).fxSource,
+                    fxDate: (line as any).fxDate,
+                  })
+                }
+              }
+            }
+          })
+          // ensure at least 2 lines total for the form
+          while (newLines.length < 2) {
+            newLines.push({
+              accountId: '',
+              debit: 0,
+              credit: 0,
+              description: '',
+              taxRateId: '',
+              currency: 'EUR',
+              fxRateToBase: undefined,
+              fxSource: undefined,
+              fxDate: undefined,
+            })
           }
-        })
+          setLines(newLines)
+          return
+        }
+
         while (mapped.length < 2) {
-          mapped.push({ accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: 'EUR' })
+          mapped.push({
+            accountId: '',
+            debit: 0,
+            credit: 0,
+            description: '',
+            taxRateId: '',
+            currency: 'EUR',
+            fxRateToBase: undefined,
+            fxSource: undefined,
+            fxDate: undefined,
+          })
         }
         setLines(mapped)
       }
     }
 
     if (isOpen && initialSuggestion) {
-      if (accounts.length > 0) {
-        applySuggestion(accounts)
+      const doApply = (accList: Account[], taxList: TaxRate[]) => {
+        applySuggestion(accList, taxList)
+      }
+
+      if (accounts.length > 0 && taxRates.length > 0) {
+        doApply(accounts, taxRates)
       } else {
-        // fetch accounts then apply
-        fetch('/api/accounts')
-          .then(r => r.json())
-          .then((data: Account[]) => {
-            if (Array.isArray(data) && data.length) {
-              applySuggestion(data)
-            }
-          })
-          .catch(() => {})
+        // fetch both if needed
+        Promise.all([
+          accounts.length ? Promise.resolve(accounts) : fetch('/api/accounts').then(r => r.json()),
+          taxRates.length ? Promise.resolve(taxRates) : fetch('/api/tax-rates').then(r => r.json()),
+        ]).then(([accs, taxes]) => {
+          if (Array.isArray(accs) && Array.isArray(taxes)) {
+            doApply(accs, taxes)
+          }
+        }).catch(() => {})
       }
     }
-  }, [isOpen, initialSuggestion, accounts])
+  }, [isOpen, initialSuggestion, accounts, taxRates])
+
+  // Auto-lookup rate for foreign currency lines that arrived without fx metadata (chat or manual)
+  useEffect(() => {
+    if (!isOpen) return
+
+    lines.forEach((line, idx) => {
+      const cur = (line.currency || 'EUR').toUpperCase()
+      if (cur === 'EUR') return
+      if (line.fxRateToBase != null) return
+
+      const d = date || new Date().toISOString().slice(0, 10)
+      fetch(`/api/fx?currency=${cur}&date=${d}`)
+        .then(r => r.json())
+        .then((j: any) => {
+          if (j && typeof j.fxRateToBase === 'number' && isFinite(j.fxRateToBase)) {
+            updateLineFx(idx, {
+              fxRateToBase: j.fxRateToBase,
+              fxSource: j.source === 'LOOKUP' ? 'ECB' : (j.source || 'MANUAL'),
+              fxDate: j.date || d,
+            })
+          }
+        })
+        .catch(() => {})
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, date])
 
   // Reset form when modal closes (and no new suggestion)
   const handleClose = () => {
@@ -114,15 +218,56 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
     onClose()
   }
 
+  // Small helper to keep fx fields when adding manual lines
+  const addLineWithFx = () => {
+    setLines([...lines, { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: 'EUR' }])
+  }
+
   if (!isOpen) return null
 
   const addLine = () => {
     setLines([...lines, { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: 'EUR' }])
   }
 
+  const updateLineFx = (index: number, fx: { fxRateToBase?: number; fxSource?: string; fxDate?: string }) => {
+    const newLines = [...lines]
+    newLines[index] = { ...newLines[index], ...fx }
+    setLines(newLines)
+  }
+
   const updateLine = (index: number, field: string, value: any) => {
     const newLines = [...lines]
     newLines[index] = { ...newLines[index], [field]: value }
+
+    // Live tax line management: if user sets/changes taxRateId on a debit line,
+    // ensure a corresponding tax line exists (or update its rate).
+    if (field === 'taxRateId' && newLines[index].debit > 0) {
+      const tr = taxRates.find(t => t.id === value)
+      if (tr) {
+        const expectedTax = Math.round(newLines[index].debit * Number(tr.rate) * 100) / 100
+        // Look for an immediate next line that is a tax line for this rate/account
+        const next = newLines[index + 1]
+        if (next && next.taxRateId === value && next.description && /tax/i.test(next.description)) {
+          // update the tax amount to match current debit
+          next.debit = expectedTax
+          next.currency = newLines[index].currency || 'EUR'
+        } else {
+          // insert a new tax line right after
+          newLines.splice(index + 1, 0, {
+            accountId: newLines[index].accountId,
+            debit: expectedTax,
+            credit: 0,
+            description: `Tax (${(Number(tr.rate) * 100).toFixed(0)}% ${tr.isInputTax ? 'input' : ''})`,
+            taxRateId: value,
+            currency: newLines[index].currency || 'EUR',
+            fxRateToBase: (newLines[index] as any).fxRateToBase,
+            fxSource: (newLines[index] as any).fxSource,
+            fxDate: (newLines[index] as any).fxDate,
+          })
+        }
+      }
+    }
+
     setLines(newLines)
   }
 
@@ -166,7 +311,10 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
           credit: Number(l.credit),
           description: l.description || undefined,
           taxRateId: l.taxRateId || undefined,
-          currency: l.currency || 'EUR'   // respect per-line currency choice (multi-currency)
+          currency: l.currency || 'EUR',   // respect per-line currency choice (multi-currency)
+          fxRateToBase: l.fxRateToBase,
+          fxSource: l.fxSource,
+          fxDate: l.fxDate,
         }))
       }
 
@@ -199,6 +347,15 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
               {initialSuggestion && (
               <div className="text-xs text-emerald-400 mt-0.5">
                 {isReversal ? t('reversing') : t('suggestedByChat')}
+                {initialSuggestion.source === 'pdf' && (
+                  <span className="ml-2 text-amber-400">• from PDF</span>
+                )}
+                {initialSuggestion.feedMatch?.matched && (
+                  <span className="ml-2 text-emerald-400">• matched to feed</span>
+                )}
+                {initialSuggestion.needsConfirmation && (
+                  <span className="ml-2 text-rose-400">• please confirm</span>
+                )}
               </div>
             )}
           </div>
@@ -239,7 +396,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
           <div>
             <div className="flex justify-between items-center mb-2">
               <label className="text-sm text-zinc-400">{t('journalLines')}</label>
-              <button onClick={addLine} className="text-xs px-2 py-1 bg-zinc-800 rounded hover:bg-zinc-700">{t('addLine')}</button>
+              <button onClick={addLineWithFx} className="text-xs px-2 py-1 bg-zinc-800 rounded hover:bg-zinc-700">{t('addLine')}</button>
             </div>
 
             <div className="space-y-2">
@@ -289,17 +446,25 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                      onChange={e => updateLine(index, 'description', e.target.value)}
                      className="col-span-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-sm text-white"
                    />
-                   <select
-                     value={line.currency || 'EUR'}
-                     onChange={e => updateLine(index, 'currency', e.target.value)}
-                     className="col-span-1 bg-zinc-900 border border-zinc-800 rounded px-1 py-1.5 text-xs text-white"
-                     title="Currency"
-                   >
-                     {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-                   </select>
-                   {lines.length > 2 && (
-                     <button onClick={() => removeLine(index)} className="col-span-1 text-zinc-500 hover:text-red-400 text-lg">×</button>
-                   )}
+                    <select
+                      value={line.currency || 'EUR'}
+                      onChange={e => updateLine(index, 'currency', e.target.value)}
+                      className="col-span-1 bg-zinc-900 border border-zinc-800 rounded px-1 py-1.5 text-xs text-white"
+                      title="Currency"
+                    >
+                      {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+
+                    {/* FX badge / read-only indicator for PDF+feed sourced lines */}
+                    {line.fxRateToBase != null && (
+                      <div className="col-span-12 text-[10px] text-emerald-400 px-1 pt-1 -mt-1">
+                        fx {line.fxRateToBase.toFixed(6)} via {line.fxSource || 'feed'} on {line.fxDate || 'n/a'}
+                      </div>
+                    )}
+
+                    {lines.length > 2 && (
+                      <button onClick={() => removeLine(index)} className="col-span-1 text-zinc-500 hover:text-red-400 text-lg">×</button>
+                    )}
                 </div>
               ))}
             </div>

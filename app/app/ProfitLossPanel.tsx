@@ -18,6 +18,14 @@ interface PLData {
     outputTax: number
     netTax: number
   }
+  byCurrency?: Record<string, {
+    revenueNative: number
+    expensesNative: number
+    revenueBase: number
+    expensesBase: number
+    netNative: number
+    netBase: number
+  }>
 }
 
 export default function ProfitLossPanel() {
@@ -76,10 +84,13 @@ export default function ProfitLossPanel() {
             <span className="font-mono text-blue-400">{format.number(data.revenue.total, { style: 'currency', currency: 'EUR' })}</span>
           </div>
           {data.revenue.items.length > 0 ? (
-            data.revenue.items.map(item => (
+            data.revenue.items.map((item: any) => (
               <div key={item.code} className="flex justify-between py-1 border-b border-zinc-800 pl-2">
                 <span>{item.code} {item.name}</span>
-                <span className="font-mono text-blue-400">${item.amount.toFixed(2)}{(item as any).currency && (item as any).currency !== 'EUR' ? ` ${(item as any).currency}` : ''}</span>
+                <span className="font-mono text-blue-400">
+                  {format.number(item.amount, { style: 'currency', currency: 'EUR' })}
+                  {item.currency && item.currency !== 'EUR' ? ` (${item.currency}${item.nativeAmount != null ? ` ~${item.nativeAmount.toFixed(2)}` : ''}${item.feedSourced ? ' • feed' : ''})` : ''}
+                </span>
               </div>
             ))
           ) : (
@@ -94,10 +105,13 @@ export default function ProfitLossPanel() {
             <span className="font-mono text-rose-400">{format.number(data.expenses.total, { style: 'currency', currency: 'EUR' })}</span>
           </div>
           {data.expenses.items.length > 0 ? (
-            data.expenses.items.map(item => (
+            data.expenses.items.map((item: any) => (
               <div key={item.code} className="flex justify-between py-1 border-b border-zinc-800 pl-2">
                 <span>{item.code} {item.name}</span>
-                <span className="font-mono text-rose-400">{format.number(item.amount, { style: 'currency', currency: 'EUR' })}{(item as any).currency && (item as any).currency !== 'EUR' ? ` ${(item as any).currency}` : ''}</span>
+                <span className="font-mono text-rose-400">
+                  {format.number(item.amount, { style: 'currency', currency: 'EUR' })}
+                  {item.currency && item.currency !== 'EUR' ? ` (${item.currency}${item.nativeAmount != null ? ` ~${item.nativeAmount.toFixed(2)}` : ''})` : ''}
+                </span>
               </div>
             ))
           ) : (
@@ -112,6 +126,19 @@ export default function ProfitLossPanel() {
             {format.number(data.netIncome, { style: 'currency', currency: 'EUR' })}
           </span>
         </div>
+
+        {/* Richer currency breakdown (Phase 0 enhancement) */}
+        {data.byCurrency && Object.keys(data.byCurrency).length > 0 && (
+          <div className="pt-2 text-[10px] text-zinc-400 font-mono">
+            <div className="text-[9px] text-zinc-500 mb-0.5">{t('byCurrency')}</div>
+            {Object.entries(data.byCurrency as Record<string, any>).sort().map(([cur, v]) => (
+              <div key={cur}>
+                {cur}: {t('netBase')} {format.number(v.netBase || 0, { style: 'currency', currency: 'EUR' })}
+                {cur !== 'EUR' && v.netNative != null ? ` • ${t('netNative')} ~${v.netNative.toFixed(2)}` : ''}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Multi-currency status (Phase 0) */}
         {(() => {

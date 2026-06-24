@@ -1,36 +1,109 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# entrytwo
 
-## Getting Started
+**AI-native double-entry accounting.** Chat-first, fully internationalized, tax-aware from day one, and multi-currency with authoritative bank/credit card feed rates.
 
-First, run the development server:
+- **Core**: Proper double-entry with audit logging.
+- **i18n**: 100% externalized strings, locale-aware formatting (no hardcoded English).
+- **Tax**: Multi-jurisdiction (DE/AT/US-CA etc.), input/output, effective dates, tax-aware reports.
+- **Multi-Currency**: JournalLine carries currency + fxRateToBase + fxSource + fxDate. Automatic date-pinned conversion to base. Bank/card feed rates are authoritative.
+- **PDF + Chat**: Upload invoices → currency + tax + feed cross-check → suggestions with correct FX + tax metadata.
+- **Safety**: Chat Lock (advisory-only mode).
+
+---
+
+## Quick Start
+
+See the full guide: [docs/SETUP.md](./docs/SETUP.md)
+
+```bash
+npm install
+
+# Configure DB
+cp .env.example .env   # edit DATABASE_URL
+
+# Start Postgres (example)
+docker compose up -d
+
+npx prisma migrate dev
+npm run db:seed
+
+npm run dev
+```
+
+Open http://localhost:3000
+
+On a fresh database, create the first **ADMIN** user (bootstrap flow).
+
+---
+
+## Documentation
+
+- [docs/SETUP.md](./docs/SETUP.md) – Setup, environment, seeding, first admin, Docker, troubleshooting
+- [docs/Implementation-Plan.md](./docs/Implementation-Plan.md)
+- [docs/Project-Scope-Architecture.md](./docs/Project-Scope-Architecture.md)
+- [docs/Detailed-Data-Model-Prisma-Schema.md](./docs/Detailed-Data-Model-Prisma-Schema.md)
+- [docs/Technical-Architecture.md](./docs/Technical-Architecture.md)
+- [docs/Security-Compliance.md](./docs/Security-Compliance.md)
+
+---
+
+## Current Status (2026-06-24)
+
+**Phase 0 foundations are complete** (no technical debt allowed on these):
+
+- Full i18n (next-intl) across UI, chat, modals, reports. Zero hardcoded English.
+- Tax foundation live: `TaxRate` + `taxRateId` on lines + live selector + tax-aware P&L.
+- Multi-currency foundation:
+  - `JournalLine`: `currency`, `fxRateToBase`, `fxSource`, `fxDate`
+  - Bank/credit card feed rates are authoritative
+  - Automatic date-pinned conversion to base
+  - Public FX fallbacks documented (ECB, Bank of Canada, etc.)
+  - PDF uploads must extract currency and cross-check feeds; chat must ask for confirmation when uncertain
+- Chat Lock (advisory-only safety mode)
+- PDF processing extracts currency + tax hints + cross-checks feeds and returns FX + tax enriched suggestions
+- Reports (P&L + Balance Sheet) are FX-aware and show per-currency native/base subtotals + feed flags
+- Dedicated feed import endpoint for authoritative `BANK_FEED:...` entries
+- Richer currency breakdown in reports + UI
+
+**Next major areas (see docs + this session):**
+- Proper Setup & Deployment experience (README + `docs/SETUP.md`)
+- Admin UI + User management + Settings (company, base currency, etc.)
+- First-admin bootstrap flow
+- Continue with Phase 1 AI agent work on top of the solid foundation
+
+---
+
+## Project Structure (Key Parts)
+
+```
+app/
+  app/                 # Main hybrid chat + panels UI
+  api/                 # journal-entries, chat, invoices/process, reports, tax-rates, fx, feeds/import, ...
+prisma/
+  schema.prisma
+  seed.ts
+messages/en.json       # All UI strings
+docs/                  # Architecture + implementation docs
+```
+
+---
+
+## Common Commands
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run build
+npx prisma studio
+npm run db:seed
+npx prisma migrate reset
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## License
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+To be decided (currently self-hosted / open-source intent).
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**Important:** i18n, multi-jurisdiction tax, and multi-currency (with feed rates as authoritative) are **non-negotiable foundations**. "We'll add it later" is not acceptable.

@@ -23,46 +23,122 @@ export async function GET() {
     const revenueLines: any[] = []
     const expenseLines: any[] = []
 
+    // Richer per-currency breakdown (Phase 0 multi-currency enhancement)
+    // key: currency code (e.g. "USD", "EUR")
+    const byCurrency: Record<string, {
+      revenueNative: number
+      expensesNative: number
+      revenueBase: number
+      expensesBase: number
+      netNative: number
+      netBase: number
+    }> = {}
+
+    // Helper: convert a line amount to base currency (EUR) using fxRateToBase if present.
+    // fxRateToBase means: baseAmount = foreignAmount * fxRateToBase
+    const toBase = (line: any, amount: number): number => {
+      const cur = (line.currency || 'EUR').toUpperCase()
+      if (cur === 'EUR') return amount
+      const rate = line.fxRateToBase != null ? Number(line.fxRateToBase) : null
+      return rate != null && isFinite(rate) ? amount * rate : amount // fallback: use raw if no rate (will be visible in UI)
+    }
+
     accounts.forEach(account => {
       account.journalLines.forEach(line => {
         const debit = Number(line.debit)
         const credit = Number(line.credit)
 
+        // Use base-currency equivalents for totals
+        const baseDebit = toBase(line, debit)
+        const baseCredit = toBase(line, credit)
+
+        const cur = (line.currency || 'EUR').toUpperCase()
+        if (!byCurrency[cur]) {
+          byCurrency[cur] = {
+            revenueNative: 0,
+            expensesNative: 0,
+            revenueBase: 0,
+            expensesBase: 0,
+            netNative: 0,
+            netBase: 0,
+          }
+        }
+        const bc = byCurrency[cur]
+
         if (account.type === 'REVENUE') {
-          totalRevenue += credit - debit
+          totalRevenue += baseCredit - baseDebit
+          bc.revenueNative += (credit - debit)
+          bc.revenueBase += (baseCredit - baseDebit)
+
           if (line.taxRate && !line.taxRate.isInputTax) {
-            const taxAmt = (credit - debit) * Number(line.taxRate.rate)
+            const taxAmt = (baseCredit - baseDebit) * Number(line.taxRate.rate)
             totalOutputTax += taxAmt
           }
         } else if (account.type === 'EXPENSE') {
-          totalExpenses += debit - credit
+          totalExpenses += baseDebit - baseCredit
+          bc.expensesNative += (debit - credit)
+          bc.expensesBase += (baseDebit - baseCredit)
+
           if (line.taxRate && line.taxRate.isInputTax) {
-            const taxAmt = (debit - credit) * Number(line.taxRate.rate)
+            const taxAmt = (baseDebit - baseCredit) * Number(line.taxRate.rate)
             totalInputTax += taxAmt
           }
         }
       })
 
-      const balance = account.journalLines.reduce((sum, line) => {
+      // Per-account balance in base currency + native (original currency) sum for transparency
+      let baseBalance = 0
+      let nativeBalance = 0
+      const currencies = new Set<string>()
+
+      account.journalLines.forEach(line => {
+        const d = Number(line.debit)
+        const c = Number(line.credit)
+        const baseD = toBase(line, d)
+        const baseC = toBase(line, c)
+        const cur = (line.currency || 'EUR').toUpperCase()
+        currencies.add(cur)
+
+        const nativeD = cur === 'EUR' ? d : d
+        const nativeC = cur === 'EUR' ? c : c
+
         if (account.type === 'REVENUE') {
-          return sum + Number(line.credit) - Number(line.debit)
+          baseBalance += baseC - baseD
+          nativeBalance += nativeC - nativeD
         } else if (account.type === 'EXPENSE') {
-          return sum + Number(line.debit) - Number(line.credit)
+          baseBalance += baseD - baseC
+          nativeBalance += nativeD - nativeC
         }
-        return sum
-      }, 0)
+      })
 
-      const cleanBalance = parseFloat(balance.toFixed(2))
+      const cleanBase = parseFloat(baseBalance.toFixed(2))
+      const cleanNative = parseFloat(nativeBalance.toFixed(2))
+      const displayCurrency = Array.from(currencies).find(c => c !== 'EUR') || Array.from(currencies)[0] || 'EUR'
 
-      // Multi-currency: pick first non-EUR or default
-      const currencies = Array.from(new Set(account.journalLines.map(l => l.currency || 'EUR')))
-      const displayCurrency = currencies.find(c => c !== 'EUR') || currencies[0] || 'EUR'
+      // Detect if any line in this account came from an authoritative bank/card feed
+      const hasFeed = account.journalLines.some(l =>
+        (l.fxSource || '').toUpperCase().startsWith('BANK_FEED')
+      )
 
-      if (account.type === 'REVENUE' && cleanBalance !== 0) {
-        revenueLines.push({ code: account.code, name: account.name, amount: cleanBalance, currency: displayCurrency })
-      } else if (account.type === 'EXPENSE' && cleanBalance !== 0) {
-        expenseLines.push({ code: account.code, name: account.name, amount: cleanBalance, currency: displayCurrency })
+      if ((account.type === 'REVENUE' || account.type === 'EXPENSE') && cleanBase !== 0) {
+        const target = account.type === 'REVENUE' ? revenueLines : expenseLines
+        target.push({
+          code: account.code,
+          name: account.name,
+          amount: cleanBase,
+          nativeAmount: cleanNative,
+          currency: displayCurrency,
+          baseCurrency: 'EUR',
+          feedSourced: hasFeed,
+        })
       }
+    })
+
+    // Finalize per-currency nets
+    Object.keys(byCurrency).forEach(cur => {
+      const bc = byCurrency[cur]
+      bc.netNative = parseFloat((bc.revenueNative - bc.expensesNative).toFixed(2))
+      bc.netBase = parseFloat((bc.revenueBase - bc.expensesBase).toFixed(2))
     })
 
     const netIncome = parseFloat((totalRevenue - totalExpenses).toFixed(2))
@@ -81,7 +157,11 @@ export async function GET() {
         inputTax: parseFloat(totalInputTax.toFixed(2)),
         outputTax: parseFloat(totalOutputTax.toFixed(2)),
         netTax: parseFloat((totalOutputTax - totalInputTax).toFixed(2))
-      }
+      },
+      // Rich multi-currency view
+      byCurrency: Object.fromEntries(
+        Object.entries(byCurrency).map(([cur, v]) => [cur, v])
+      )
     })
   } catch (error) {
     console.error('P&L error:', error)

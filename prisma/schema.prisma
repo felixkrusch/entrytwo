@@ -124,3 +124,12 @@ model Snapshot {
   createdAt DateTime @default(now())
   data      Json
 }
+
+// Global settings / company configuration (used by Admin UI)
+model Setting {
+  id        String   @id @default(uuid())
+  key       String   @unique     // e.g. "company.name", "baseCurrency", "defaultTaxJurisdiction"
+  value     Json                     // flexible value (string, number, object, etc.)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

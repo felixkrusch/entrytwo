@@ -195,9 +195,30 @@ This approach significantly reduces risk.
   - Journal entries now display tax badges when present.
   - Chat backend receives live tax rates in context and fallback suggestions can attach tax.
   - P&L now returns taxSummary (input/output/net) and UI shows it.
-- **Multi-Currency**: Documented as mandatory foundation (JournalLine + currency, base currency, FX rates, **automatic conversion pinned to transaction/payment date** via fxDate/fxRateToBase, currency-aware reports). Implementation pending.
-- **Chat Lock (Safety Mode)**: Designed and documented. Lock icon will toggle advisory-only mode (chat gives advice but cannot create/modify/reverse entries).
+- **Multi-Currency**: Fully implemented in core flows:
+  - JournalLine carries currency + fxRateToBase + fxSource + fxDate
+  - Bank/credit card feed rates are authoritative
+  - Automatic date-pinned conversion to base in journal creation, reversals, P&L, Balance Sheet
+  - PDF processing extracts currency, cross-checks feeds, and returns FX-enriched suggestions
+  - Rich per-currency breakdown (native + base) in reports + UI
+  - Dedicated `/api/fx` lookup and `/api/feeds/import` (authoritative BANK_FEED entries)
+- **Chat Lock (Safety Mode)**: Implemented (Lock/Unlock toggle, advisory-only mode, blocks create/reverse actions).
 - All user-facing text goes through i18n. Tax data is collected at entry creation.
 - No technical debt on i18n, tax, multi-currency architecture, or safety controls.
 
-**Document Status:** Draft v1 (updated with mandatory i18n + tax foundations — implementation complete)
+**Admin UI & Setup: IMPLEMENTED (2026-06-24)**
+- `docs/SETUP.md` + overhauled `README.md` with complete first-run, Docker, seeding, and bootstrap instructions.
+- `docs/ADMIN-UI.md` created and kept up to date.
+- `Setting` model + migration added for company/global config.
+- Full `AdminPanel.tsx` with:
+  - User list / create / role change / delete (all audited via Event)
+  - Live editable company settings (name, baseCurrency, defaultTaxJurisdiction)
+- First-admin bootstrap:
+  - `GET /api/bootstrap/status`
+  - Main layout now **gates the entire application** — shows only the bootstrap form until at least one ADMIN exists.
+  - Creating the first ADMIN immediately unlocks full UI.
+- Default settings seeded.
+- All changes go through audit events.
+- i18n strings added for Admin UI.
+
+**Document Status:** Draft v1 (Phase 0 foundations + Admin UI + Setup + Bootstrap all implemented)

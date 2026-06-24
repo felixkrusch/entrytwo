@@ -71,7 +71,10 @@
         "tax": "Tax",
         "inputTax": "Input",
         "outputTax": "Output",
-        "netTax": "Net Tax"
+        "netTax": "Net Tax",
+        "byCurrency": "By currency",
+        "netBase": "Base net",
+        "netNative": "Native"
       },
       "reports": {
         "title": "Balance Sheet",
@@ -85,15 +88,31 @@
         "noEquity": "No equity accounts",
         "balanceCheck": "Assets = Liabilities + Equity",
         "balanced": "Balanced",
-        "checkEntries": "Check entries"
+        "checkEntries": "Check entries",
+        "byCurrency": "By currency"
       },
-      "audit": {
-        "title": "Audit Log (last events)",
-        "events": "Events",
-        "loading": "Loading audit...",
-        "empty": "No activity yet."
-      }
-    },
+       "audit": {
+         "title": "Audit Log (last events)",
+         "events": "Events",
+         "loading": "Loading audit...",
+         "empty": "No activity yet."
+       },
+       "admin": {
+         "title": "Admin",
+         "loading": "Loading admin...",
+         "users": "Users",
+         "settings": "Company Settings",
+         "companyName": "Company Name",
+         "baseCurrency": "Base Currency",
+         "defaultTaxJurisdiction": "Default Tax Jurisdiction",
+         "createUser": "Create User",
+         "delete": "Delete",
+         "noUsers": "No users yet.",
+         "changesAudited": "Changes are saved immediately and audited.",
+         "firstAdminTitle": "Create First Admin",
+         "firstAdminDesc": "No administrator exists yet. Create the initial ADMIN user to unlock the application."
+       }
+     },
     "modal": {
       "title": "New Journal Entry",
       "suggestedByChat": "Suggested by chat",

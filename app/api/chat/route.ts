@@ -3,6 +3,7 @@ import { streamText, generateObject } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
+import { getFxRateToBase } from '@/lib/fx'
 
 const openai = createOpenAI({
   apiKey: process.env.OPENAI_API_KEY || '',
@@ -16,6 +17,10 @@ const SuggestionSchema = z.object({
     credit: z.number().min(0),
     description: z.string().optional(),
     taxRateId: z.string().optional(),   // carry tax foundation from chat
+    currency: z.string().optional(),    // multi-currency
+    fxRateToBase: z.number().optional(),
+    fxSource: z.string().optional(),
+    fxDate: z.string().optional(),
   })).min(2),
 })
 
@@ -240,7 +245,16 @@ ${taxContext}
 Accounts:
 ${accountList}
 
-Multi-currency rule: Journal lines may carry "currency" (e.g. EUR, USD). Prefer to suggest the same currency as the user mentions or default to EUR. Include currency in suggestions.`
+Multi-currency + FX rules (Phase 0, no exceptions):
+- Every JournalLine must have "currency" (EUR, USD, GBP, ...). Default to EUR unless user specifies otherwise.
+- When the user mentions a foreign currency (USD, GBP, etc.) or an invoice in that currency:
+  - Put the actual foreign amount on the expense/revenue line.
+  - Put the exact base-currency (EUR) settlement amount on the cash/bank line.
+  - On the *foreign* line include: currency, fxRateToBase (base/foreign), fxSource (prefer "BANK_FEED:<provider>" when known, else "MANUAL"), fxDate (YYYY-MM-DD).
+- Bank/credit card feed rates are authoritative. If you have or can infer a feed-derived rate, use fxSource starting with "BANK_FEED:".
+- Never silently convert; always surface the original currency + the fx metadata on the foreign line.
+- Suggestions must be balanced in base currency after applying fxRateToBase.
+`
 
     const looksLikeTx = lower.match(/bought|paid|received|purchase|expense|revenue|supplies|software|client|services|capital|office|consult|bill|subscription|equipment|laptop|rent|salary|invoice|sale|record|post/)
     if (looksLikeTx) {
@@ -248,11 +262,27 @@ Multi-currency rule: Journal lines may carry "currency" (e.g. EUR, USD). Prefer 
         const { object } = await generateObject({
           model: openai('gpt-4o-mini'),
           schema: SuggestionSchema,
-          prompt: `${system}\n\nUser: ${lastMessage}\n\nReturn a clean balanced journal entry suggestion.`,
+          prompt: `${system}\n\nUser: ${lastMessage}\n\nReturn a clean balanced journal entry suggestion. For any non-EUR line include currency + fxRateToBase + fxSource + fxDate when possible.`,
         })
         const textRes = await streamText({ model: openai('gpt-4o-mini'), system, prompt: lastMessage })
         let text = ''
         for await (const d of textRes.textStream) text += d
+
+        // Enrich suggestion lines with rates if the model omitted fx metadata for foreign currency
+        if (object && Array.isArray(object.lines)) {
+          for (const line of object.lines) {
+            const cur = (line.currency || 'EUR').toUpperCase()
+            if (cur !== 'EUR' && line.fxRateToBase == null) {
+              const rate = await getFxRateToBase(cur)
+              if (rate != null) {
+                line.fxRateToBase = rate
+                line.fxSource = 'ECB'
+                line.fxDate = new Date().toISOString().slice(0, 10)
+              }
+            }
+          }
+        }
+
         return Response.json({ response: text.trim() || 'Balanced journal entry suggestion:', suggestion: object })
       } catch {
         return Response.json(await generateFallback(lastMessage))
@@ -271,8 +301,37 @@ Multi-currency rule: Journal lines may carry "currency" (e.g. EUR, USD). Prefer 
 
 async function generateFallback(text: string) {
   const lower = text.toLowerCase()
-  const amountMatch = text.match(/(\d+[\.,]?\d*)/)
-  const amount = amountMatch ? parseFloat(amountMatch[1].replace(',', '.')) : 100
+
+  // Multi-currency detection + FX extraction from natural language
+  // Examples we want to support:
+  //   "Adobe 120 USD, card settled 111 EUR"
+  //   "paid 120 USD for software, bank 111"
+  //   "invoice $120, charged €111"
+  let currency = 'EUR'
+  if (/\bUSD\b|\$/.test(text)) currency = 'USD'
+  else if (/\bGBP\b|£/.test(text)) currency = 'GBP'
+  else if (/\bEUR\b|€/.test(text)) currency = 'EUR'
+
+  // Try to extract two amounts when user gives foreign + base settlement
+  // e.g. "120 USD ... 111 EUR" or "$120 ... 111"
+  const allAmounts = Array.from(text.matchAll(/(\d+[\.,]?\d*)/g)).map(m => parseFloat(m[1].replace(',', '.'))).filter(n => !isNaN(n))
+  let foreignAmount = allAmounts[0] ?? 100
+  let baseAmount = allAmounts[1] ?? null
+
+  // If second amount exists and currencies differ, treat second as base
+  const hasExplicitBase = baseAmount != null && baseAmount > 0 && currency !== 'EUR'
+
+  const amount = foreignAmount
+
+  // If we have a clear foreign + base pair, compute the rate now
+  let fxRateToBase: number | undefined
+  let fxSource = 'MANUAL'
+  let fxDate: string | undefined
+  if (hasExplicitBase && foreignAmount > 0) {
+    fxRateToBase = baseAmount! / foreignAmount
+    fxSource = 'MANUAL'
+    fxDate = new Date().toISOString().slice(0, 10)
+  }
 
   const accounts = await getAccountsMap()
   const pick = (code: string, fallback: string) => (accounts[code] ? code : fallback)
@@ -313,13 +372,35 @@ async function generateFallback(text: string) {
 
     response = `${note} ~${amount}. Debit ${debitCode}, credit ${cash}${taxRateId ? ' (+ tax)' : ''}.`
     const lines: any[] = [
-      { accountCode: debitCode, debit: amount, description: note, currency: 'EUR' }
+      { accountCode: debitCode, debit: amount, description: note, currency }
     ]
     if (taxRateId && deInput) {
       const taxAmt = Math.round(amount * Number(deInput.rate) * 100) / 100
-      lines.push({ accountCode: debitCode, debit: taxAmt, description: `Input tax ${deInput.name}`, currency: 'EUR' })
+      lines.push({ accountCode: debitCode, debit: taxAmt, description: `Input tax ${deInput.name}`, currency })
     }
-    lines.push({ accountCode: cash, credit: amount, currency: 'EUR' })
+
+    // If user explicitly gave foreign + base amounts, use the exact base amount + rate.
+    if (hasExplicitBase && baseAmount != null) {
+      lines.push({ accountCode: cash, credit: baseAmount, currency: 'EUR' })
+      if (fxRateToBase != null) {
+        lines[0].fxRateToBase = fxRateToBase
+        lines[0].fxSource = fxSource
+        lines[0].fxDate = fxDate
+      }
+    } else {
+      lines.push({ accountCode: cash, credit: amount, currency })
+    }
+
+    // Best-effort: enrich the foreign line with a live ECB rate if we still have none.
+    // This runs in the route handler so we can await.
+    if (currency !== 'EUR' && lines[0].fxRateToBase == null) {
+      const rate = await getFxRateToBase(currency)
+      if (rate != null) {
+        lines[0].fxRateToBase = rate
+        lines[0].fxSource = 'ECB'
+        lines[0].fxDate = new Date().toISOString().slice(0, 10)
+      }
+    }
 
     suggestion = {
       description: text || note,
@@ -330,8 +411,8 @@ async function generateFallback(text: string) {
     suggestion = {
       description: text || 'Revenue',
       lines: [
-        { accountCode: bank, debit: amount, description: 'Bank deposit', currency: 'EUR' },
-        { accountCode: revenue, credit: amount, description: 'Revenue earned', currency: 'EUR' }
+        { accountCode: bank, debit: amount, description: 'Bank deposit', currency },
+        { accountCode: revenue, credit: amount, description: 'Revenue earned', currency }
       ]
     }
   } else if (isEquity) {
@@ -339,8 +420,8 @@ async function generateFallback(text: string) {
     suggestion = {
       description: text || 'Owner contribution',
       lines: [
-        { accountCode: cash, debit: amount, currency: 'EUR' },
-        { accountCode: equity, credit: amount, currency: 'EUR' }
+        { accountCode: cash, debit: amount, currency },
+        { accountCode: equity, credit: amount, currency }
       ]
     }
   } else if (lower.includes('journal') || lower.includes('entry')) {
@@ -348,8 +429,8 @@ async function generateFallback(text: string) {
     suggestion = {
       description: text || 'Manual entry',
       lines: [
-        { accountCode: cash, debit: amount, currency: 'EUR' },
-        { accountCode: equity, credit: amount, currency: 'EUR' }
+        { accountCode: cash, debit: amount, currency },
+        { accountCode: equity, credit: amount, currency }
       ]
     }
   } else if (lower.includes('balance') || lower.includes('report') || lower.includes('net')) {

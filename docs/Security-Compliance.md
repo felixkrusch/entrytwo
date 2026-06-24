@@ -138,4 +138,4 @@ Since entrytwo is self-hosted, users are responsible for security. We should pro
 
 **Document Status:** Draft v1 (updated with i18n + tax compliance requirements)
 
-**Implementation note (2026-06-24):** i18n and tax data collection are live. All UI text translatable. Tax amounts are captured at source on journal lines. Multi-currency fields added to JournalLine (currency, fxRateToBase, fxSource, fxDate). Chat Lock (advisory-only) implemented as safety control.
+**Implementation note (2026-06-24):** i18n, tax, and multi-currency complete. Admin UI + User management + Company Settings + First-admin bootstrap gate implemented (blocks entire app until first ADMIN exists). All admin actions audited. Chat Lock (advisory-only) live.

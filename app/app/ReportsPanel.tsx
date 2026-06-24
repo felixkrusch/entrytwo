@@ -7,21 +7,32 @@ interface AccountBalance {
   code: string
   name: string
   type: string
-  balance: number
-  currency?: string
+  balance: number          // base-currency (EUR) total
+  currency?: string        // dominant/original currency for the account
+  baseCurrency?: string
+  nativeBalance?: number   // sum in the dominant currency (if different)
+}
+
+interface BSData {
+  accounts: AccountBalance[]
+  byCurrency?: Record<string, { native: number; base: number }>
 }
 
 export default function ReportsPanel() {
   const t = useTranslations('app.panels.reports')
   const format = useFormatter()
-  const [balances, setBalances] = useState<AccountBalance[]>([])
+  const [data, setData] = useState<BSData | null>(null)
   const [loading, setLoading] = useState(true)
 
   const fetchBalances = () => {
     fetch('/api/reports/balance-sheet')
       .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) setBalances(data)
+      .then((d: any) => {
+        if (Array.isArray(d)) {
+          setData({ accounts: d })
+        } else if (d && Array.isArray(d.accounts)) {
+          setData(d)
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -35,6 +46,7 @@ export default function ReportsPanel() {
     return () => window.removeEventListener('journal-updated', handler)
   }, [])
 
+  const balances = data?.accounts || []
   const assets = balances.filter(b => b.type === 'ASSET')
   const liabilities = balances.filter(b => b.type === 'LIABILITY')
   const equity = balances.filter(b => b.type === 'EQUITY')
@@ -62,7 +74,10 @@ export default function ReportsPanel() {
             {assets.length > 0 ? assets.map(a => (
               <div key={a.code} className="flex justify-between py-1 border-b border-zinc-800 pl-2">
                 <span>{a.code} {a.name}</span>
-                <span className="font-mono text-emerald-400">{format.number(a.balance, { style: 'currency', currency: 'EUR' })}{a.currency && a.currency !== 'EUR' ? ` (${a.currency})` : ''}</span>
+                <span className="font-mono text-emerald-400">
+                  {format.number(a.balance, { style: 'currency', currency: 'EUR' })}
+                  {a.currency && a.currency !== 'EUR' ? ` (${a.currency}${a.nativeBalance != null ? ` ~${a.nativeBalance.toFixed(2)}` : ''})` : ''}
+                </span>
               </div>
             )) : <div className="text-zinc-500 pl-2">{t('noAssets')}</div>}
           </div>
@@ -75,7 +90,10 @@ export default function ReportsPanel() {
             {liabilities.length > 0 ? liabilities.map(a => (
               <div key={a.code} className="flex justify-between py-1 border-b border-zinc-800 pl-2">
                 <span>{a.code} {a.name}</span>
-                <span className="font-mono text-amber-400">{format.number(a.balance, { style: 'currency', currency: 'EUR' })}{a.currency && a.currency !== 'EUR' ? ` (${a.currency})` : ''}</span>
+                <span className="font-mono text-amber-400">
+                  {format.number(a.balance, { style: 'currency', currency: 'EUR' })}
+                  {a.currency && a.currency !== 'EUR' ? ` (${a.currency}${a.nativeBalance != null ? ` ~${a.nativeBalance.toFixed(2)}` : ''})` : ''}
+                </span>
               </div>
             )) : <div className="text-zinc-500 pl-2">{t('noLiabilities')}</div>}
           </div>
@@ -88,10 +106,26 @@ export default function ReportsPanel() {
             {equity.length > 0 ? equity.map(a => (
               <div key={a.code} className="flex justify-between py-1 border-b border-zinc-800 pl-2">
                 <span>{a.code} {a.name}</span>
-                <span className="font-mono text-purple-400">{format.number(a.balance, { style: 'currency', currency: 'EUR' })}{a.currency && a.currency !== 'EUR' ? ` (${a.currency})` : ''}</span>
+                <span className="font-mono text-purple-400">
+                  {format.number(a.balance, { style: 'currency', currency: 'EUR' })}
+                  {a.currency && a.currency !== 'EUR' ? ` (${a.currency}${a.nativeBalance != null ? ` ~${a.nativeBalance.toFixed(2)}` : ''})` : ''}
+                </span>
               </div>
             )) : <div className="text-zinc-500 pl-2">{t('noEquity')}</div>}
           </div>
+
+          {/* Richer currency view for balance sheet */}
+          {data?.byCurrency && Object.keys(data.byCurrency).length > 0 && (
+            <div className="pt-2 text-[10px] text-zinc-400 font-mono">
+              <div className="text-[9px] text-zinc-500 mb-0.5">{t('byCurrency')}</div>
+              {Object.entries(data.byCurrency).sort().map(([cur, v]: any) => (
+                <div key={cur}>
+                  {cur}: base {format.number(v.base, { style: 'currency', currency: 'EUR' })}
+                  {cur !== 'EUR' && v.native != null ? ` • native ~${v.native.toFixed(2)}` : ''}
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="pt-3 border-t border-zinc-700 text-xs text-zinc-400 flex justify-between">
             <span>{t('balanceCheck')}</span>

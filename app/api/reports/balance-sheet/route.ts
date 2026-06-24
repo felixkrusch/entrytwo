@@ -9,29 +9,71 @@ export async function GET() {
       }
     })
 
-    const report = accounts.map(account => {
-      const balance = account.journalLines.reduce((sum, line) => {
-        if (['ASSET', 'EXPENSE'].includes(account.type)) {
-          return sum + Number(line.debit) - Number(line.credit)
-        } else {
-          return sum + Number(line.credit) - Number(line.debit)
-        }
-      }, 0)
+    // FX-aware base conversion helper
+    const toBase = (line: any, amount: number): number => {
+      const cur = (line.currency || 'EUR').toUpperCase()
+      if (cur === 'EUR') return amount
+      const rate = line.fxRateToBase != null ? Number(line.fxRateToBase) : null
+      return rate != null && isFinite(rate) ? amount * rate : amount
+    }
 
-      // Multi-currency awareness: pick first non-EUR or default EUR
-      const currencies = Array.from(new Set(account.journalLines.map(l => l.currency || 'EUR')))
-      const displayCurrency = currencies.find(c => c !== 'EUR') || currencies[0] || 'EUR'
+    // Richer per-currency view for the whole balance sheet
+    const byCurrency: Record<string, { native: number; base: number }> = {}
+
+    const report = accounts.map(account => {
+      let baseBal = 0
+      let nativeBal = 0
+      const currencies = new Set<string>()
+
+      account.journalLines.forEach(line => {
+        const d = Number(line.debit)
+        const c = Number(line.credit)
+        const baseD = toBase(line, d)
+        const baseC = toBase(line, c)
+        const cur = (line.currency || 'EUR').toUpperCase()
+        currencies.add(cur)
+
+        const nativeD = cur === 'EUR' ? d : d
+        const nativeC = cur === 'EUR' ? c : c
+
+        if (['ASSET', 'EXPENSE'].includes(account.type)) {
+          baseBal += baseD - baseC
+          nativeBal += nativeD - nativeC
+        } else {
+          baseBal += baseC - baseD
+          nativeBal += nativeC - nativeD
+        }
+
+        if (!byCurrency[cur]) byCurrency[cur] = { native: 0, base: 0 }
+        const deltaNative = (['ASSET', 'EXPENSE'].includes(account.type) ? nativeD - nativeC : nativeC - nativeD)
+        const deltaBase = (['ASSET', 'EXPENSE'].includes(account.type) ? baseD - baseC : baseC - baseD)
+        byCurrency[cur].native += deltaNative
+        byCurrency[cur].base += deltaBase
+      })
+
+      const displayCurrency = Array.from(currencies).find(c => c !== 'EUR') || currencies.values().next().value || 'EUR'
 
       return {
         code: account.code,
         name: account.name,
         type: account.type,
-        balance: parseFloat(balance.toFixed(2)),
-        currency: displayCurrency
+        balance: parseFloat(baseBal.toFixed(2)),
+        nativeBalance: parseFloat(nativeBal.toFixed(2)),
+        currency: displayCurrency,
+        baseCurrency: 'EUR'
       }
     })
 
-    return NextResponse.json(report)
+    // Round byCurrency
+    Object.keys(byCurrency).forEach(k => {
+      byCurrency[k].native = parseFloat(byCurrency[k].native.toFixed(2))
+      byCurrency[k].base = parseFloat(byCurrency[k].base.toFixed(2))
+    })
+
+    return NextResponse.json({
+      accounts: report,
+      byCurrency
+    })
   } catch (error) {
     return NextResponse.json(
       { error: 'Failed to generate balance sheet' },

@@ -216,23 +216,45 @@ export default function ChatPage() {
       if (data.text) {
         const preview = data.text.substring(0, 280) + (data.text.length > 280 ? '...' : '')
 
-        // Very crude extraction for demo: look for currency-like numbers
-        const moneyMatch = data.text.match(/(\d{1,3}(?:[\.,]\d{2})?)/g)
-        const guessedAmount = moneyMatch ? parseFloat(moneyMatch[moneyMatch.length - 1].replace(',', '.')) : 100
+        const det = data.detected || {}
+        const detectedCurrency = det.currency || 'EUR'
+        const detectedTotal = typeof det.total === 'number' ? det.total : null
+        const amount = detectedTotal ?? 100
 
-        const pdfSuggestion: NewEntrySuggestion = {
-          description: `Invoice: ${file.name}`,
-          lines: [
-            { accountCode: '5200', debit: guessedAmount, description: 'Expense from invoice', currency: 'EUR' },
-            { accountCode: '2000', credit: guessedAmount, description: 'Accounts payable', currency: 'EUR' }
-          ]
-        }
+        // Prefer structured suggestion from API if provided (with real currency + tax + fx)
+        const apiSuggestion = data.suggestion
+        const pdfSuggestion: NewEntrySuggestion = apiSuggestion
+          ? {
+              description: apiSuggestion.description,
+              lines: apiSuggestion.lines,
+            }
+          : {
+              description: `Invoice: ${file.name}${det.vendor ? ` — ${det.vendor}` : ''}`,
+              lines: [
+                { accountCode: '5200', debit: amount, description: 'Expense from invoice', currency: detectedCurrency },
+                { accountCode: '2000', credit: amount, description: 'Accounts payable', currency: detectedCurrency }
+              ]
+            }
+
+        const currencyNote = det.currency
+          ? `Detected currency: ${det.currency} (confidence: ${det.currencyConfidence || 'low'})`
+          : 'Currency not confidently detected from PDF.'
+
+        const taxNote = det.tax
+          ? `Detected tax: ${det.tax.jurisdiction} ${det.tax.name} (${(det.tax.rate * 100).toFixed(0)}%)`
+          : ''
+
+        const needsConfirm = apiSuggestion?.needsConfirmation || (!det.currency || det.currencyConfidence === 'low')
 
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `Extracted from ${file.name} (guessed amount ~${guessedAmount}):\n${preview}`,
+          content: `Extracted from ${file.name}:\n${preview}\n\n${currencyNote}${taxNote ? `\n${taxNote}` : ''}${detectedTotal ? `\nGuessed total: ${detectedTotal}` : ''}\n\n${needsConfirm ? 'Please review currency, tax, and amounts and confirm before posting.' : 'Review the suggestion.'}`,
           action: 'suggest_entry',
-          suggestion: pdfSuggestion
+          suggestion: {
+            ...pdfSuggestion,
+            source: 'pdf',
+            needsConfirmation: needsConfirm,
+          }
         }])
 
         toast.success(t('pdfParsed'))
