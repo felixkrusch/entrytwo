@@ -19,6 +19,16 @@ This document defines the detailed database schema for entrytwo using Prisma. It
 - Use snapshots + events for performance.
 - All financial changes must go through the event system.
 
+**Non-Negotiable Foundations (No Technical Debt Allowed):**
+- **Internationalization (i18n)**: The data model and all user-facing data must support full translation readiness. Account names, descriptions, event descriptions, and report labels must be externalizable. The application layer (not this schema) must route all strings through an i18n system. No English strings may be hardcoded anywhere.
+- **Tax / VAT / Sales Tax as Core**: Tax handling is a foundational requirement from Phase 0. The schema already includes a `TaxRate` model and `taxRateId` on `JournalLine`. This must be expanded early to support:
+  - Multiple jurisdictions / countries
+  - Effective dates and historical rates
+  - Tax types (standard, reduced, exempt, zero-rated, reverse charge, etc.)
+  - Input tax vs Output tax classification
+  - Proper linking so that tax amounts are correctly recorded and reportable (UStVA, VAT returns, etc.)
+  "We'll fix the tax model later" is forbidden. The model must be correct and extensible from the beginning.
+
 ---
 
 ## 3. Prisma Schema
@@ -96,16 +106,36 @@ model JournalLine {
   credit         Decimal  @default(0)
   description    String?
   taxRateId      String?
+  currency       String   @default("EUR")   // ISO 4217, e.g. EUR, USD, GBP
+  fxRateToBase   Decimal?                   // derived or looked-up rate: baseAmount / foreignAmount (or inverse as appropriate)
+  fxSource       String?                    // Authoritative source of the rate:
+                                             //   "BANK_FEED:<provider>:<tx-or-statement-ref>"  (highest priority when available)
+                                             //   "STATEMENT:<provider>:<ref>"
+                                             //   "ECB" | "BANK_OF_CANADA" | ...
+                                             //   "MANUAL"
+                                             // Must be recorded for every non-base-currency line.
+  fxDate         DateTime?                  // Date the rate was applied by the source (settlement / posting date preferred)
 
   journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id])
   account      Account      @relation(fields: [accountId], references: [id])
 }
 
 model TaxRate {
-  id        String   @id @default(uuid())
-  name      String
-  rate      Decimal
-  createdAt DateTime @default(now())
+  id            String    @id @default(uuid())
+  jurisdiction  String    // e.g. "DE", "US-CA", "EU", "AT"
+  name          String    // e.g. "MwSt 19%", "USt 7%", "Sales Tax 8.25%"
+  rate          Decimal   // e.g. 0.19 for 19%
+  taxType       String    // "STANDARD" | "REDUCED" | "EXEMPT" | "ZERO" | "REVERSE_CHARGE"
+  isInputTax    Boolean   @default(false)  // true = Vorsteuer (input), false = Umsatzsteuer (output)
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+  description   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Future: link to accounts if automatic tax accounts are used
+  // inputAccountId  String?
+  // outputAccountId String?
 }
 
 model Event {
@@ -156,12 +186,21 @@ Performance can become an issue with too many events. Snapshots help mitigate th
 AI-triggered changes must go through strict verification and approval.
 
 
-8. Next Steps
+ 8. Next Steps
 
-Finalize and test the core models
+Finalize and test the core models (including expanded TaxRate)
 Implement event logging for all financial changes
 Add snapshot creation logic
 Build rollback functionality
+**Ensure i18n framework is set up and all user-facing strings are externalized before any real data entry**
+**Expand tax handling to full jurisdiction + effective date + type support in Phase 0**
+**All reports and journal entry flows must be tax-aware and i18n-ready from the first working version**
+**Add multi-currency fields to JournalLine (currency + fx metadata) + base currency concept + currency-aware reporting from Phase 0**
+**Implement automatic currency conversion pinned to transaction/payment date** (fxDate + fxRateToBase + fxSource per line; base-currency rollups in reports). 
+- When importing from bank or credit card feeds, the actual exchange rate applied by the provider for that transaction (derived from the exact base-currency amount moved) must be captured and stored. This is the authoritative rate for double-entry purposes.
+- The system may use public central bank APIs such as the ECB Statistical Data Warehouse (https://data.ecb.europa.eu/help/api/data) and Bank of Canada Valet (https://www.bankofcanada.ca/valet/docs) to obtain a published historical rate when feed data is not available.
+- `fxSource` must clearly indicate the origin (e.g. "BANK_FEED:Revolut:tx-12345", "ECB", "MANUAL").
+**Implement Chat Lock safety mode (lock icon) — chat becomes advisory-only and cannot create/modify/reverse entries when locked**
 
 
-Document Status: Draft v1
+Document Status: Draft v1 (updated with strict i18n + tax requirements)

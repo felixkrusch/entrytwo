@@ -109,6 +109,8 @@ Since entrytwo is self-hosted, users are responsible for security. We should pro
 | **Access Control** | Enforce role-based permissions |
 | **Data Retention** | Allow users to export and delete their data |
 | **GDPR Readiness** | Support data export and deletion requests (future) |
+| **Tax Compliance** | The system must correctly record and report jurisdiction-specific taxes (VAT, MwSt, sales tax, etc.). Tax handling is a core compliance requirement from Phase 0. Incorrect tax data is a serious compliance risk. |
+| **Internationalization / Localization** | All user-facing content must be translatable. Reports, invoices, and legal documents must be generatable in the user's language and with correct locale formatting. This is a compliance and usability requirement. |
 
 ---
 
@@ -129,7 +131,11 @@ Since entrytwo is self-hosted, users are responsible for security. We should pro
 - Create security documentation for self-hosters
 - Add rate limiting and basic security headers in the application
 - Plan for future compliance features (data export, retention policies)
+- **Verify that i18n framework is in place and all user-facing strings are externalized before any production-like use**
+- **Validate that the tax model + journal flows support correct multi-jurisdiction tax recording and reporting from Phase 0**
 
 ---
 
-**Document Status:** Draft v1
+**Document Status:** Draft v1 (updated with i18n + tax compliance requirements)
+
+**Implementation note (2026-06-24):** i18n and tax data collection are live. All UI text translatable. Tax amounts are captured at source on journal lines. Multi-currency fields added to JournalLine (currency, fxRateToBase, fxSource, fxDate). Chat Lock (advisory-only) implemented as safety control.

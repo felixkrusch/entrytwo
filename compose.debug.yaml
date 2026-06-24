@@ -1,0 +1,6 @@
+services:
+  entrytwo:
+    image: entrytwo
+    build:
+      context: .
+      dockerfile: ./Dockerfile

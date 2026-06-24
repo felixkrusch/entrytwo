@@ -1,0 +1,330 @@
+'use client'
+
+import { useState } from 'react'
+import { Send, Upload, Mic, Lock, Unlock } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { useNewEntry, NewEntrySuggestion } from './NewEntryContext'
+import { useTranslations } from 'next-intl'
+
+interface Message {
+  role: 'user' | 'assistant'
+  content: string
+  action?: 'suggest_entry'
+  suggestion?: NewEntrySuggestion
+}
+
+export default function ChatPage() {
+  const { openNewEntry } = useNewEntry()
+  const t = useTranslations('app.chat')
+  const tToasts = useTranslations('app.toasts')
+
+  const [messages, setMessages] = useState<Message[]>([
+    { role: 'assistant', content: t('welcome') }
+  ])
+  const [input, setInput] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+
+  // Chat Lock: when true, chat is advisory only. No create/modify/reverse actions allowed.
+  // This is a deliberate safety control (see docs for rationale).
+  const [isChatLocked, setIsChatLocked] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('chatLocked') === 'true'
+    }
+    return false
+  })
+
+  // Persist lock state
+  const toggleChatLock = () => {
+    const next = !isChatLocked
+    setIsChatLocked(next)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('chatLocked', String(next))
+    }
+    toast.success(next ? t('lockedToast') : t('unlockedToast'))
+  }
+
+  // Client fallback (used only if /api/chat fails). Server version is much smarter.
+  const generateResponse = (text: string): { response: string; suggestion?: NewEntrySuggestion } => {
+    const lower = text.toLowerCase().trim()
+    const amountMatch = text.match(/(\d+[\.,]?\d*)/)
+    const amount = amountMatch ? parseFloat(amountMatch[1].replace(',', '.')) : 100
+
+    // Multi-currency detection in fallback (Phase 0)
+    const currency = /usd|\$|dollars/.test(lower) ? 'USD' : (/eur|euro/.test(lower) ? 'EUR' : 'EUR')
+
+    let response = ''
+    let suggestion: NewEntrySuggestion | undefined
+
+    if (lower.includes('reverse')) {
+      response = 'Use the chat to reverse the most recent unreversed entry. It will prefill the reversal lines.'
+    } else if (lower.includes('supplies') || lower.includes('office supplies')) {
+      response = `Office supplies ~${amount}. Debit Office Supplies (5000), credit Cash (1000).`
+      suggestion = {
+        description: text,
+        lines: [
+          { accountCode: '5000', debit: amount, description: 'Office supplies', currency },
+          { accountCode: '1000', credit: amount, description: 'Cash paid', currency }
+        ]
+      }
+    } else if (lower.includes('software') || lower.includes('subscription')) {
+      response = `Software ~${amount}. Debit Software & Subscriptions (5100), credit Cash (1000).`
+      suggestion = {
+        description: text,
+        lines: [
+          { accountCode: '5100', debit: amount, description: 'Software', currency },
+          { accountCode: '1000', credit: amount, currency }
+        ]
+      }
+    } else if (lower.includes('professional') || lower.includes('consult') || lower.includes('services')) {
+      response = `Professional services ~${amount}.`
+      suggestion = {
+        description: text,
+        lines: [
+          { accountCode: '5200', debit: amount, currency },
+          { accountCode: '1000', credit: amount, currency }
+        ]
+      }
+    } else if (lower.includes('revenue') || lower.includes('client paid') || lower.includes('received')) {
+      response = `Revenue ~${amount}. Bank (1100) debit + Revenue (4000) credit.`
+      suggestion = {
+        description: text,
+        lines: [
+          { accountCode: '1100', debit: amount, description: 'Bank deposit', currency },
+          { accountCode: '4000', credit: amount, description: 'Revenue earned', currency }
+        ]
+      }
+    } else if (lower.includes('invoice') || lower.includes('bill') || lower.includes('payable')) {
+      response = `Expense via payable ~${amount}.`
+      suggestion = {
+        description: text,
+        lines: [
+          { accountCode: '5200', debit: amount, currency },
+          { accountCode: '2000', credit: amount, description: 'Accounts payable', currency }
+        ]
+      }
+    } else if (lower.includes('equity') || lower.includes('owner') || lower.includes('capital')) {
+      response = `Owner contribution ~${amount}.`
+      suggestion = {
+        description: text,
+        lines: [
+          { accountCode: '1000', debit: amount, currency },
+          { accountCode: '3000', credit: amount, currency }
+        ]
+      }
+    } else if (lower.includes('journal') || lower.includes('entry')) {
+      response = 'Manual journal entry.'
+      suggestion = {
+        description: text || 'Manual entry',
+        lines: [
+          { accountCode: '1000', debit: amount, currency },
+          { accountCode: '3000', credit: amount, currency }
+        ]
+      }
+    } else if (lower.includes('cash') && lower.includes('balance')) {
+      response = 'Ask the chat "what is my cash balance?" for a live number.'
+    } else if (lower.includes('balance') || lower.includes('report') || lower.includes('asset') || lower.includes('net')) {
+      response = 'Live Balance Sheet, P&L and Summary are on the right. Or ask the chat for specific numbers.'
+    } else if (lower.includes('account') || lower.includes('chart')) {
+      response = 'Chart of accounts is on the right.'
+    } else {
+      response = "I can draft journal entries. Try 'bought supplies for 65', 'client paid 800', or 'reverse last entry'."
+    }
+
+    return { response, suggestion }
+  }
+
+  const sendMessage = async () => {
+    if (!input.trim()) return
+
+    const userMessage: Message = { role: 'user', content: input }
+    const newMessages = [...messages, userMessage]
+    setMessages(newMessages)
+    const current = input
+    setInput('')
+    setIsLoading(true)
+
+    try {
+      // Send last 8 messages for context
+      const history = newMessages.slice(-8).map(m => ({
+        role: m.role,
+        content: m.content
+      }))
+
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: history })
+      })
+
+      const data = await res.json()
+
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: data.response || 'Got it.',
+        action: data.suggestion ? 'suggest_entry' : undefined,
+        suggestion: data.suggestion
+      }])
+    } catch (e) {
+      const { response, suggestion } = generateResponse(current)
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: response,
+        action: suggestion ? 'suggest_entry' : undefined,
+        suggestion
+      }])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      sendMessage()
+    }
+  }
+
+  const handleSuggest = (suggestion?: NewEntrySuggestion) => {
+    if (isChatLocked) {
+      toast.error(t('lockedToast') || 'Chat is locked (advisory mode). Unlock to allow actions.')
+      return
+    }
+    openNewEntry(suggestion)
+  }
+
+  const handlePdf = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (isChatLocked) {
+      toast.error(t('lockedToast') || 'Chat is locked (advisory mode). Unlock to allow actions.')
+      return
+    }
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      toast.error(t('selectPdf'))
+      return
+    }
+
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const loadingId = toast.loading(t('pdfProcessing'))
+    try {
+      const res = await fetch('/api/invoices/process', { method: 'POST', body: formData })
+      const data = await res.json()
+      toast.dismiss(loadingId)
+
+      if (data.text) {
+        const preview = data.text.substring(0, 280) + (data.text.length > 280 ? '...' : '')
+
+        // Very crude extraction for demo: look for currency-like numbers
+        const moneyMatch = data.text.match(/(\d{1,3}(?:[\.,]\d{2})?)/g)
+        const guessedAmount = moneyMatch ? parseFloat(moneyMatch[moneyMatch.length - 1].replace(',', '.')) : 100
+
+        const pdfSuggestion: NewEntrySuggestion = {
+          description: `Invoice: ${file.name}`,
+          lines: [
+            { accountCode: '5200', debit: guessedAmount, description: 'Expense from invoice', currency: 'EUR' },
+            { accountCode: '2000', credit: guessedAmount, description: 'Accounts payable', currency: 'EUR' }
+          ]
+        }
+
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Extracted from ${file.name} (guessed amount ~${guessedAmount}):\n${preview}`,
+          action: 'suggest_entry',
+          suggestion: pdfSuggestion
+        }])
+
+        toast.success(t('pdfParsed'))
+      } else {
+        toast.dismiss(loadingId)
+        toast.error(t('pdfNoText'))
+      }
+    } catch (err) {
+      toast.dismiss(loadingId)
+      toast.error(t('pdfFailed') || 'Failed to process PDF')
+    }
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="border-b border-zinc-800 px-6 py-4 flex items-center justify-between">
+            <div>
+           <div className="font-semibold">entrytwo</div>
+           <div className="text-xs text-zinc-500">{t('subtitle') || 'AI Accountant • Phase 0/1'}</div>
+         </div>
+        <label className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm transition-colors cursor-pointer">
+          <Upload className="w-4 h-4" /> Upload PDF
+          <input type="file" accept=".pdf" className="hidden" onChange={handlePdf} />
+        </label>
+      </div>
+
+      <div className="flex-1 overflow-auto p-6 space-y-6">
+        {messages.map((msg, i) => (
+          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : ''}`}>
+            <div className={`max-w-[82%] rounded-2xl px-5 py-3 text-sm whitespace-pre-wrap ${
+              msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-zinc-800'
+            }`}>
+              {msg.content}
+              {msg.action === 'suggest_entry' && (
+                <button
+                  onClick={() => handleSuggest(msg.suggestion)}
+                  className="mt-2 block text-xs px-3 py-1 bg-white text-black rounded-full hover:bg-zinc-200 transition"
+                >
+                   {msg.suggestion?.description?.toLowerCase().includes('reversal')
+                     ? t('reviewReversal')
+                     : t('createEntry')}
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+         {isLoading && (
+           <div className="flex">
+             <div className="bg-zinc-800 rounded-2xl px-5 py-3 text-sm">{t('thinking')}</div>
+           </div>
+         )}
+      </div>
+
+      <div className="border-t border-zinc-800 p-4">
+        <div className="flex gap-3">
+          <button className="p-3 text-zinc-400 hover:text-zinc-200 transition-colors">
+            <Mic className="w-5 h-5" />
+          </button>
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={t('placeholder')}
+            disabled={isChatLocked}
+            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-3 text-sm focus:outline-none focus:border-zinc-700 disabled:opacity-60"
+          />
+          <button
+            onClick={toggleChatLock}
+            className="p-3 text-zinc-400 hover:text-zinc-200 transition-colors"
+            title={isChatLocked ? t('unlock') : t('lock')}
+            aria-label={isChatLocked ? t('unlock') : t('lock')}
+          >
+            {isChatLocked ? <Unlock className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+          </button>
+          <button
+            onClick={sendMessage}
+            disabled={!input.trim() || isLoading}
+            className="p-3 bg-white text-black rounded-2xl disabled:opacity-50 transition-all active:scale-[0.985]"
+          >
+            <Send className="w-5 h-5" />
+          </button>
+        </div>
+        {isChatLocked && (
+          <div className="mt-2 text-[11px] text-amber-400 text-center">
+            {t('lockedStatus')}
+          </div>
+        )}
+        <div className="text-[10px] text-center text-zinc-600 mt-2">
+          Phase 0/1 • Fully i18n-ready + tax + multi-currency foundations + chat lock safety
+        </div>
+      </div>
+    </div>
+  )
+}

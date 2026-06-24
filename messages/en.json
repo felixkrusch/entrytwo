@@ -1,0 +1,128 @@
+{
+  "app": {
+    "title": "entrytwo",
+    "subtitle": "AI Accountant • Phase 0/1",
+    "chat": {
+      "subtitle": "AI Accountant • Phase 0/1",
+      "welcome": "Hello! I'm your AI accountant. Try: 'bought office supplies for 85' or 'client paid 1200'.",
+      "placeholder": "e.g. bought laptop for 1299 • client paid 800 • reverse last entry • cash balance?",
+      "thinking": "Thinking...",
+      "createEntry": "Create journal entry →",
+      "reviewReversal": "Review reversal →",
+      "uploadPdf": "Upload PDF",
+      "pdfProcessing": "Processing PDF...",
+      "pdfParsed": "PDF parsed. Click \"Create journal entry\" below to review.",
+      "pdfNoText": "PDF processed but no text extracted",
+      "pdfFailed": "Failed to process PDF",
+      "selectPdf": "Please select a PDF",
+      "lock": "Lock chat (advisory mode only)",
+      "unlock": "Unlock chat (allow create/modify actions)",
+      "lockedStatus": "Chat locked — giving advice only. No entries will be created or changed.",
+      "unlockedStatus": "",
+      "lockedToast": "Chat is locked (advisory mode). Unlock to allow actions.",
+      "unlockedToast": "Chat unlocked. Actions enabled."
+    },
+    "panels": {
+      "accounts": {
+        "title": "Chart of Accounts",
+        "clearFilter": "(click to clear filter)",
+        "count": "{count} accounts",
+        "noAccounts": "No accounts. Run seed.",
+        "lines": "{count} lines",
+        "loading": "Loading accounts..."
+      },
+      "journal": {
+        "title": "Recent Journal Entries",
+        "filtered": "(filtered)",
+        "clearFilter": "Clear filter",
+        "newEntry": "+ New Entry",
+        "loading": "Loading entries...",
+        "empty": "No journal entries{filter} yet.",
+        "emptyFilter": " for this account",
+        "visible": "Visible entries: {count}",
+        "totals": "Total Debits: {debits} • Total Credits: {credits}",
+        "reverse": "Reverse",
+        "reversed": "REVERSED",
+        "reversal": "REVERSAL",
+        "reversedBy": "This entry has been reversed by: {description}",
+        "debitsCredits": "Debits: {debits} | Credits: {credits}",
+        "clickToCollapse": "Click to collapse",
+        "confirmReverse": "Reverse this entry? This will create an offsetting reversing entry.",
+        "reversingSuccess": "Reversing entry created",
+        "reversingError": "Could not reverse entry",
+        "untitled": "Untitled Entry"
+      },
+      "summary": {
+        "assets": "Total Assets",
+        "netIncome": "Net Income (YTD)",
+        "entries": "Journal Entries",
+        "events": "Audit Events"
+      },
+      "profitLoss": {
+        "title": "Profit & Loss",
+        "live": "Live",
+        "revenue": "Revenue",
+        "expenses": "Expenses",
+        "netIncome": "Net Income",
+        "noRevenue": "No revenue yet",
+        "noExpenses": "No expenses yet",
+        "loading": "Loading...",
+        "noData": "No data",
+        "tax": "Tax",
+        "inputTax": "Input",
+        "outputTax": "Output",
+        "netTax": "Net Tax"
+      },
+      "reports": {
+        "title": "Balance Sheet",
+        "live": "Live",
+        "loading": "Loading report...",
+        "assets": "Assets",
+        "liabilities": "Liabilities",
+        "equity": "Equity",
+        "noAssets": "No asset accounts",
+        "noLiabilities": "No liability accounts",
+        "noEquity": "No equity accounts",
+        "balanceCheck": "Assets = Liabilities + Equity",
+        "balanced": "Balanced",
+        "checkEntries": "Check entries"
+      },
+      "audit": {
+        "title": "Audit Log (last events)",
+        "events": "Events",
+        "loading": "Loading audit...",
+        "empty": "No activity yet."
+      }
+    },
+    "modal": {
+      "title": "New Journal Entry",
+      "suggestedByChat": "Suggested by chat",
+      "reversing": "Reversing previous entry (from chat)",
+      "date": "Date",
+      "description": "Description",
+      "descriptionPlaceholder": "e.g. Office supplies purchase",
+      "journalLines": "Journal Lines",
+      "addLine": "+ Add Line",
+      "account": "Select account...",
+      "debit": "Debit",
+      "credit": "Credit",
+      "note": "Note",
+      "noTax": "No tax",
+      "debits": "Debits:",
+      "credits": "Credits:",
+      "balanced": "Balanced ✓",
+      "notBalanced": "Not balanced",
+      "cancel": "Cancel",
+      "create": "Create Journal Entry",
+      "creating": "Creating...",
+      "postReversal": "Post Reversal",
+      "reversingLoading": "Reversing..."
+    },
+    "toasts": {
+      "entryCreated": "Journal entry created",
+      "entryCreatedFromChat": "Journal entry created from chat suggestion",
+      "reversalPosted": "Reversal posted from chat suggestion",
+      "entryReversed": "Entry reversed"
+    }
+  }
+}

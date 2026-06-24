@@ -1,0 +1,126 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum EventType {
+  JOURNAL_ENTRY_CREATED
+  JOURNAL_ENTRY_REVERSED
+  ACCOUNT_CREATED
+  CONTACT_CREATED
+  AI_ACTION_EXECUTED
+  MANUAL_ADJUSTMENT
+}
+
+enum Role {
+  ADMIN
+  ACCOUNTANT
+  VIEWER
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  role      Role     @default(ADMIN)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  events    Event[]
+}
+
+model Account {
+  id           String        @id @default(uuid())
+  code         String        @unique
+  name         String
+  type         AccountType
+  description  String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  journalLines JournalLine[]
+}
+
+model Contact {
+  id        String   @id @default(uuid())
+  name      String
+  email     String?
+  type      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model JournalEntry {
+  id          String        @id @default(uuid())
+  date        DateTime
+  description String?
+  createdAt   DateTime      @default(now())
+  createdBy   String?
+  lines       JournalLine[]
+}
+
+model JournalLine {
+  id             String        @id @default(uuid())
+  journalEntryId String
+  accountId      String
+  contactId      String?
+  debit          Decimal       @default(0)
+  credit         Decimal       @default(0)
+  description    String?
+  taxRateId      String?
+  currency       String        @default("EUR")  // ISO 4217 currency code
+  fxRateToBase   Decimal?                         // exchange rate to system base currency at entry time
+  fxSource       String?                          // e.g. "ECB", "manual"
+  fxDate         DateTime?                        // date the fx rate applies to
+
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id])
+  account      Account      @relation(fields: [accountId], references: [id])
+  taxRate      TaxRate?     @relation(fields: [taxRateId], references: [id])
+}
+
+model TaxRate {
+  id            String        @id @default(uuid())
+  jurisdiction  String        // e.g. "DE", "US-CA", "EU", "AT"
+  name          String        // e.g. "MwSt 19%", "USt 7%", "Sales Tax 8.25%"
+  rate          Decimal       // e.g. 0.19 for 19%
+  taxType       String        // "STANDARD" | "REDUCED" | "EXEMPT" | "ZERO" | "REVERSE_CHARGE"
+  isInputTax    Boolean       @default(false)  // true = Vorsteuer (input), false = Umsatzsteuer (output)
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+  description   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  journalLines  JournalLine[]   // back-relation for tax on lines
+
+  // Optional: link to dedicated tax accounts in the future
+  // inputTaxAccountId  String?
+  // outputTaxAccountId String?
+}
+
+model Event {
+  id         String    @id @default(uuid())
+  eventType  EventType
+  entityType String
+  entityId   String
+  payload    Json
+  metadata   Json?
+  createdAt  DateTime  @default(now())
+  createdBy  String?
+  user       User?     @relation(fields: [createdBy], references: [id])
+}
+
+model Snapshot {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  data      Json
+}
