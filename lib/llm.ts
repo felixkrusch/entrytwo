@@ -8,6 +8,37 @@ export type LlmProvider =
   | 'openrouter'
   | 'kilo'
   | 'openai-compatible'
+  | 'nous-portal'
+  | 'openai-codex'
+  | 'github-copilot'
+  | 'github-copilot-acp'
+  | 'novita'
+  | 'zai'
+  | 'kimi-coding'
+  | 'kimi-coding-cn'
+  | 'arcee'
+  | 'gmi'
+  | 'minimax'
+  | 'minimax-cn'
+  | 'xai-oauth'
+  | 'alibaba'
+  | 'alibaba-coding-plan'
+  | 'xiaomi'
+  | 'tencent-tokenhub'
+  | 'opencode-zen'
+  | 'opencode-go'
+  | 'deepseek'
+  | 'huggingface'
+  | 'gemini'
+  | 'azure-foundry'
+  | 'bedrock'
+  | 'nvidia'
+  | 'ollama-cloud'
+  | 'qwen-oauth'
+  | 'minimax-oauth'
+  | 'stepfun'
+  | 'lmstudio'
+  | 'custom'
 
 export interface LlmConfig {
   provider: LlmProvider
@@ -55,49 +86,75 @@ export async function getLlmConfig(): Promise<LlmConfig> {
 export function createLlmModel(config: LlmConfig) {
   const key = config.apiKey || process.env.LLM_API_KEY || ''
 
-  // Kilo Gateway, OpenRouter, or any other OpenAI-compatible gateway
-  if (config.provider === 'kilo' || config.provider === 'openrouter' || config.provider === 'openai-compatible') {
-    const baseURL =
+  const openaiCompat = (base: string | undefined, headers?: Record<string, string>) =>
+    createOpenAI({ baseURL: base, apiKey: key, ...(headers ? { headers } : {}) })
+
+  // Gateways / OpenAI-compatible (big ones first)
+  if (
+    config.provider === 'kilo' ||
+    config.provider === 'openrouter' ||
+    config.provider === 'openai-compatible' ||
+    config.provider === 'custom'
+  ) {
+    const base =
       config.baseURL ||
       (config.provider === 'kilo' ? 'https://api.kilo.ai/api/gateway' : undefined) ||
       (config.provider === 'openrouter' ? 'https://openrouter.ai/api/v1' : undefined)
-
-    const openaiCompat = createOpenAI({
-      baseURL,
-      apiKey: key,
-      // headers for OpenRouter (optional but recommended)
-      ...(config.provider === 'openrouter' ? { headers: { 'HTTP-Referer': 'https://entrytwo.local', 'X-Title': 'entrytwo' } } : {}),
-    })
-    return openaiCompat(config.model)
+    const headers = config.provider === 'openrouter'
+      ? { 'HTTP-Referer': 'https://entrytwo.local', 'X-Title': 'entrytwo' }
+      : undefined
+    return openaiCompat(base, headers)(config.model)
   }
 
-  if (config.provider === 'xai') {
-    // xAI (Grok) – use their OpenAI-compatible endpoint so we can pass dynamic key
-    const xaiCompat = createOpenAI({
-      baseURL: 'https://api.x.ai/v1',
-      apiKey: key || process.env.XAI_API_KEY || '',
-    })
-    return xaiCompat(config.model)
+  // xAI direct + OAuth-pasted key
+  if (config.provider === 'xai' || config.provider === 'xai-oauth') {
+    return openaiCompat('https://api.x.ai/v1')(config.model)
   }
 
+  // Anthropic (official or compat)
   if (config.provider === 'anthropic') {
-    // Anthropic – prefer the official SDK when available
     try {
-      // dynamic to avoid hard dep issues at type time
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { anthropic: anthropicProvider } = require('@ai-sdk/anthropic')
       return anthropicProvider(config.model)
     } catch {
-      // Fallback to OpenAI-compatible surface for Anthropic
-      const anthCompat = createOpenAI({
-        baseURL: 'https://api.anthropic.com/v1',
-        apiKey: key || process.env.ANTHROPIC_API_KEY || '',
-      })
-      return anthCompat(config.model)
+      return openaiCompat('https://api.anthropic.com/v1')(config.model)
     }
   }
 
-  // Default: OpenAI direct (or any key stored for openai)
-  const openai = createOpenAI({ apiKey: key || process.env.OPENAI_API_KEY || '' })
-  return openai(config.model)
+  // Direct known providers (use their OpenAI-compat surface where it exists)
+  const providerBase: Record<string, string | undefined> = {
+    deepseek: 'https://api.deepseek.com',
+    gemini: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    huggingface: undefined, // HF inference usually needs different client; treat as compat
+    novita: 'https://api.novita.ai/v3',
+    alibaba: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    'alibaba-coding-plan': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    stepfun: undefined,
+    lmstudio: 'http://localhost:1234/v1',
+    nvidia: 'https://integrate.api.nvidia.com/v1',
+    'tencent-tokenhub': undefined,
+    'opencode-zen': undefined,
+    'opencode-go': undefined,
+    xiaomi: undefined,
+    zai: undefined,
+    'kimi-coding': 'https://api.moonshot.cn/v1',
+    'kimi-coding-cn': 'https://api.moonshot.cn/v1',
+    arcee: undefined,
+    gmi: undefined,
+    minimax: 'https://api.minimax.chat/v1',
+    'minimax-cn': 'https://api.minimax.chat/v1',
+    bedrock: undefined, // handled via AWS creds, not here
+    'azure-foundry': undefined, // user supplies full endpoint in baseURL
+    'ollama-cloud': 'https://api.ollama.ai/v1',
+    'qwen-oauth': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    'minimax-oauth': 'https://api.minimax.chat/v1',
+    'nous-portal': undefined,
+    'openai-codex': 'https://api.openai.com/v1',
+    'github-copilot': 'https://api.githubcopilot.com',
+    'github-copilot-acp': undefined,
+  }
+
+  const base = config.baseURL || providerBase[config.provider]
+  return openaiCompat(base)(config.model)
 }

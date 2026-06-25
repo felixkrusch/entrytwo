@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { PROVIDERS, getProvider } from '@/lib/providers'
 
 interface User {
   id: string
@@ -259,21 +260,23 @@ function LlmSettings({ settings, onSaved }: { settings: Setting[]; onSaved: () =
   const [apiKey, setApiKey] = useState<string>(apiKeySetting?.value || '')
   const [baseURL, setBaseURL] = useState<string>(baseUrlSetting?.value || '')
 
-  const providers = [
-    { value: 'openai', label: 'OpenAI (direct)' },
-    { value: 'xai', label: 'xAI (Grok)' },
-    { value: 'anthropic', label: 'Anthropic (Claude)' },
-    { value: 'openrouter', label: 'OpenRouter (gateway)' },
-    { value: 'kilo', label: 'Kilo Gateway' },
-    { value: 'openai-compatible', label: 'OpenAI Compatible (custom)' },
-  ]
+  // Full list exactly as in current Hermes (OAuth + API keys)
+  const providerOptions = PROVIDERS.map(p => ({ value: p.id, label: p.label }))
 
-  const getHelpLinks = (p: string) => {
-    if (p === 'openai') return 'https://platform.openai.com/api-keys'
-    if (p === 'xai') return 'https://console.x.ai/'
+  const current = getProvider(provider) || PROVIDERS.find(p => p.id === 'openai')!
+
+  const getHelpLink = (p: string) => {
+    const info = getProvider(p)
+    if (info?.oauth) return null
+    if (p.includes('openai')) return 'https://platform.openai.com/api-keys'
+    if (p.includes('xai')) return 'https://console.x.ai/'
     if (p === 'anthropic') return 'https://console.anthropic.com/'
     if (p === 'openrouter') return 'https://openrouter.ai/keys'
-    if (p === 'kilo') return 'https://app.kilo.ai/'
+    if (p === 'kilocode') return 'https://app.kilo.ai/'
+    if (p === 'gemini') return 'https://aistudio.google.com/app/apikey'
+    if (p === 'deepseek') return 'https://platform.deepseek.com/api_keys'
+    if (p === 'huggingface') return 'https://huggingface.co/settings/tokens'
+    if (p.startsWith('alibaba')) return 'https://bailian.console.aliyun.com/'
     return null
   }
 
@@ -290,31 +293,48 @@ function LlmSettings({ settings, onSaved }: { settings: Setting[]; onSaved: () =
     setProvider(val)
     await save('llm.provider', val)
 
-    // sensible defaults when switching
-    if (val === 'xai' && !model.includes('grok')) setModel('grok-3')
+    const info = getProvider(val)
+    // Smart model defaults (Hermes-style popular choices)
+    if ((val.includes('xai') || val === 'xai-oauth') && !model.includes('grok')) setModel('grok-3')
     if (val === 'anthropic' && !model.includes('claude')) setModel('claude-3-5-sonnet-20241022')
     if (val === 'openrouter' && !model.includes('/')) setModel('anthropic/claude-sonnet-4-20250514')
-    if (val === 'kilo') setModel('anthropic/claude-sonnet-4.5')
+    if (val === 'kilocode') setModel('anthropic/claude-sonnet-4.5')
+    if (val === 'gemini') setModel('gemini-1.5-pro')
+    if (val === 'deepseek') setModel('deepseek-chat')
+    if (val === 'openai' || val === 'openai-api' || val === 'openai-codex') setModel('gpt-4o-mini')
+    if (val === 'alibaba' || val === 'alibaba-coding-plan') setModel('qwen2.5-coder-32b-instruct')
+    if (val === 'huggingface') setModel('meta-llama/Meta-Llama-3.1-70B-Instruct')
+    if (val === 'ollama-cloud') setModel('llama3.1')
+    if (val === 'lmstudio') setModel('local-model')
   }
 
   return (
-    <div className="space-y-3 text-sm">
-      <div className="flex items-center gap-3">
-        <label className="w-48 text-zinc-400">Provider</label>
-        <select
-          value={provider}
-          onChange={e => handleProviderChange(e.target.value)}
-          className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1"
-        >
-          {providers.map(p => (
-            <option key={p.value} value={p.value}>{p.label}</option>
-          ))}
-        </select>
-        {getHelpLinks(provider) && (
-          <a href={getHelpLinks(provider)!} target="_blank" className="text-emerald-400 text-xs hover:underline">
-            Get key / Connect →
-          </a>
-        )}
+    <div className="space-y-4 text-sm">
+      <div className="flex items-start gap-3">
+        <label className="w-48 text-zinc-400 pt-1">Provider</label>
+        <div className="flex-1">
+          <select
+            value={provider}
+            onChange={e => handleProviderChange(e.target.value)}
+            className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1"
+          >
+            {providerOptions.map(p => (
+              <option key={p.value} value={p.value}>{p.label}</option>
+            ))}
+          </select>
+
+          <div className="mt-1 text-[10px] text-zinc-500">
+            {current.setup}
+            {current.oauth && <span className="ml-2 rounded bg-emerald-900 px-1.5 py-px text-emerald-400">OAuth</span>}
+            {current.keyEnv && <span className="ml-2 text-amber-400">API key: {current.keyEnv}</span>}
+          </div>
+
+          {getHelpLink(provider) && (
+            <a href={getHelpLink(provider)!} target="_blank" className="text-emerald-400 text-xs hover:underline block mt-1">
+              Get key / Sign in →
+            </a>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center gap-3">
@@ -323,19 +343,19 @@ function LlmSettings({ settings, onSaved }: { settings: Setting[]; onSaved: () =
           value={model}
           onChange={e => setModel(e.target.value)}
           onBlur={() => save('llm.model', model)}
-          placeholder="gpt-4o-mini or grok-3 or anthropic/claude-..."
-          className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1"
+          placeholder="e.g. grok-3, claude-3-5-sonnet-20241022, anthropic/claude-sonnet-4..."
+          className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 font-mono text-xs"
         />
       </div>
 
       <div className="flex items-center gap-3">
-        <label className="w-48 text-zinc-400">API Key</label>
+        <label className="w-48 text-zinc-400">API Key / Token</label>
         <input
           type="password"
           value={apiKey}
           onChange={e => setApiKey(e.target.value)}
           onBlur={() => save('llm.apiKey', apiKey)}
-          placeholder="sk-... or your gateway key (OAuth keys go here too)"
+          placeholder="Paste API key here (for OAuth providers: paste the token you received after login)"
           className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 font-mono text-xs"
         />
       </div>
@@ -346,14 +366,15 @@ function LlmSettings({ settings, onSaved }: { settings: Setting[]; onSaved: () =
           value={baseURL}
           onChange={e => setBaseURL(e.target.value)}
           onBlur={() => save('llm.baseURL', baseURL)}
-          placeholder="https://api.kilo.ai/api/gateway   or https://openrouter.ai/api/v1"
+          placeholder={current.baseURLHint || "https://... (leave empty for default)"}
           className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 font-mono text-xs"
         />
       </div>
 
-      <div className="text-[10px] text-zinc-500">
-        API keys are stored in your database (self-hosted). For OAuth flows (xAI SuperGrok, Kilo sign-in, etc.) complete the OAuth in the provider’s site and paste the resulting key/token here.
-        Kilo Gateway and OpenRouter let you access hundreds of models (including Grok, Claude, GPT, etc.) with one key.
+      <div className="text-[10px] text-zinc-500 leading-relaxed">
+        Full Hermes-style support (OAuth + API keys).<br />
+        For OAuth providers (Kilo, xAI SuperGrok, GitHub Copilot, Anthropic Claude Max, Qwen, MiniMax, etc.): complete login in the browser, then paste the resulting key/token here.<br />
+        API keys for OpenRouter, Kilo Gateway, DeepSeek, Grok, Gemini, etc. are stored encrypted in your local database.
       </div>
     </div>
   )
