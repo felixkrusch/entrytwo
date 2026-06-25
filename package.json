@@ -9,7 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.86",
     "@ai-sdk/openai": "^3.0.74",
+    "@ai-sdk/xai": "^3.0.97",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@types/pdf-parse": "^1.1.5",

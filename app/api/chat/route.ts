@@ -1,15 +1,11 @@
 import { NextRequest } from 'next/server'
 import { streamText, generateObject } from 'ai'
-import { createOpenAI } from '@ai-sdk/openai'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { getFxRateToBase } from '@/lib/fx'
 import { getRecentFeedRatesPromptText } from '@/lib/recentFeedRates'
 import { getMerchantMemoryPrompt, getMerchantMemory } from '@/lib/agentMemory'
-
-const openai = createOpenAI({
-  apiKey: process.env.OPENAI_API_KEY || '',
-})
+import { getLlmConfig, createLlmModel } from '@/lib/llm'
 
 const SuggestionSchema = z.object({
   description: z.string().optional(),
@@ -270,9 +266,14 @@ export async function POST(req: NextRequest) {
     const dataAnswer = await answerDataQuery(lastMessage)
     if (dataAnswer) return Response.json(dataAnswer)
 
-    if (!process.env.OPENAI_API_KEY) {
+    const llmConfig = await getLlmConfig()
+    const hasKey = !!(llmConfig.apiKey || process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.ANTHROPIC_API_KEY)
+
+    if (!hasKey) {
       return Response.json(await generateFallback(lastMessage))
     }
+
+    const model = createLlmModel(llmConfig)
 
     const accountList = await getAccountContext()
     const balances = await getCurrentBalancesSummary()
@@ -320,11 +321,11 @@ Use the above memory and feed rates when they are relevant. Prefer real BANK_FEE
     if (looksLikeTx) {
       try {
         const { object } = await generateObject({
-          model: openai('gpt-4o-mini'),
+          model,
           schema: SuggestionSchema,
           prompt: `${system}\n\nUser: ${lastMessage}\n\nReturn a clean balanced journal entry suggestion. For any non-EUR line include currency + fxRateToBase + fxSource + fxDate when possible.`,
         })
-        const textRes = await streamText({ model: openai('gpt-4o-mini'), system, prompt: lastMessage })
+        const textRes = await streamText({ model, system, prompt: lastMessage })
         let text = ''
         for await (const d of textRes.textStream) text += d
 
@@ -413,7 +414,7 @@ Use the above memory and feed rates when they are relevant. Prefer real BANK_FEE
       }
     }
 
-    const result = await streamText({ model: openai('gpt-4o-mini'), system, prompt: lastMessage })
+    const result = await streamText({ model, system, prompt: lastMessage })
     let text = ''
     for await (const d of result.textStream) text += d
     return Response.json({ response: text.trim() || 'Understood.' })
