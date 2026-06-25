@@ -172,8 +172,22 @@ export async function POST(request: Request) {
     })
 
     return NextResponse.json(entry, { status: 201 })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error creating journal entry:', error)
+
+    const err = error as { code?: string; message?: string }
+    if (err?.code === 'P2025') {
+      return NextResponse.json({ error: 'Referenced account or tax rate not found' }, { status: 404 })
+    }
+    if (err?.code === 'P2002') {
+      return NextResponse.json({ error: 'Duplicate entry conflict' }, { status: 409 })
+    }
+
+    // Surface Zod-like or balance issues if they bubbled (defensive)
+    if (err?.message?.includes('Debits must equal')) {
+      return NextResponse.json({ error: err.message }, { status: 400 })
+    }
+
     return NextResponse.json(
       { error: 'Failed to create journal entry' },
       { status: 500 }
