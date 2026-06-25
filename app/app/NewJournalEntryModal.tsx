@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import type { NewEntrySuggestion } from './NewEntryContext'
 import { useTranslations, useFormatter } from 'next-intl'
+import { getTaxDirection } from '@/lib/taxDirection'
 
 interface Account {
   id: string
@@ -18,7 +19,6 @@ interface TaxRate {
   name: string
   rate: number
   taxType: string
-  isInputTax: boolean
 }
 
 interface NewJournalEntryModalProps {
@@ -42,6 +42,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
     credit: number
     description: string
     taxRateId: string
+    taxIsInput?: boolean
     currency: string
     fxRateToBase?: number
     fxSource?: string
@@ -126,6 +127,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
               credit: l.credit || 0,
               description: l.description || '',
               taxRateId: l.taxRateId || '',
+              taxIsInput: l.taxIsInput,
               currency: l.currency || 'EUR',
               // carry FX metadata through when PDF+feed provided it
               fxRateToBase: l.fxRateToBase,
@@ -149,18 +151,21 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
               if (tr) {
                 const taxAmt = Math.round(line.debit * Number(tr.rate) * 100) / 100
                 if (taxAmt > 0) {
-                  newLines.push({
-                    accountId: line.accountId,
-                    debit: taxAmt,
-                    credit: 0,
-                    description: `Tax (${(Number(tr.rate) * 100).toFixed(0)}% ${tr.isInputTax ? 'input' : ''})`,
-                    taxRateId: tr.id,
-                    currency: line.currency || 'EUR',
-                    // copy fx metadata from the main line if present
-                    fxRateToBase: (line as { fxRateToBase?: number }).fxRateToBase,
-                    fxSource: (line as { fxSource?: string }).fxSource,
-                    fxDate: (line as { fxDate?: string }).fxDate,
-                  })
+                   const mainAcc = accList.find(a => a.id === line.accountId)
+                   const explicitDir = mainAcc ? getTaxDirection(mainAcc.type, { debit: line.debit, credit: line.credit }) : undefined
+                   newLines.push({
+                     accountId: line.accountId,
+                     debit: taxAmt,
+                     credit: 0,
+                     description: `Tax (${(Number(tr.rate) * 100).toFixed(0)}%)`,
+                     taxRateId: tr.id,
+                     taxIsInput: explicitDir,
+                     currency: line.currency || 'EUR',
+                     // copy fx metadata from the main line if present
+                     fxRateToBase: (line as { fxRateToBase?: number }).fxRateToBase,
+                     fxSource: (line as { fxSource?: string }).fxSource,
+                     fxDate: (line as { fxDate?: string }).fxDate,
+                   })
                 }
               }
             }
@@ -173,6 +178,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
               credit: 0,
               description: '',
               taxRateId: '',
+              taxIsInput: undefined,
               currency: 'EUR',
               fxRateToBase: undefined,
               fxSource: undefined,
@@ -190,6 +196,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
             credit: 0,
             description: '',
             taxRateId: '',
+            taxIsInput: undefined,
             currency: 'EUR',
             fxRateToBase: undefined,
             fxSource: undefined,
@@ -241,12 +248,16 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
           next.debit = expectedTax
           next.currency = newLines[index].currency || 'EUR'
         } else {
+          // Derive explicit direction from the main line's account when possible
+          const mainAcc = accounts.find(a => a.id === newLines[index].accountId)
+          const explicitDir = mainAcc ? getTaxDirection(mainAcc.type, newLines[index]) : undefined
           newLines.splice(index + 1, 0, {
             accountId: newLines[index].accountId,
             debit: expectedTax,
             credit: 0,
-            description: `Tax (${(Number(tr.rate) * 100).toFixed(0)}% ${tr.isInputTax ? 'input' : ''})`,
+            description: `Tax (${(Number(tr.rate) * 100).toFixed(0)}%)`,
             taxRateId: String(value),
+            taxIsInput: explicitDir,
             currency: newLines[index].currency || 'EUR',
             fxRateToBase: (newLines[index] as { fxRateToBase?: number }).fxRateToBase,
             fxSource: (newLines[index] as { fxSource?: string }).fxSource,
@@ -295,8 +306,8 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   const handleClose = () => {
     setDescription('')
     setLines([
-      { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: 'EUR' },
-      { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: 'EUR' }
+      { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: 'EUR' },
+      { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: 'EUR' }
     ])
     setError('')
     onClose()
@@ -304,7 +315,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
 
   // Small helper to keep fx fields when adding manual lines
   const addLineWithFx = () => {
-    setLines([...lines, { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: 'EUR' }])
+    setLines([...lines, { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: 'EUR' }])
   }
 
   if (!isOpen) return null
@@ -384,7 +395,8 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
           credit: Number(l.credit),
           description: l.description || undefined,
           taxRateId: l.taxRateId || undefined,
-          currency: l.currency || 'EUR',   // respect per-line currency choice (multi-currency)
+          taxIsInput: typeof l.taxIsInput === 'boolean' ? l.taxIsInput : undefined,
+          currency: l.currency || 'EUR',
           fxRateToBase: l.fxRateToBase,
           fxSource: l.fxSource,
           fxDate: l.fxDate,

@@ -77,6 +77,7 @@ model JournalLine {
   credit         Decimal       @default(0)
   description    String?
   taxRateId      String?
+  taxIsInput     Boolean?                       // explicit input/output for this tax application (null = derive)
   currency       String        @default("EUR")  // ISO 4217 currency code
   fxRateToBase   Decimal?                         // exchange rate to system base currency at entry time
   fxSource       String?                          // e.g. "ECB", "manual"
@@ -93,7 +94,6 @@ model TaxRate {
   name          String        // e.g. "MwSt 19%", "USt 7%", "Sales Tax 8.25%"
   rate          Decimal       // e.g. 0.19 for 19%
   taxType       String        // "STANDARD" | "REDUCED" | "EXEMPT" | "ZERO" | "REVERSE_CHARGE"
-  isInputTax    Boolean       @default(false)  // true = Vorsteuer (input), false = Umsatzsteuer (output)
   effectiveFrom DateTime?
   effectiveTo   DateTime?
   description   String?

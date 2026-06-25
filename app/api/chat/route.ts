@@ -9,7 +9,11 @@ import { getLlmConfig, createLlmModel } from '@/lib/llm'
 
 const SuggestionSchema = z.object({
   description: z.string().optional(),
-  merchant: z.string().optional(),      // important for feed matching + PDF cross-check
+  merchant: z.string().optional(),
+  // AI can return a confidence (0-1) for the tax rate choice(s) it made.
+  //  >= 0.80 → autonomous (no forced confirmation for tax)
+  //  <  0.70 → must ask user for confirmation
+  taxConfidence: z.number().min(0).max(1).optional(),
   lines: z.array(z.object({
     accountCode: z.string(),
     debit: z.number().min(0),
@@ -36,7 +40,7 @@ async function getTaxRatesContext() {
   if (!rates.length) return 'No tax rates configured.'
   return rates.map(r => {
     const pct = (Number(r.rate) * 100).toFixed(0)
-    return `${r.jurisdiction} — ${r.name} rate=${pct}% type=${r.taxType} input=${r.isInputTax}`
+    return `${r.jurisdiction} — ${r.name} rate=${pct}% type=${r.taxType}`
   }).join('\n')
 }
 
@@ -280,13 +284,27 @@ export async function POST(req: NextRequest) {
     const taxContext = await getTaxRatesContext()
 
     // Phase 2: compute a preliminary merchant hint from the user message
-    // so we can inject memory + recent feed rates into the system prompt *before* calling the LLM.
     const preliminaryMerchant = (lastMessage.match(/from\s+([A-Za-z0-9 .&'-]+)/i)?.[1] || '').trim()
 
-    // Phase 2: inject lightweight memory + recent real feed rates into the prompt
+    // Get company location info (structured address + default jurisdiction)
+    let companyRegion: string | undefined
+    let companyCountry: string | undefined
+    try {
+      const [addr, jur] = await Promise.all([
+        prisma.setting.findUnique({ where: { key: 'company.address' } }),
+        prisma.setting.findUnique({ where: { key: 'defaultTaxJurisdiction' } }),
+      ])
+      const a = addr?.value as any
+      const jv = (jur?.value as any)?.value ?? jur?.value
+      companyRegion = (a?.region || jv || undefined)
+      companyCountry = a?.country || (companyRegion ? companyRegion.split('-')[0] : undefined)
+      if (companyRegion) companyRegion = String(companyRegion).toUpperCase()
+    } catch {}
+
+    // Phase 2: inject memory (now keyed on merchant + region) + feed rates
     const [feedRatesText, memoryText] = await Promise.all([
       getRecentFeedRatesPromptText(6),
-      getMerchantMemoryPrompt(preliminaryMerchant || undefined),
+      getMerchantMemoryPrompt(preliminaryMerchant || undefined, companyRegion),
     ])
 
     const system = `You are a precise double-entry AI accountant.
@@ -299,6 +317,11 @@ ${taxContext}
 
 Accounts:
 ${accountList}
+
+Company location (use for tax decisions):
+- Country: ${companyCountry || 'unknown'}
+- Region (full ISO 3166-2 when known): ${companyRegion || 'unknown'}
+- When the merchant/place of supply is in a different region than the company, prefer rates matching the place of supply (e.g. Quebec hotel for Ontario company → CA-QC rates).
 
 Multi-currency + FX rules (Phase 0, no exceptions):
 - Every JournalLine must have "currency" (EUR, USD, GBP, ...). Default to EUR unless user specifies otherwise.
@@ -315,6 +338,11 @@ Multi-currency + FX rules (Phase 0, no exceptions):
 ${feedRatesText ? feedRatesText + '\n' : ''}
 ${memoryText ? memoryText + '\n' : ''}
 Use the above memory and feed rates when they are relevant. Prefer real BANK_FEED rates over published rates.
+
+Tax confidence rule (strict):
+- Return "taxConfidence" (0.0-1.0).
+- >= 0.80: you are confident (strong memory + jurisdiction match) → the UI will apply autonomously.
+- <  0.70: you are uncertain (different region, weak memory, ambiguous document) → the UI will force user confirmation.
 `
 
     const looksLikeTx = lower.match(/bought|paid|received|purchase|expense|revenue|supplies|software|client|services|capital|office|consult|bill|subscription|equipment|laptop|rent|salary|invoice|sale|record|post/)
@@ -323,7 +351,7 @@ Use the above memory and feed rates when they are relevant. Prefer real BANK_FEE
         const { object } = await generateObject({
           model,
           schema: SuggestionSchema,
-          prompt: `${system}\n\nUser: ${lastMessage}\n\nReturn a clean balanced journal entry suggestion. For any non-EUR line include currency + fxRateToBase + fxSource + fxDate when possible.`,
+          prompt: `${system}\n\nUser: ${lastMessage}\n\nReturn a clean balanced journal entry suggestion. For any non-EUR line include currency + fxRateToBase + fxSource + fxDate when possible.\n\nAlso return a "taxConfidence" (0.0-1.0) reflecting how sure you are about the chosen taxRateId(s):\n- Use >=0.80 only when you are very confident (strong merchant memory match + jurisdiction match).\n- Use <0.70 when you are guessing or the jurisdiction differs from the company default.\nIf multiple tax rates apply (e.g. GST + QST), base the confidence on the whole combination.`,
         })
         const textRes = await streamText({ model, system, prompt: lastMessage })
         let text = ''
@@ -381,11 +409,11 @@ Use the above memory and feed rates when they are relevant. Prefer real BANK_FEE
 
         const finalMerchant = merchantHint || (object as { merchant?: string } | null)?.merchant || undefined
 
-        // Phase 2 memory: attach remembered categorization for this merchant
+        // Phase 2 memory: attach remembered categorization for this merchant (keyed by merchant + region)
         let memory: { merchant: string; suggestedAccountCode?: string; suggestedTaxRateId?: string; lastUsed?: string } | undefined = undefined
         if (finalMerchant) {
           try {
-            const mem = await getMerchantMemory(finalMerchant)
+            const mem = await getMerchantMemory(finalMerchant, companyRegion)
             if (mem) {
               memory = {
                 merchant: finalMerchant,
@@ -397,12 +425,26 @@ Use the above memory and feed rates when they are relevant. Prefer real BANK_FEE
           } catch {}
         }
 
+        // NEW: Tax confidence rules (user spec):
+        // - >= 0.80 → autonomous (clear needsConfirmation=false for tax)
+        // - <  0.70 → force confirmation
+        // - 0.70-0.79 → leave as-is (existing logic decides)
+        const rawTaxConf = (object as any)?.taxConfidence
+        let taxConf: number | undefined
+        if (typeof rawTaxConf === 'number') taxConf = Math.max(0, Math.min(1, rawTaxConf))
+
+        let finalNeedsConfirmation = needsConfirmation
+        if (taxConf != null) {
+          if (taxConf >= 0.80) finalNeedsConfirmation = false
+          if (taxConf < 0.70) finalNeedsConfirmation = true
+        }
+
         const suggestion = object
-          ? { ...object, needsConfirmation, merchant: finalMerchant, memory }
+          ? { ...object, needsConfirmation: finalNeedsConfirmation, merchant: finalMerchant, memory }
           : undefined
 
         let finalText = text.trim() || 'Balanced journal entry suggestion:'
-        if (needsConfirmation && suggestion) {
+        if (finalNeedsConfirmation && suggestion) {
           finalText += '\n\nPlease review the currency, amounts and any FX rate. Confirm explicitly before creating the entry.'
         } else if (usedRealFeedForAny && finalMerchant) {
           finalText += `\n\nUsing real rate from previous feed for ${finalMerchant}.`
@@ -471,10 +513,11 @@ async function generateFallback(text: string) {
 
   // Pull live tax rates for intelligent suggestions (Phase 0 tax foundation)
   const rates = await prisma.taxRate.findMany({ orderBy: [{ jurisdiction: 'asc' }, { rate: 'desc' }] })
-  const deInput = rates.find(r => r.jurisdiction === 'DE' && r.isInputTax)
+  // Pick any German rate for expenses (direction decided at use time on the journal line)
+  const deRate = rates.find(r => r.jurisdiction === 'DE') || rates[0]
 
   let response = ''
-  interface SuggestionLine { accountCode: string; debit?: number; credit?: number; description?: string; currency?: string; fxRateToBase?: number; fxSource?: string; fxDate?: string }
+  interface SuggestionLine { accountCode: string; debit?: number; credit?: number; description?: string; currency?: string; fxRateToBase?: number; fxSource?: string; taxRateId?: string; fxDate?: string }
   let suggestion: { description?: string; lines?: SuggestionLine[] } | undefined
 
   const isExpense = lower.includes('bought') || lower.includes('purchase') || lower.includes('paid for') || lower.includes('expense') || lower.includes('laptop') || lower.includes('computer') || lower.includes('equipment') || lower.includes('rent') || lower.includes('office') || lower.includes('supplies') || lower.includes('software') || lower.includes('subscription') || lower.includes('professional') || lower.includes('consult')
@@ -490,16 +533,18 @@ async function generateFallback(text: string) {
     else if (lower.includes('professional') || lower.includes('consult') || lower.includes('services')) { debitCode = prof; note = 'Professional services' }
     else if (lower.includes('laptop') || lower.includes('computer') || lower.includes('equipment')) { debitCode = supplies; note = 'Equipment' }
 
-    // Prefer German standard input tax for expenses when available (realistic for DE users)
-    if (deInput) taxRateId = deInput.id
+    if (deRate) taxRateId = deRate.id
 
     response = `${note} ~${amount}. Debit ${debitCode}, credit ${cash}${taxRateId ? ' (+ tax)' : ''}.`
     const lines: SuggestionLine[] = [
       { accountCode: debitCode, debit: amount, description: note, currency }
     ]
-    if (taxRateId && deInput) {
-      const taxAmt = Math.round(amount * Number(deInput.rate) * 100) / 100
-      lines.push({ accountCode: debitCode, debit: taxAmt, description: `Input tax ${deInput.name}`, currency })
+    if (taxRateId && deRate) {
+      const taxAmt = Math.round(amount * Number(deRate.rate) * 100) / 100
+      // For expense suggestions from chat we know the direction is input
+      lines.push({ accountCode: debitCode, debit: taxAmt, description: `Tax ${deRate.name}`, taxRateId, currency })
+      // also surface the direction for the modal to use explicitly
+      ;(lines[lines.length - 1] as any).taxIsInput = true
     }
 
     // If user explicitly gave foreign + base amounts, use the exact base amount + rate.

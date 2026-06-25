@@ -88,7 +88,7 @@ function guessVendor(text: string): string | null {
 
 // Very lightweight tax hint detector from PDF text.
 // Returns a best-guess rate (as decimal) and whether it looks like input tax.
-function detectTaxHints(text: string): { rate: number | null; isLikelyInput: boolean; jurisdictionGuess?: string; taxAmount?: number } {
+function detectTaxHints(text: string): { rate: number | null; jurisdictionGuess?: string; taxAmount?: number } {
   const t = text.toLowerCase()
 
   // Try to find explicit tax amount near a rate, e.g. "MwSt 19% 22.80", "Tax 19.00", "VAT 19% €22.80"
@@ -106,9 +106,6 @@ function detectTaxHints(text: string): { rate: number | null; isLikelyInput: boo
     rate = parseFloat(pctMatch[1].replace(',', '.')) / 100
   }
 
-  const isInput = /vorsteuer|input\s*tax|recoverable/i.test(t)
-  const isOutput = /umsatzsteuer|output\s*tax|mwst\s*(?!.*vorsteuer)|sales\s*tax/i.test(t)
-
   let jurisdictionGuess: string | undefined
   if (/deutschland|\bdew\b|\bmwst\b|\bust\b/.test(t)) jurisdictionGuess = 'DE'
   if (/\bAustria\b|\bAT\b|\bUSt\b/.test(t)) jurisdictionGuess = 'AT'
@@ -116,7 +113,6 @@ function detectTaxHints(text: string): { rate: number | null; isLikelyInput: boo
 
   return {
     rate: rate && rate > 0 && rate < 1 ? rate : null,
-    isLikelyInput: isInput || (!isOutput && /vorsteuer|input/i.test(t)),
     jurisdictionGuess,
     taxAmount: explicitTaxAmount && explicitTaxAmount > 0 ? explicitTaxAmount : undefined,
   }
@@ -148,12 +144,12 @@ export async function POST(request: Request) {
 
     // Load live tax rates so we can attach a taxRateId when we have a good hint
     let matchedTaxRateId: string | undefined
-    let matchedTaxRate: { id: string; rate: unknown; isInputTax: boolean; name: string; jurisdiction: string } | null = null
+    let matchedTaxRate: { id: string; rate: unknown; name: string; jurisdiction: string } | null = null
     try {
       const rates = await prisma.taxRate.findMany({ orderBy: [{ jurisdiction: 'asc' }, { rate: 'desc' }] })
       if (rates.length && taxHints.rate != null) {
-        // Score: jurisdiction match (if we guessed one) + rate closeness + input/output preference
-        let best: { id: string; rate: unknown; isInputTax: boolean; name: string; jurisdiction: string } | null = null
+        // Score: jurisdiction match + rate closeness (direction decided at use time)
+        let best: { id: string; rate: unknown; name: string; jurisdiction: string } | null = null
         let bestScore = -1
         for (const r of rates) {
           let score = 0
@@ -163,9 +159,6 @@ export async function POST(request: Request) {
           else if (rateDelta < 0.05) score += 1
 
           if (taxHints.jurisdictionGuess && r.jurisdiction === taxHints.jurisdictionGuess) score += 8
-
-          if (taxHints.isLikelyInput === r.isInputTax) score += 6
-          else score -= 2
 
           if (score > bestScore) {
             bestScore = score
@@ -177,7 +170,6 @@ export async function POST(request: Request) {
           matchedTaxRate = {
             id: best.id,
             rate: best.rate,
-            isInputTax: best.isInputTax,
             name: best.name,
             jurisdiction: best.jurisdiction,
           }
@@ -370,11 +362,11 @@ export async function POST(request: Request) {
           fxDate: feedMatch.fxDate || feedMatch.date,
           taxRateId: matchedTaxRateId,
         })
-        // Explicit tax line (input or output depending on detection)
+        // Explicit tax line (direction decided later from account type)
         suggestionLines.push({
           accountCode: expenseCode,
           debit: tax,
-          description: `Tax (${(taxHints.rate * 100).toFixed(0)}%${taxHints.isLikelyInput ? ' input' : ''})`,
+          description: `Tax (${(taxHints.rate * 100).toFixed(0)}%)`,
           currency: useCurrency,
           fxRateToBase: rateToUse ?? undefined,
           fxSource: sourceToUse,
@@ -420,7 +412,7 @@ export async function POST(request: Request) {
         suggestionLines.push({
           accountCode: expenseCode,
           debit: tax,
-          description: `Tax (${(taxHints.rate * 100).toFixed(0)}%${taxHints.isLikelyInput ? ' input' : ''})`,
+          description: `Tax (${(taxHints.rate * 100).toFixed(0)}%)`,
           currency: useCurrency,
           taxRateId: matchedTaxRateId,
         })
@@ -460,7 +452,6 @@ export async function POST(request: Request) {
     const taxInfo = matchedTaxRate
       ? {
           rate: Number(matchedTaxRate.rate),
-          isInputTax: matchedTaxRate.isInputTax,
           jurisdiction: matchedTaxRate.jurisdiction,
           name: matchedTaxRate.name,
         }

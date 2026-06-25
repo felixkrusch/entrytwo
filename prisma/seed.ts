@@ -63,14 +63,13 @@ async function main() {
   await prisma.account.createMany({ data: accounts });
   console.log(`Seeded ${accounts.length} accounts`);
 
-  // Seed realistic tax rates (multi-jurisdiction, effective dates, types)
+  // Seed realistic tax rates (multi-jurisdiction). Direction (input/output) is decided at application time on JournalLine.
   const taxRates = [
     {
       jurisdiction: 'DE',
       name: 'MwSt 19%',
       rate: 0.19,
       taxType: 'STANDARD',
-      isInputTax: false,
       description: 'German VAT standard rate',
     },
     {
@@ -78,30 +77,19 @@ async function main() {
       name: 'MwSt 7%',
       rate: 0.07,
       taxType: 'REDUCED',
-      isInputTax: false,
       description: 'German VAT reduced rate (food, books, etc.)',
-    },
-    {
-      jurisdiction: 'DE',
-      name: 'Vorsteuer 19%',
-      rate: 0.19,
-      taxType: 'STANDARD',
-      isInputTax: true,
-      description: 'German input VAT (recoverable)',
     },
     {
       jurisdiction: 'AT',
       name: 'USt 20%',
       rate: 0.20,
       taxType: 'STANDARD',
-      isInputTax: false,
     },
     {
       jurisdiction: 'US-CA',
       name: 'Sales Tax 8.25%',
       rate: 0.0825,
       taxType: 'STANDARD',
-      isInputTax: false,
     },
   ];
 

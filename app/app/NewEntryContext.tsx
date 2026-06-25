@@ -8,6 +8,7 @@ export interface SuggestedLine {
   credit?: number
   description?: string
   taxRateId?: string   // tax foundation from chat
+  taxIsInput?: boolean // explicit direction for this tax application (null/undefined = derive)
   currency?: string    // multi-currency from chat
 
   // FX metadata (populated especially from PDF + feed cross-check)

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { getTaxDirection } from '@/lib/taxDirection'
 
 export async function GET() {
   try {
@@ -8,7 +9,7 @@ export async function GET() {
         journalLines: {
           include: {
             taxRate: {
-              select: { id: true, jurisdiction: true, name: true, rate: true, taxType: true, isInputTax: true }
+              select: { id: true, jurisdiction: true, name: true, rate: true, taxType: true }
             }
           }
         }
@@ -71,18 +72,24 @@ export async function GET() {
           bc.revenueNative += (credit - debit)
           bc.revenueBase += (baseCredit - baseDebit)
 
-          if (line.taxRate && !line.taxRate.isInputTax) {
-            const taxAmt = (baseCredit - baseDebit) * Number(line.taxRate.rate)
-            totalOutputTax += taxAmt
+          if (line.taxRate) {
+            const isInput = getTaxDirection(account.type, line, (line as any).taxIsInput)
+            if (!isInput) {
+              const taxAmt = (baseCredit - baseDebit) * Number(line.taxRate.rate)
+              totalOutputTax += taxAmt
+            }
           }
         } else if (account.type === 'EXPENSE') {
           totalExpenses += baseDebit - baseCredit
           bc.expensesNative += (debit - credit)
           bc.expensesBase += (baseDebit - baseCredit)
 
-          if (line.taxRate && line.taxRate.isInputTax) {
-            const taxAmt = (baseDebit - baseCredit) * Number(line.taxRate.rate)
-            totalInputTax += taxAmt
+          if (line.taxRate) {
+            const isInput = getTaxDirection(account.type, line, (line as any).taxIsInput)
+            if (isInput) {
+              const taxAmt = (baseDebit - baseCredit) * Number(line.taxRate.rate)
+              totalInputTax += taxAmt
+            }
           }
         }
       })

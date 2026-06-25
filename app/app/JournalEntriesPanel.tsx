@@ -17,8 +17,8 @@ interface JournalLine {
     name: string
     rate: number
     taxType: string
-    isInputTax: boolean
   } | null
+  taxIsInput?: boolean | null
   currency?: string
   fxRateToBase?: string | number | null
   fxSource?: string | null

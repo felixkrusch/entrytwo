@@ -6,11 +6,12 @@ import JournalEntriesPanel from './JournalEntriesPanel'
 import ReportsPanel from './ReportsPanel'
 import ProfitLossPanel from './ProfitLossPanel'
 import AuditLogPanel from './AuditLogPanel'
-import AdminPanel from './AdminPanel'
 import SummaryBar from './SummaryBar'
 import QuickFeedImport from './QuickFeedImport'
 import RecentFeedRates from './RecentFeedRates'
 import NewJournalEntryModal from './NewJournalEntryModal'
+import TopBar from './TopBar'
+import AdminPanel from './AdminPanel'
 import { NewEntryProvider, useNewEntry } from './NewEntryContext'
 import { useTranslations } from 'next-intl'
 
@@ -93,19 +94,22 @@ function AppContent({ children }: { children: ReactNode }) {
 
   if (needsBootstrap) {
     return (
-      <div className="flex h-screen">
-        <div className="w-2/5 border-r border-zinc-800 flex flex-col p-6 bg-zinc-950">
-          <div className="text-lg font-semibold mb-1">entrytwo</div>
-          <div className="text-sm text-amber-400">Initial setup required</div>
-          <div className="mt-4 text-xs text-zinc-500 leading-relaxed">
-            No administrator account exists yet.<br />
-            Create the first ADMIN user on the right to unlock the full application.
+      <div className="flex flex-col h-screen">
+        <TopBar showSettings={false} />
+        <div className="flex flex-1">
+          <div className="w-2/5 border-r border-zinc-800 flex flex-col p-6 bg-zinc-950">
+            <div className="text-lg font-semibold mb-1">entrytwo</div>
+            <div className="text-sm text-amber-400">Initial setup required</div>
+            <div className="mt-4 text-xs text-zinc-500 leading-relaxed">
+              No administrator account exists yet.<br />
+              Create the first ADMIN user on the right to unlock the full application.
+            </div>
+            <div className="mt-auto text-[10px] text-zinc-600">After creation you will get full access to chat, journal, reports, and settings.</div>
           </div>
-          <div className="mt-auto text-[10px] text-zinc-600">After creation you will get full access to chat, journal, reports, and settings.</div>
-        </div>
-        <div className="flex-1 p-8 overflow-auto bg-zinc-900 flex items-start justify-center">
-          <div className="max-w-xl w-full">
-            <AdminPanel onBootstrapComplete={checkBootstrap} />
+          <div className="flex-1 p-8 overflow-auto bg-zinc-900 flex items-start justify-center">
+            <div className="max-w-xl w-full">
+              <AdminPanel onBootstrapComplete={checkBootstrap} />
+            </div>
           </div>
         </div>
       </div>
@@ -113,69 +117,72 @@ function AppContent({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex h-screen">
-      {/* Left: Chat (primary interface) */}
-      <div className="w-2/5 border-r border-zinc-800 flex flex-col">
-        {children}
-      </div>
+    <div className="flex flex-col h-screen">
+      <TopBar showSettings={true} />
 
-      {/* Right: Dynamic Context Panel */}
-      <div className="flex-1 p-6 overflow-auto bg-zinc-900">
-        <div className="max-w-5xl mx-auto space-y-8">
-          <div className="flex items-center justify-between">
-            <div className="text-xs text-zinc-500">Dashboard • Live</div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => window.dispatchEvent(new CustomEvent('journal-updated'))}
-                className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
-                title="Refresh all panels"
-              >
-                Refresh all
-              </button>
-              {(selectedAccount) && (
+      <div className="flex flex-1 min-h-0">
+        {/* Left: Chat (primary interface) */}
+        <div className="w-2/5 border-r border-zinc-800 flex flex-col">
+          {children}
+        </div>
+
+        {/* Right: Dynamic Context Panel */}
+        <div className="flex-1 p-6 overflow-auto bg-zinc-900">
+          <div className="max-w-5xl mx-auto space-y-8">
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-zinc-500">Dashboard • Live</div>
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={() => {
-                    setSelectedAccount(null)
-                    window.dispatchEvent(new CustomEvent('clear-account-filter'))
-                    window.dispatchEvent(new CustomEvent('clear-all-filters'))
-                  }}
-                  className="text-[10px] px-2 py-0.5 rounded border border-rose-800 text-rose-400 hover:bg-rose-950"
-                  title="Clear all filters (accounts, journal, reports, search)"
+                  onClick={() => window.dispatchEvent(new CustomEvent('journal-updated'))}
+                  className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+                  title="Refresh all panels"
                 >
-                  Clear filters
+                  Refresh all
                 </button>
-              )}
+                {(selectedAccount) && (
+                  <button
+                    onClick={() => {
+                      setSelectedAccount(null)
+                      window.dispatchEvent(new CustomEvent('clear-account-filter'))
+                      window.dispatchEvent(new CustomEvent('clear-all-filters'))
+                    }}
+                    className="text-[10px] px-2 py-0.5 rounded border border-rose-800 text-rose-400 hover:bg-rose-950"
+                    title="Clear all filters (accounts, journal, reports, search)"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
 
-          {/* Phase 2: visible active filter indicator for the right panel (reports/dashboard interactivity) */}
-          {selectedAccount && (
-            <div className="flex items-center gap-2 -mt-4 mb-2">
-              <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-emerald-400 border border-zinc-700">
-                Filtered to {selectedAccount.code} {selectedAccount.name ? `— ${selectedAccount.name}` : ''}
-              </span>
-              <button
-                onClick={() => setSelectedAccount(null)}
-                className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
-              >
-                Clear filter
-              </button>
-            </div>
-          )}
+            {/* Phase 2: visible active filter indicator for the right panel (reports/dashboard interactivity) */}
+            {selectedAccount && (
+              <div className="flex items-center gap-2 -mt-4 mb-2">
+                <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-emerald-400 border border-zinc-700">
+                  Filtered to {selectedAccount.code} {selectedAccount.name ? `— ${selectedAccount.name}` : ''}
+                </span>
+                <button
+                  onClick={() => setSelectedAccount(null)}
+                  className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+                >
+                  Clear filter
+                </button>
+              </div>
+            )}
 
-          <SummaryBar />
-           <AccountsPanel
-             onSelectAccount={setSelectedAccount}
-             selectedAccountId={selectedAccount?.id}
-             selectedAccountCode={selectedAccount?.code}
-           />
-           <JournalEntriesPanel filterAccountId={selectedAccount?.code} />
+            <SummaryBar />
+            <AccountsPanel
+              onSelectAccount={setSelectedAccount}
+              selectedAccountId={selectedAccount?.id}
+              selectedAccountCode={selectedAccount?.code}
+            />
+            <JournalEntriesPanel filterAccountId={selectedAccount?.code} />
             <ReportsPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} />
             <ProfitLossPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} />
-          <AuditLogPanel />
-          <AdminPanel />
-          <QuickFeedImport />
-          <RecentFeedRates />
+            <AuditLogPanel />
+            <QuickFeedImport />
+            <RecentFeedRates />
+          </div>
         </div>
       </div>
 

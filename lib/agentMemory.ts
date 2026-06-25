@@ -8,17 +8,19 @@ export interface MerchantMemory {
   fxRateToBase?: number
   fxSource?: string
   lastUsedDate?: string
+  region?: string // full ISO 3166-2 when we have it, e.g. "CA-ON"
 }
 
 /**
- * Very lightweight "memory" for the AI agent.
- * Looks at recent journal lines for a merchant (by description match) and returns
- * the most commonly/recently used categorization + tax + FX info.
+ * Enhanced merchant memory lookup.
+ * Keys on "merchant + province/region" when region is provided.
+ * Falls back to merchant-only if no strong region match.
  */
-export async function getMerchantMemory(merchant: string): Promise<MerchantMemory | null> {
+export async function getMerchantMemory(merchant: string, region?: string): Promise<MerchantMemory | null> {
   if (!merchant) return null
 
   const needle = merchant.toLowerCase().slice(0, 30)
+  const targetRegion = (region || '').toUpperCase()
 
   try {
     const lines = await prisma.journalLine.findMany({
@@ -29,26 +31,31 @@ export async function getMerchantMemory(merchant: string): Promise<MerchantMemor
       },
       include: {
         account: { select: { code: true } },
-        taxRate: { select: { id: true } },
+        taxRate: { select: { id: true, jurisdiction: true } },
         journalEntry: { select: { date: true, description: true } },
       },
       orderBy: { journalEntry: { date: 'desc' } },
-      take: 15,
+      take: 20,
     })
 
     if (!lines.length) return null
 
-    // Pick the most recent line as "memory"
-    const recent = lines[0]
+    // Prefer lines whose tax jurisdiction matches the current region (full ISO like CA-ON)
+    let best = lines[0]
+    if (targetRegion) {
+      const regionMatch = lines.find(l => (l.taxRate?.jurisdiction || '').toUpperCase() === targetRegion)
+      if (regionMatch) best = regionMatch
+    }
 
     return {
       merchant,
-      accountCode: recent.account?.code,
-      taxRateId: recent.taxRate?.id,
-      currency: recent.currency || undefined,
-      fxRateToBase: recent.fxRateToBase ? Number(recent.fxRateToBase) : undefined,
-      fxSource: recent.fxSource || undefined,
-      lastUsedDate: recent.journalEntry.date.toISOString().slice(0, 10),
+      accountCode: best.account?.code,
+      taxRateId: best.taxRate?.id,
+      currency: best.currency || undefined,
+      fxRateToBase: best.fxRateToBase ? Number(best.fxRateToBase) : undefined,
+      fxSource: best.fxSource || undefined,
+      lastUsedDate: best.journalEntry.date.toISOString().slice(0, 10),
+      region: best.taxRate?.jurisdiction || undefined,
     }
   } catch {
     return null
@@ -57,14 +64,16 @@ export async function getMerchantMemory(merchant: string): Promise<MerchantMemor
 
 /**
  * Returns a compact memory block for the LLM system prompt.
+ * Now includes region context when available.
  */
-export async function getMerchantMemoryPrompt(merchant?: string): Promise<string> {
+export async function getMerchantMemoryPrompt(merchant?: string, region?: string): Promise<string> {
   if (!merchant) return ''
-  const mem = await getMerchantMemory(merchant)
+  const mem = await getMerchantMemory(merchant, region)
   if (!mem || !mem.accountCode) return ''
 
+  const regionNote = mem.region ? ` (in ${mem.region})` : ''
   const parts = [
-    `For vendor "${mem.merchant}" the user previously used:`,
+    `For vendor "${mem.merchant}"${regionNote} the user previously used:`,
     `- Account: ${mem.accountCode}`,
   ]
   if (mem.taxRateId) parts.push(`- Tax rate id: ${mem.taxRateId}`)

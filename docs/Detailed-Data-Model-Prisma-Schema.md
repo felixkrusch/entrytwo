@@ -128,7 +128,6 @@ model TaxRate {
   name          String    // e.g. "MwSt 19%", "USt 7%", "Sales Tax 8.25%"
   rate          Decimal   // e.g. 0.19 for 19%
   taxType       String    // "STANDARD" | "REDUCED" | "EXEMPT" | "ZERO" | "REVERSE_CHARGE"
-  isInputTax    Boolean   @default(false)  // true = Vorsteuer (input), false = Umsatzsteuer (output)
   effectiveFrom DateTime?
   effectiveTo   DateTime?
   description   String?

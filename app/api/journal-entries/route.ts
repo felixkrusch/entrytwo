@@ -11,6 +11,7 @@ import { z } from 'zod'
     credit: z.number().min(0),
     description: z.string().optional(),
     taxRateId: z.string().uuid().optional(),
+    taxIsInput: z.boolean().optional(),
     currency: z.string().min(3).max(3).optional(),   // ISO-4217
     fxRateToBase: z.number().positive().optional(),
     fxSource: z.string().optional(),
@@ -30,7 +31,7 @@ export async function GET() {
               select: { code: true, name: true }
             },
             taxRate: {
-              select: { id: true, jurisdiction: true, name: true, rate: true, taxType: true, isInputTax: true }
+              select: { id: true, jurisdiction: true, name: true, rate: true, taxType: true }
             }
           }
         }
@@ -128,7 +129,8 @@ export async function POST(request: Request) {
               credit: line.credit,
               description: line.description,
               taxRateId: line.taxRateId || null,
-              currency: line.currency || 'EUR',   // multi-currency foundation (default base)
+              taxIsInput: typeof line.taxIsInput === 'boolean' ? line.taxIsInput : null,
+              currency: line.currency || 'EUR',
               fxRateToBase: line.fxRateToBase != null ? line.fxRateToBase : null,
               fxSource: line.fxSource || null,
               fxDate: line.fxDate ? new Date(line.fxDate) : null,
@@ -139,7 +141,7 @@ export async function POST(request: Request) {
           lines: {
             include: {
               account: { select: { code: true, name: true } },
-              taxRate: { select: { id: true, jurisdiction: true, name: true, rate: true, taxType: true, isInputTax: true } }
+              taxRate: { select: { id: true, jurisdiction: true, name: true, rate: true, taxType: true } }
             }
           }
         }

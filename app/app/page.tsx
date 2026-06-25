@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Send, Upload, Mic, Lock, Unlock } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { Send, Paperclip, Mic, Lock, Unlock } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useNewEntry, NewEntrySuggestion } from './NewEntryContext'
 import { useTranslations } from 'next-intl'
@@ -23,6 +23,7 @@ export default function ChatPage() {
   ])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Chat Lock: when true, chat is advisory only. No create/modify/reverse actions allowed.
   // This is a deliberate safety control (see docs for rationale).
@@ -210,95 +211,97 @@ export default function ChatPage() {
     openNewEntry(suggestion)
   }
 
-  const handlePdf = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAttachment = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (isChatLocked) {
-      toast.error(t('lockedToast') || 'Chat is locked (advisory mode). Unlock to allow actions.')
+
+    const lowerName = file.name.toLowerCase()
+    const isPdf = lowerName.endsWith('.pdf')
+    const isImage = /\.(jpg|jpeg|png|webp)$/.test(lowerName) || file.type.startsWith('image/')
+
+    if (!isPdf && !isImage) {
+      toast.error('Please select a PDF or image (jpg, jpeg, png, webp)')
+      e.target.value = ''
       return
     }
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      toast.error(t('selectPdf'))
-      return
-    }
 
-    const formData = new FormData()
-    formData.append('file', file)
+    e.target.value = ''
 
-    const loadingId = toast.loading(t('pdfProcessing'))
-    try {
-      const res = await fetch('/api/invoices/process', { method: 'POST', body: formData })
-      const data = await res.json()
-      toast.dismiss(loadingId)
+    if (isPdf) {
+      const formData = new FormData()
+      formData.append('file', file)
 
-      if (data.text) {
-        const preview = data.text.substring(0, 280) + (data.text.length > 280 ? '...' : '')
-
-        const det = data.detected || {}
-        const detectedCurrency = det.currency || 'EUR'
-        const detectedTotal = typeof det.total === 'number' ? det.total : null
-        const amount = detectedTotal ?? 100
-
-        // Prefer structured suggestion from API if provided (with real currency + tax + fx)
-        const apiSuggestion = data.suggestion
-        const pdfSuggestion: NewEntrySuggestion = apiSuggestion
-          ? {
-              description: apiSuggestion.description,
-              lines: apiSuggestion.lines,
-            }
-          : {
-              description: `Invoice: ${file.name}${det.vendor ? ` — ${det.vendor}` : ''}`,
-              lines: [
-                { accountCode: '5200', debit: amount, description: 'Expense from invoice', currency: detectedCurrency },
-                { accountCode: '2000', credit: amount, description: 'Accounts payable', currency: detectedCurrency }
-              ]
-            }
-
-        const currencyNote = det.currency
-          ? `Detected currency: ${det.currency} (confidence: ${det.currencyConfidence || 'low'})`
-          : 'Currency not confidently detected from PDF.'
-
-        const taxNote = det.tax
-          ? `Detected tax: ${det.tax.jurisdiction} ${det.tax.name} (${(det.tax.rate * 100).toFixed(0)}%)`
-          : ''
-
-        const needsConfirm = apiSuggestion?.needsConfirmation || (!det.currency || det.currencyConfidence === 'low')
-
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `Extracted from ${file.name}:\n${preview}\n\n${currencyNote}${taxNote ? `\n${taxNote}` : ''}${detectedTotal ? `\nGuessed total: ${detectedTotal}` : ''}\n\n${needsConfirm ? 'Please review currency, tax, and amounts and confirm before posting.' : 'Review the suggestion.'}`,
-          action: 'suggest_entry',
-          suggestion: {
-            ...pdfSuggestion,
-            source: 'pdf',
-            needsConfirmation: needsConfirm,
-          }
-        }])
-
-        toast.success(t('pdfParsed'))
-      } else {
+      const loadingId = toast.loading(t('pdfProcessing'))
+      try {
+        const res = await fetch('/api/invoices/process', { method: 'POST', body: formData })
+        const data = await res.json()
         toast.dismiss(loadingId)
-        toast.error(t('pdfNoText'))
+
+        if (data.text) {
+          const preview = data.text.substring(0, 280) + (data.text.length > 280 ? '...' : '')
+
+          const det = data.detected || {}
+          const detectedCurrency = det.currency || 'EUR'
+          const detectedTotal = typeof det.total === 'number' ? det.total : null
+          const amount = detectedTotal ?? 100
+
+          const apiSuggestion = data.suggestion
+          const pdfSuggestion: NewEntrySuggestion = apiSuggestion
+            ? {
+                description: apiSuggestion.description,
+                lines: apiSuggestion.lines,
+              }
+            : {
+                description: `Invoice: ${file.name}${det.vendor ? ` — ${det.vendor}` : ''}`,
+                lines: [
+                  { accountCode: '5200', debit: amount, description: 'Expense from invoice', currency: detectedCurrency },
+                  { accountCode: '2000', credit: amount, description: 'Accounts payable', currency: detectedCurrency }
+                ]
+              }
+
+          const currencyNote = det.currency
+            ? `Detected currency: ${det.currency} (confidence: ${det.currencyConfidence || 'low'})`
+            : 'Currency not confidently detected from PDF.'
+
+          const taxNote = det.tax
+            ? `Detected tax: ${det.tax.jurisdiction} ${det.tax.name} (${(det.tax.rate * 100).toFixed(0)}%)`
+            : ''
+
+          const needsConfirm = apiSuggestion?.needsConfirmation || (!det.currency || det.currencyConfidence === 'low')
+
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Extracted from ${file.name}:\n${preview}\n\n${currencyNote}${taxNote ? `\n${taxNote}` : ''}${detectedTotal ? `\nGuessed total: ${detectedTotal}` : ''}\n\n${needsConfirm ? 'Please review currency, tax, and amounts and confirm before posting.' : 'Review the suggestion.'}`,
+            action: 'suggest_entry',
+            suggestion: {
+              ...pdfSuggestion,
+              source: 'pdf',
+              needsConfirmation: needsConfirm,
+            }
+          }])
+
+          toast.success(t('pdfParsed'))
+        } else {
+          toast.dismiss(loadingId)
+          toast.error(t('pdfNoText'))
+        }
+      } catch {
+        toast.dismiss(loadingId)
+        toast.error(t('pdfFailed') || 'Failed to process PDF')
       }
-    } catch {
-      toast.dismiss(loadingId)
-      toast.error(t('pdfFailed') || 'Failed to process PDF')
+      return
     }
+
+    // Image attachment
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: `Attached image: ${file.name}`
+    }])
+    toast.success('Image attached')
   }
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-zinc-800 px-6 py-4 flex items-center justify-between">
-            <div>
-           <div className="font-semibold">entrytwo</div>
-           <div className="text-xs text-zinc-500">{t('subtitle') || 'AI Accountant • Phase 0/1'}</div>
-         </div>
-        <label className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm transition-colors cursor-pointer">
-          <Upload className="w-4 h-4" /> Upload PDF
-          <input type="file" accept=".pdf" className="hidden" onChange={handlePdf} />
-        </label>
-      </div>
-
       <div className="flex-1 overflow-auto p-6 space-y-6">
         {messages.map((msg, i) => (
           <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : ''}`}>
@@ -342,27 +345,44 @@ export default function ChatPage() {
       </div>
 
       <div className="border-t border-zinc-800 p-4">
-        <div className="flex gap-3">
-          <button className="p-3 text-zinc-400 hover:text-zinc-200 transition-colors">
-            <Mic className="w-5 h-5" />
+        <div className="flex gap-3 items-center">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,image/jpeg,image/jpg,image/png,image/webp"
+            className="hidden"
+            onChange={handleAttachment}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="p-3 text-zinc-400 hover:text-zinc-200 transition-colors"
+            title="Attach file (PDF or image)"
+          >
+            <Paperclip className="w-5 h-5" />
           </button>
+
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t('placeholder')}
-            disabled={isChatLocked}
-            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-3 text-sm focus:outline-none focus:border-zinc-700 disabled:opacity-60"
+            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-3 text-sm focus:outline-none focus:border-zinc-700"
           />
-           <button
-             onClick={toggleChatLock}
-             className={`p-3 transition-colors ${isChatLocked ? 'text-amber-400 hover:text-amber-300' : 'text-zinc-400 hover:text-zinc-200'}`}
-             title={isChatLocked ? t('unlock') : t('lock')}
-             aria-label={isChatLocked ? t('unlock') : t('lock')}
-           >
-             {isChatLocked ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
-           </button>
+
+          <button className="p-3 text-zinc-400 hover:text-zinc-200 transition-colors">
+            <Mic className="w-5 h-5" />
+          </button>
+          <button
+            onClick={toggleChatLock}
+            className={`p-3 transition-colors ${isChatLocked ? 'text-amber-400 hover:text-amber-300' : 'text-zinc-400 hover:text-zinc-200'}`}
+            title={isChatLocked ? t('unlock') : t('lock')}
+            aria-label={isChatLocked ? t('unlock') : t('lock')}
+          >
+            {isChatLocked ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
+          </button>
+
           <button
             onClick={sendMessage}
             disabled={!input.trim() || isLoading}

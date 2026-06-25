@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { PROVIDERS, getProvider } from '@/lib/providers'
+import { COUNTRIES, getRegionsForCountry, getSuggestedCurrency } from '@/lib/countries'
 
 interface User {
   id: string
@@ -92,7 +93,7 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
     fetchData()
   }
 
-  const updateSetting = async (key: string, value: { value: string }) => {
+  const updateSetting = async (key: string, value: unknown) => {
     await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -103,7 +104,13 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
 
   const baseCurrencySetting = ((settings.find(s => s.key === 'baseCurrency')?.value as { value?: string } | undefined)?.value) || 'EUR'
   const companyNameSetting = ((settings.find(s => s.key === 'company.name')?.value as { value?: string } | undefined)?.value) || ''
-  const defaultJurisdiction = ((settings.find(s => s.key === 'defaultTaxJurisdiction')?.value as { value?: string } | undefined)?.value) || 'DE'
+  const defaultJurisdiction = ((settings.find(s => s.key === 'defaultTaxJurisdiction')?.value as { value?: string } | undefined)?.value) || ''
+
+  // Structured address support (new)
+  const addressSetting = settings.find(s => s.key === 'company.address')?.value as { value?: any } | undefined
+  const addrObj = (addressSetting && typeof addressSetting === 'object' && 'country' in addressSetting) ? addressSetting : (addressSetting?.value || {})
+  const [addrCountry, setAddrCountry] = useState<string>(addrObj?.country || '')
+  const [addrRegion, setAddrRegion] = useState<string>(addrObj?.region || '')
 
   if (loading) {
     return <div className="text-sm text-zinc-500">{t('loading')}</div>
@@ -209,6 +216,49 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
               className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1"
             />
           </div>
+
+          {/* Structured address: Country + Region (ISO 3166-2) */}
+          <div className="flex items-center gap-3">
+            <label className="w-48 text-zinc-400">Country</label>
+            <select
+              value={addrCountry}
+              onChange={async (e) => {
+                const c = e.target.value
+                setAddrCountry(c)
+                setAddrRegion('')
+                const suggested = getSuggestedCurrency(c)
+                await updateSetting('company.address', { country: c })
+                await updateSetting('baseCurrency', suggested)
+                await updateSetting('defaultTaxJurisdiction', c)
+              }}
+              className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1"
+            >
+              <option value="">Select country…</option>
+              {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+            </select>
+          </div>
+
+          {getRegionsForCountry(addrCountry).length > 0 && (
+            <div className="flex items-center gap-3">
+              <label className="w-48 text-zinc-400">Province / State / Region</label>
+              <select
+                value={addrRegion}
+                onChange={async (e) => {
+                  const r = e.target.value
+                  setAddrRegion(r)
+                  await updateSetting('company.address', { country: addrCountry, region: r })
+                  await updateSetting('defaultTaxJurisdiction', r)
+                }}
+                className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1"
+              >
+                <option value="">Select region…</option>
+                {getRegionsForCountry(addrCountry).map(r => (
+                  <option key={r.code} value={r.code}>{r.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="flex items-center gap-3">
             <label className="w-48 text-zinc-400">Base Currency</label>
             <select
@@ -218,10 +268,13 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
             >
               <option value="EUR">EUR</option>
               <option value="USD">USD</option>
+              <option value="CAD">CAD</option>
               <option value="GBP">GBP</option>
               <option value="CHF">CHF</option>
+              <option value="AUD">AUD</option>
             </select>
           </div>
+
           <div className="flex items-center gap-3">
             <label className="w-48 text-zinc-400">Default Tax Jurisdiction</label>
             <input
@@ -230,6 +283,7 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
               className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1"
             />
           </div>
+          <div className="text-[10px] text-zinc-500 -mt-1">Full ISO 3166-2 preferred when region is selected (e.g. CA-ON, US-CA).</div>
         </div>
         <div className="text-[10px] text-zinc-500 mt-2">Changes are saved immediately and audited.</div>
       </div>
