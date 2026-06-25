@@ -14,7 +14,7 @@ export async function GET(request: Request) {
       fxRateToBase: rate,
       source: rate === 1 ? 'BASE' : (rate ? 'LOOKUP' : 'UNAVAILABLE'),
     })
-  } catch (e) {
+  } catch {
     return NextResponse.json(
       { error: 'Failed to lookup FX rate' },
       { status: 500 }

@@ -82,7 +82,7 @@ export async function DELETE(
     })
 
     return NextResponse.json({ ok: true })
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Failed to delete account' }, { status: 500 })
   }
 }

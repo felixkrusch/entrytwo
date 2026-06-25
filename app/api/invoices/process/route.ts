@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getFxRateToBase } from '@/lib/fx'
 import { findRecentBankFeedRateForMerchant } from '@/lib/feedMatching'
 
 // Basic currency detector for PDF text (supports common symbols and codes)
@@ -278,7 +277,7 @@ export async function POST(request: Request) {
           }
         }
       }
-    } catch (e) {
+    } catch {
       // non-fatal
     }
 

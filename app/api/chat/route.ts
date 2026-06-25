@@ -463,7 +463,6 @@ async function generateFallback(text: string) {
   const cash = pick('1000', '1000')
   const bank = pick('1100', '1000')
   const revenue = pick('4000', '3000')
-  const ap = pick('2000', '3000')
   const equity = pick('3000', '3000')
   const supplies = pick('5000', '5000')
   const software = pick('5100', '5000')
@@ -471,8 +470,6 @@ async function generateFallback(text: string) {
 
   // Pull live tax rates for intelligent suggestions (Phase 0 tax foundation)
   const rates = await prisma.taxRate.findMany({ orderBy: [{ jurisdiction: 'asc' }, { rate: 'desc' }] })
-  const deStandard = rates.find(r => r.jurisdiction === 'DE' && r.taxType === 'STANDARD' && !r.isInputTax)
-  const deReduced = rates.find(r => r.jurisdiction === 'DE' && r.taxType === 'REDUCED' && !r.isInputTax)
   const deInput = rates.find(r => r.jurisdiction === 'DE' && r.isInputTax)
 
   let response = ''

@@ -30,7 +30,7 @@ export async function GET() {
     }))
 
     return NextResponse.json(recent)
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'Failed to load recent feed rates' }, { status: 500 })
   }
 }

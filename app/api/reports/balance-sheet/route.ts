@@ -74,7 +74,7 @@ export async function GET() {
       accounts: report,
       byCurrency
     })
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Failed to generate balance sheet' },
       { status: 500 }

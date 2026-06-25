@@ -11,7 +11,7 @@ export async function GET() {
   try {
     const settings = await prisma.setting.findMany({ orderBy: { key: 'asc' } })
     return NextResponse.json(settings)
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'Failed to load settings' }, { status: 500 })
   }
 }
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
     })
 
     return NextResponse.json(setting)
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'Failed to save setting' }, { status: 500 })
   }
 }
