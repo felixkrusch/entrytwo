@@ -31,7 +31,8 @@ export default function UsersPage() {
   }
 
   useEffect(() => {
-    void fetchData()
+    const id = setTimeout(() => { void fetchData() }, 0)
+    return () => clearTimeout(id)
   }, [])
 
   const createUser = async () => {

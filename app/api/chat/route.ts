@@ -294,8 +294,8 @@ export async function POST(req: NextRequest) {
         prisma.setting.findUnique({ where: { key: 'company.address' } }),
         prisma.setting.findUnique({ where: { key: 'defaultTaxJurisdiction' } }),
       ])
-      const a = addr?.value as any
-      const jv = (jur?.value as any)?.value ?? jur?.value
+      const a = addr?.value as unknown as { region?: string; country?: string } | null
+      const jv = (jur?.value as unknown as { value?: string })?.value || (jur?.value as unknown as string)
       companyRegion = (a?.region || jv || undefined)
       companyCountry = a?.country || (companyRegion ? companyRegion.split('-')[0] : undefined)
       if (companyRegion) companyRegion = String(companyRegion).toUpperCase()
@@ -429,7 +429,7 @@ Tax confidence rule (strict):
         // - >= 0.80 → autonomous (clear needsConfirmation=false for tax)
         // - <  0.70 → force confirmation
         // - 0.70-0.79 → leave as-is (existing logic decides)
-        const rawTaxConf = (object as any)?.taxConfidence
+        const rawTaxConf = (object as { taxConfidence?: number })?.taxConfidence
         let taxConf: number | undefined
         if (typeof rawTaxConf === 'number') taxConf = Math.max(0, Math.min(1, rawTaxConf))
 
@@ -517,8 +517,8 @@ async function generateFallback(text: string) {
   const deRate = rates.find(r => r.jurisdiction === 'DE') || rates[0]
 
   let response = ''
-  interface SuggestionLine { accountCode: string; debit?: number; credit?: number; description?: string; currency?: string; fxRateToBase?: number; fxSource?: string; taxRateId?: string; fxDate?: string }
-  let suggestion: { description?: string; lines?: SuggestionLine[] } | undefined
+interface SuggestionLine { accountCode: string; debit?: number; credit?: number; description?: string; currency?: string; fxRateToBase?: number; fxSource?: string; taxRateId?: string; fxDate?: string; taxIsInput?: boolean }
+   let suggestion: { description?: string; lines?: SuggestionLine[] } | undefined
 
   const isExpense = lower.includes('bought') || lower.includes('purchase') || lower.includes('paid for') || lower.includes('expense') || lower.includes('laptop') || lower.includes('computer') || lower.includes('equipment') || lower.includes('rent') || lower.includes('office') || lower.includes('supplies') || lower.includes('software') || lower.includes('subscription') || lower.includes('professional') || lower.includes('consult')
   const isRevenue = lower.includes('revenue') || lower.includes('client paid') || lower.includes('received') || lower.includes('sale') || lower.includes('payment received')
@@ -542,9 +542,7 @@ async function generateFallback(text: string) {
     if (taxRateId && deRate) {
       const taxAmt = Math.round(amount * Number(deRate.rate) * 100) / 100
       // For expense suggestions from chat we know the direction is input
-      lines.push({ accountCode: debitCode, debit: taxAmt, description: `Tax ${deRate.name}`, taxRateId, currency })
-      // also surface the direction for the modal to use explicitly
-      ;(lines[lines.length - 1] as any).taxIsInput = true
+lines.push({ accountCode: debitCode, debit: taxAmt, description: `Tax ${deRate.name}`, taxRateId, currency, taxIsInput: true })
     }
 
     // If user explicitly gave foreign + base amounts, use the exact base amount + rate.

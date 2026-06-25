@@ -14,9 +14,16 @@ interface TaxRateInput {
   jurisdiction?: string
 }
 
+interface TaxRateRow {
+  id: string
+  name: string
+  rate: number
+  jurisdiction?: string
+}
+
 export default function TaxSettingsPage() {
   const [settings, setSettings] = useState<Setting[]>([])
-  const [rates, setRates] = useState<any[]>([])
+  const [rates, setRates] = useState<TaxRateRow[]>([])
   const [loading, setLoading] = useState(true)
 
   const [newRate, setNewRate] = useState<TaxRateInput>({
@@ -69,7 +76,8 @@ export default function TaxSettingsPage() {
   }
 
   useEffect(() => {
-    void fetchData()
+    const id = setTimeout(() => { void fetchData() }, 0)
+    return () => clearTimeout(id)
   }, [])
 
   // Sync percentage input with decimal rate
@@ -134,7 +142,7 @@ export default function TaxSettingsPage() {
         <div className="font-medium mb-2">Defined Tax Rates</div>
         <div className="space-y-2 text-sm max-w-3xl">
           {rates.length === 0 && <div className="text-zinc-500">No tax rates defined yet.</div>}
-          {rates.map((r: any) => (
+          {rates.map((r) => (
             <div key={r.id} className="flex items-center justify-between border border-zinc-800 rounded px-3 py-2">
               <div>
                 <span className="font-medium">{r.name}</span>
@@ -229,7 +237,7 @@ export default function TaxSettingsPage() {
            {newRate.name.trim() && (
              <div className="rounded bg-zinc-900 border border-zinc-700 px-3 py-2 text-xs">
                <span className="text-zinc-400">Preview:</span>{' '}
-               <span className="font-medium text-white">"{newRate.name}"</span>
+               <span className="font-medium text-white">&ldquo;{newRate.name}&rdquo;</span>
                {newRate.jurisdiction ? ` • ${newRate.jurisdiction}` : ''}
                {` • ${(newRate.rate * 100).toFixed(3)}%`}
              </div>

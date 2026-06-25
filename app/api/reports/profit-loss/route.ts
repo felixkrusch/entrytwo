@@ -67,31 +67,31 @@ export async function GET() {
         }
         const bc = byCurrency[cur]
 
-        if (account.type === 'REVENUE') {
-          totalRevenue += baseCredit - baseDebit
-          bc.revenueNative += (credit - debit)
-          bc.revenueBase += (baseCredit - baseDebit)
+if (account.type === 'REVENUE') {
+           totalRevenue += baseCredit - baseDebit
+           bc.revenueNative += (credit - debit)
+           bc.revenueBase += (baseCredit - baseDebit)
 
-          if (line.taxRate) {
-            const isInput = getTaxDirection(account.type, line, (line as any).taxIsInput)
-            if (!isInput) {
-              const taxAmt = (baseCredit - baseDebit) * Number(line.taxRate.rate)
-              totalOutputTax += taxAmt
-            }
-          }
-        } else if (account.type === 'EXPENSE') {
-          totalExpenses += baseDebit - baseCredit
-          bc.expensesNative += (debit - credit)
-          bc.expensesBase += (baseDebit - baseCredit)
+           if (line.taxRate) {
+             const isInput = getTaxDirection(account.type, { debit: line.debit, credit: line.credit }, (line as { taxIsInput?: boolean | null }).taxIsInput)
+             if (!isInput) {
+               const taxAmt = (baseCredit - baseDebit) * Number(line.taxRate.rate)
+               totalOutputTax += taxAmt
+             }
+           }
+         } else if (account.type === 'EXPENSE') {
+           totalExpenses += baseDebit - baseCredit
+           bc.expensesNative += (debit - credit)
+           bc.expensesBase += (baseDebit - baseCredit)
 
-          if (line.taxRate) {
-            const isInput = getTaxDirection(account.type, line, (line as any).taxIsInput)
-            if (isInput) {
-              const taxAmt = (baseDebit - baseCredit) * Number(line.taxRate.rate)
-              totalInputTax += taxAmt
-            }
-          }
-        }
+           if (line.taxRate) {
+             const isInput = getTaxDirection(account.type, { debit: line.debit, credit: line.credit }, (line as { taxIsInput?: boolean | null }).taxIsInput)
+             if (isInput) {
+               const taxAmt = (baseDebit - baseCredit) * Number(line.taxRate.rate)
+               totalInputTax += taxAmt
+             }
+           }
+         }
       })
 
       // Per-account balance in base currency + native (original currency) sum for transparency

@@ -3,15 +3,17 @@
 import { useEffect, useState } from 'react'
 import { COUNTRIES, getRegionsForCountry, getSuggestedCurrency } from '@/lib/countries'
 
-interface Setting {
-  id: string
-  key: string
-  value: { value?: string } | Record<string, unknown>
-}
+type SettingsValue = { value?: string } | Record<string, unknown>
 
 interface Address {
   country?: string
   region?: string // full ISO 3166-2 e.g. "CA-ON"
+}
+
+interface Setting {
+  id: string
+  key: string
+  value: SettingsValue
 }
 
 export default function CompanySettingsPage() {
@@ -29,13 +31,14 @@ export default function CompanySettingsPage() {
       const s = await res.json()
       if (!Array.isArray(s)) return
 
+      // Keeping settings state in sync (used by other hooks/effects)
       setSettings(s)
 
-      const name = ((s.find((x: Setting) => x.key === 'company.name')?.value as any)?.value) || ''
-      const addrRaw = s.find((x: Setting) => x.key === 'company.address')?.value as any
-      const addr: Address = (addrRaw && typeof addrRaw === 'object' && !Array.isArray(addrRaw)) ? addrRaw : {}
-      const bc = ((s.find((x: Setting) => x.key === 'baseCurrency')?.value as any)?.value) || 'EUR'
-      const jur = ((s.find((x: Setting) => x.key === 'defaultTaxJurisdiction')?.value as any)?.value) || ''
+      const name = ((s.find((x: Setting) => x.key === 'company.name')?.value as SettingsValue)?.value as string) || ''
+      const addrRaw = s.find((x: Setting) => x.key === 'company.address')?.value as SettingsValue
+      const addr: Address = (addrRaw && typeof addrRaw === 'object' && !Array.isArray(addrRaw)) ? addrRaw as Address : {}
+      const bc = ((s.find((x: Setting) => x.key === 'baseCurrency')?.value as SettingsValue)?.value as string) || 'EUR'
+      const jur = ((s.find((x: Setting) => x.key === 'defaultTaxJurisdiction')?.value as SettingsValue)?.value as string) || ''
 
       setCompanyName(name)
       setAddress(addr)
@@ -49,10 +52,11 @@ export default function CompanySettingsPage() {
   }
 
   useEffect(() => {
-    void fetchData()
+    const id = setTimeout(() => { void fetchData() }, 0)
+    return () => clearTimeout(id)
   }, [])
 
-  const save = async (key: string, val: any) => {
+  const save = async (key: string, val: string) => {
     await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

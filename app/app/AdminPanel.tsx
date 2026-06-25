@@ -107,8 +107,8 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
   const defaultJurisdiction = ((settings.find(s => s.key === 'defaultTaxJurisdiction')?.value as { value?: string } | undefined)?.value) || ''
 
   // Structured address support (new)
-  const addressSetting = settings.find(s => s.key === 'company.address')?.value as { value?: any } | undefined
-  const addrObj = (addressSetting && typeof addressSetting === 'object' && 'country' in addressSetting) ? addressSetting : (addressSetting?.value || {})
+  const addressSetting = settings.find(s => s.key === 'company.address')?.value as { country?: string; region?: string } | undefined
+  const addrObj = addressSetting || {}
   const [addrCountry, setAddrCountry] = useState<string>(addrObj?.country || '')
   const [addrRegion, setAddrRegion] = useState<string>(addrObj?.region || '')
 
@@ -347,7 +347,6 @@ function LlmSettings({ settings, onSaved }: { settings: Setting[]; onSaved: () =
     setProvider(val)
     await save('llm.provider', val)
 
-    const info = getProvider(val)
     // Smart model defaults (Hermes-style popular choices)
     if ((val.includes('xai') || val === 'xai-oauth') && !model.includes('grok')) setModel('grok-3')
     if (val === 'anthropic' && !model.includes('claude')) setModel('claude-3-5-sonnet-20241022')

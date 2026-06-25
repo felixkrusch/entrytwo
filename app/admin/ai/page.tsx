@@ -26,17 +26,9 @@ export default function AiProviderPage() {
   }
 
   useEffect(() => {
-    void fetchData()
+    const id = setTimeout(() => { void fetchData() }, 0)
+    return () => clearTimeout(id)
   }, [])
-
-  const save = async (key: string, val: string) => {
-    await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, value: { value: val } }),
-    })
-    fetchData()
-  }
 
   if (loading) {
     return <div className="text-sm text-zinc-500">Loading...</div>
@@ -100,7 +92,6 @@ function LlmSettings({ settings, onSaved }: { settings: Setting[]; onSaved: () =
     setProvider(val)
     await saveField('llm.provider', val)
 
-    const info = getProvider(val)
     if ((val.includes('xai') || val === 'xai-oauth') && !model.includes('grok')) setModel('grok-3')
     if (val === 'anthropic' && !model.includes('claude')) setModel('claude-3-5-sonnet-20241022')
     if (val === 'openrouter' && !model.includes('/')) setModel('anthropic/claude-sonnet-4-20250514')
