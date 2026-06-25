@@ -51,6 +51,9 @@ export async function PATCH(
     if (err.code === 'P2002') {
       return NextResponse.json({ error: 'Code already exists' }, { status: 409 })
     }
+    if (err.code === 'P2025') {
+      return NextResponse.json({ error: 'Account not found' }, { status: 404 })
+    }
     return NextResponse.json({ error: 'Failed to update account' }, { status: 500 })
   }
 }
