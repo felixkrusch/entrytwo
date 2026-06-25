@@ -3,18 +3,18 @@ import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 
   const createEntrySchema = z.object({
-  date: z.string(),
+  date: z.string().refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid date format' }),
   description: z.string().optional(),
   lines: z.array(z.object({
-    accountId: z.string(),
+    accountId: z.string().uuid({ message: 'accountId must be a valid UUID' }),
     debit: z.number().min(0),
     credit: z.number().min(0),
     description: z.string().optional(),
-    taxRateId: z.string().optional(),
-    currency: z.string().optional(),   // multi-currency foundation
-    fxRateToBase: z.number().optional(),
+    taxRateId: z.string().uuid().optional(),
+    currency: z.string().min(3).max(3).optional(),   // ISO-4217
+    fxRateToBase: z.number().positive().optional(),
     fxSource: z.string().optional(),
-    fxDate: z.string().optional(),     // YYYY-MM-DD
+    fxDate: z.string().refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid fxDate' }).optional(),
   })).min(2)
 })
 
