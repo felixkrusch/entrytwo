@@ -30,13 +30,16 @@ enum Role {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String?
-  role      Role     @default(ADMIN)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  events    Event[]
+  id          String   @id @default(uuid())
+  email       String   @unique
+  name        String?
+  role        Role     @default(ADMIN)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  events      Event[]
+  totpSecret  String?   // Encrypted TOTP secret for 2FA
+  totpEnabled Boolean   @default(false)  // Whether TOTP is enabled
+  settings    Json?     // User preferences including 2FA settings
 }
 
 model Account {

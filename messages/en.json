@@ -148,6 +148,10 @@
              "magicSent": "A magic link has been sent to {email}"
            }
          },
+         "totp": {
+           "setup": "Enable TOTP 2FA",
+           "disable": "Disable Two-Factor Authentication"
+         },
         "admin": {
          "title": "Admin",
          "loading": "Loading admin...",

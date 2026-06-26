@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { COUNTRIES, getRegionsForCountry, getSuggestedCurrency } from '@/lib/countries'
+import TOTPSetup from './TOTPSetup'
 
 interface User {
   id: string
@@ -285,6 +286,12 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
           <div className="text-[10px] text-zinc-500 -mt-1">Full ISO 3166-2 preferred when region is selected (e.g. CA-ON, US-CA).</div>
         </div>
         <div className="text-[10px] text-zinc-500 mt-2">Changes are saved immediately and audited.</div>
+      </div>
+
+      {/* TOTP 2FA Setup */}
+      <div className="mt-8 pt-6 border-t border-zinc-800">
+        <div className="font-medium mb-3">Two-Factor Authentication (2FA)</div>
+        <TOTPSetup />
       </div>
 
       <div className="mt-10 border-t border-zinc-800 pt-6">
