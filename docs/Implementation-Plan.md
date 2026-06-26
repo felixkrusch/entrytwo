@@ -167,24 +167,52 @@ Build the **Accounting Core** first, then layer the AI on top. Never let the AI 
 Build a clean, trustworthy double-entry accounting core with audit logging first.  
 Once that works reliably, *then* start adding the AI layer on top.
 
-This approach significantly reduces risk.
-
 ---
 
-## 8. Next Immediate Actions
+## 8. Phase Status & Remaining Work
 
-1. Set up a new Next.js project with TypeScript + Tailwind + shadcn/ui
-2. Set up Prisma + PostgreSQL
-3. Create the core models (`Account`, `JournalEntry`, `JournalLine`, `Event`, `TaxRate` — expanded for jurisdiction + effective dates + tax types)
-4. Implement double-entry validation logic **with tax line support**
-5. Build basic CRUD + audit logging
-6. **Set up proper i18n framework (e.g. next-intl) and externalize every single user-facing string immediately** — no English may be hardcoded anywhere
-7. **Make all reports and journal flows tax-aware and locale-aware from the beginning**
-8. **Implement automatic currency conversion pinned to transaction/payment date** (fxDate + fxRateToBase + fxSource on lines; base-currency values in reports). 
-  - For feed-imported transactions, capture the *actual* rate the bank/card used (derived from the exact amounts in the feed).
-  - Support lookup from public central bank APIs (e.g. ECB Statistical Data Warehouse https://data.ecb.europa.eu/help/api/data, Bank of Canada Valet https://www.bankofcanada.ca/valet/docs) as fallback.
+### Phase 0: COMPLETE
+- ✅ Double-entry core with i18n (next-intl, zero hardcoded English)
+- ✅ TaxRate model with jurisdiction, effective dates, taxType, input/output
+- ✅ Multi-currency on JournalLine (currency, fxRateToBase, fxSource, fxDate)
+- ✅ Bank/card feed rates are authoritative
+- ✅ Chat lock safety mode
+- ✅ Admin UI with user management + company settings + bootstrap gate
 
-**Critical Rule:** i18n readiness, correct multi-jurisdiction tax handling, **multi-currency support** (including automatic conversion pinned to transaction/payment date, with optional public central bank API lookup), and **chat lock safety mode** are Phase 0 requirements. No technical debt on i18n, tax, multi-currency, or safety controls is ever acceptable.
+### Phase 0.5: Setup & Admin UI - COMPLETE
+- ✅ docs/SETUP.md + README documentation
+- ✅ First-admin bootstrap flow implemented
+- ✅ Setting model for company configuration
+
+### Phase 1: AI Agent MVP - COMPLETE
+- ✅ Chat interface + dynamic right panel
+- ✅ PDF invoice processing with currency/tax extraction
+- ✅ AI suggestions with tax + FX metadata
+- ✅ Approval workflow for journal entries
+
+### Phase 2: Reliability & Polish - COMPLETE
+- ✅ Merchant memory system (remember vendors, accounts, tax rates)
+- ✅ Verification layer (balance check, FX validation, tax validation)
+- ✅ Real-time verification in journal modal
+- ✅ Enhanced dashboard interactivity and error handling
+- ✅ Report date range filtering
+- ✅ Audit log detail view (click to expand)
+- ✅ Transaction templates panel (save/use/delete recurring patterns)
+
+### Phase 3: Productization - IN PROGRESS
+**Remaining:**
+- [ ] Magic Link authentication (Auth.js)
+- [ ] TOTP 2FA for ADMIN accounts
+- [ ] OAuth login (Google, Microsoft)
+- [ ] Data export/import for backup/migration
+- [ ] Licensing/activation system (optional, for paid distribution)
+- [ ] Advanced onboarding flow
+
+### Out of Scope for MVP (explicitly NOT done):
+- Email forwarding
+- Voice input  
+- Automatic bank feeds (manual feed import exists)
+- Invoicing module
 
 ---
 **Current Status (2026-06-24):**

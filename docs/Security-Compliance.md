@@ -85,6 +85,8 @@ This is one of the most critical areas:
 - Implement verification steps before executing high-risk actions
 - Log every AI decision and reasoning (for debugging and compliance)
 
+**Implementation status (2026-06-26):** Approval workflow + chat lock implemented. Verification layer active in `lib/verifySuggestion.ts`. All changes audited via Event table.
+
 ---
 
 ## 7. Self-Hosting Security Recommendations

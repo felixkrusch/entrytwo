@@ -231,4 +231,41 @@ The AI Agent interacts with the Accounting Core through a controlled set of tool
 
 ---
 
-**Document Status:** Draft v1
+**Document Status:** Draft v1 (Phase 0-2 complete, Phase 3 in progress)
+
+---
+
+## Implementation Status (2026-06-26)
+
+### Phase 0: Accounting Foundation - COMPLETE
+- Full i18n using next-intl. All user-facing strings externalized.
+- Tax + multi-currency fully implemented in core, reports, PDF, feeds.
+- `docs/SETUP.md` includes complete first-run, Docker, seeding, bootstrap instructions.
+
+### Phase 1: AI Agent MVP - COMPLETE  
+- Chat interface with dynamic right panel
+- PDF processing extracts currency/tax, cross-checks feeds
+- Approval workflow for journal entries
+
+### Phase 2: Reliability & Polish - COMPLETE
+- Merchant memory system (`lib/agentMemory.ts`)
+- Real-time verification in NewJournalEntryModal
+- Report date range filters (P&L, Balance Sheet)
+- Audit log detail view modal
+- Transaction templates panel
+- Enhanced dashboard (revenue, cash cards, error handling)
+
+### Phase 3: Productization - IN PROGRESS
+**Remaining items:**
+- Magic Link authentication (Auth.js)
+- TOTP 2FA for ADMIN accounts
+- OAuth login (Google, Microsoft)
+- Data export/import for backup/migration
+- Licensing/activation system
+
+### Out of Scope for MVP (Phase 0-3)
+- Email forwarding
+- Voice input
+- Advanced agent memory
+- Automatic bank feeds (manual import exists)
+- Invoicing module

@@ -47,29 +47,31 @@ On a fresh database, create the first **ADMIN** user (bootstrap flow).
 
 ---
 
-## Current Status (2026-06-24)
+## Current Status (2026-06-26)
 
-**Phase 0 foundations are complete** (no technical debt allowed on these):
+**Phase 0-2 foundations are complete** (no technical debt allowed on these):
 
 - Full i18n (next-intl) across UI, chat, modals, reports. Zero hardcoded English.
-- Tax foundation live: `TaxRate` + `taxRateId` on lines + live selector + tax-aware P&L.
+- Tax foundation live: `TaxRate` + `taxRateId` on lines + live selector + tax-aware P&L + Balance Sheet.
 - Multi-currency foundation:
   - `JournalLine`: `currency`, `fxRateToBase`, `fxSource`, `fxDate`
-  - Bank/credit card feed rates are authoritative
-  - Automatic date-pinned conversion to base
-  - Public FX fallbacks documented (ECB, Bank of Canada, etc.)
-  - PDF uploads must extract currency and cross-check feeds; chat must ask for confirmation when uncertain
+  - Bank/credit card feed rates are authoritative (BANK_FEED source)
+  - Automatic date-pinned conversion to base currency
+  - Public FX fallbacks (ECB lookup)
+  - PDF uploads extract currency and cross-check feeds; chat asks for confirmation when uncertain
 - Chat Lock (advisory-only safety mode)
-- PDF processing extracts currency + tax hints + cross-checks feeds and returns FX + tax enriched suggestions
-- Reports (P&L + Balance Sheet) are FX-aware and show per-currency native/base subtotals + feed flags
-- Dedicated feed import endpoint for authoritative `BANK_FEED:...` entries
-- Richer currency breakdown in reports + UI
+- PDF processing extracts currency + tax hints + cross-checks feeds
+- Reports (P&L + Balance Sheet) are FX-aware with per-currency subtotals
+- Audit log detail view (click events for full payload)
+- Transaction templates (save/use/delete recurring patterns)
+- Real-time verification in journal modal
 
-**Next major areas (see docs + this session):**
-- Proper Setup & Deployment experience (README + `docs/SETUP.md`)
-- Admin UI + User management + Settings (company, base currency, etc.)
-- First-admin bootstrap flow
-- Continue with Phase 1 AI agent work on top of the solid foundation
+**Phase 3 in progress:**
+- [ ] Magic Link authentication (Auth.js)
+- [ ] TOTP 2FA for ADMIN accounts
+- [ ] OAuth login (Google, Microsoft)
+- [ ] Data export/import for backup/migration
+- [ ] Licensing/activation system
 
 ---
 
