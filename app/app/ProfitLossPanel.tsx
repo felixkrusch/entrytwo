@@ -43,6 +43,8 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode }: 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
 
   const handleClickAccount = (code?: string) => {
     if (code && onFilterAccount) {
@@ -56,7 +58,12 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode }: 
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/reports/profit-loss')
+      const url = new URL('/api/reports/profit-loss', window.location.origin)
+      if (fromDate && toDate) {
+        url.searchParams.set('from', fromDate)
+        url.searchParams.set('to', toDate)
+      }
+      const res = await fetch(url.toString())
       if (!res.ok) throw new Error('Failed to load P&L')
       const d: unknown = await res.json()
       if (d && typeof d === 'object' && (d as { revenue?: unknown }).revenue) {
@@ -109,9 +116,9 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode }: 
       {error && (
         <div className="text-[10px] text-rose-400 mb-2 px-2">{error}</div>
       )}
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-sm text-zinc-500 flex items-center gap-2">
-          {t('title')}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="text-sm text-zinc-500">{t('title')}</div>
           <button
             onClick={refresh}
             className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 hover:bg-zinc-800 text-zinc-400"
@@ -120,13 +127,38 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode }: 
             ↻
           </button>
         </div>
-        <button
-          onClick={refresh}
-          className="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 hover:bg-emerald-900 transition"
-        >
-          {t('live')}
-        </button>
+        <div className="flex items-center gap-2 text-xs">
+          <input
+            type="date"
+            value={fromDate}
+            onChange={e => setFromDate(e.target.value)}
+            className="bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5"
+            placeholder="from"
+          />
+          <span className="text-zinc-600">→</span>
+          <input
+            type="date"
+            value={toDate}
+            onChange={e => setToDate(e.target.value)}
+            className="bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5"
+            placeholder="to"
+          />
+          {(fromDate || toDate) && (
+            <button
+              onClick={() => { setFromDate(''); setToDate('') }}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-400"
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </div>
+      <button
+        onClick={refresh}
+        className="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 hover:bg-emerald-900 transition mb-3"
+      >
+        {t('live')}
+      </button>
       {lastUpdated && (
         <div className="text-[10px] text-zinc-600 -mt-3 mb-2 text-right">
           as of {lastUpdated.toLocaleTimeString()}

@@ -35,11 +35,18 @@ export default function ReportsPanel({ onFilterAccount, currentFilterCode }: Rep
   const [data, setData] = useState<BSData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
 
   const fetchBalances = () => {
     setLoading(true)
     setError(null)
-    fetch('/api/reports/balance-sheet')
+    const url = new URL('/api/reports/balance-sheet', window.location.origin)
+    if (fromDate && toDate) {
+      url.searchParams.set('from', fromDate)
+      url.searchParams.set('to', toDate)
+    }
+    fetch(url.toString())
       .then(res => {
         if (!res.ok) throw new Error('Failed to load balance sheet')
         return res.json()
@@ -98,9 +105,12 @@ export default function ReportsPanel({ onFilterAccount, currentFilterCode }: Rep
 
   return (
     <div className="mt-8">
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-sm text-zinc-500 flex items-center gap-2">
-          {t('title')}
+      {error && (
+        <div className="text-[10px] text-rose-400 mb-2 px-2">{error}</div>
+      )}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="text-sm text-zinc-500">{t('title')}</div>
           <button
             onClick={refresh}
             className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 hover:bg-zinc-800 text-zinc-400"
@@ -108,6 +118,29 @@ export default function ReportsPanel({ onFilterAccount, currentFilterCode }: Rep
           >
             ↻
           </button>
+          <div className="flex items-center gap-1 text-xs">
+            <input
+              type="date"
+              value={fromDate}
+              onChange={e => setFromDate(e.target.value)}
+              className="bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5"
+            />
+            <span className="text-zinc-600">→</span>
+            <input
+              type="date"
+              value={toDate}
+              onChange={e => setToDate(e.target.value)}
+              className="bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5"
+            />
+            {(fromDate || toDate) && (
+              <button
+                onClick={() => { setFromDate(''); setToDate('') }}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-400"
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
         <button
           onClick={refresh}

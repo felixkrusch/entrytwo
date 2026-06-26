@@ -1,11 +1,26 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const url = new URL(request.url)
+    const from = url.searchParams.get('from')
+    const to = url.searchParams.get('to')
+
+    const where = from && to ? {
+      journalEntry: {
+        date: {
+          gte: new Date(from),
+          lte: new Date(to),
+        }
+      }
+    } : {}
+
     const accounts = await prisma.account.findMany({
       include: {
-        journalLines: true
+        journalLines: {
+          where,
+        }
       }
     })
 
