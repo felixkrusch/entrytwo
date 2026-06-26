@@ -137,7 +137,18 @@
           "delete": "×",
           "none": "No templates yet. Create one from journal entries."
         },
-       "admin": {
+"auth": {
+           "signin": {
+             "title": "Sign In",
+             "description": "Enter your email for a magic link",
+             "emailPlaceholder": "you@company.com",
+             "send": "Send Magic Link",
+             "sending": "Sending...",
+             "checkEmail": "Check your email",
+             "magicSent": "A magic link has been sent to {email}"
+           }
+         },
+        "admin": {
          "title": "Admin",
          "loading": "Loading admin...",
          "usersHeader": "Users",
