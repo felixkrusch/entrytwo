@@ -6,6 +6,7 @@ import { getFxRateToBase } from '@/lib/fx'
 import { getRecentFeedRatesPromptText } from '@/lib/recentFeedRates'
 import { getMerchantMemoryPrompt, getMerchantMemory } from '@/lib/agentMemory'
 import { getLlmConfig, createLlmModel } from '@/lib/llm'
+import { findRecentBankFeedRateForMerchant } from '@/lib/feedMatching'
 
 const SuggestionSchema = z.object({
   description: z.string().optional(),
@@ -79,46 +80,6 @@ async function getReversedEntryIds(): Promise<Set<string>> {
     if (pid) ids.add(pid)
   })
   return ids
-}
-
-// Phase 1 improvement: look for a recent authoritative BANK_FEED rate for a given merchant hint.
-// This lets the chat use the *real* rate from previous imports instead of guessing.
-async function findRecentBankFeedRateForMerchant(merchantLower: string) {
-  if (!merchantLower) return null
-  try {
-    const since = new Date(Date.now() - 1000 * 60 * 60 * 24 * 90) // last 90 days
-    const lines = await prisma.journalLine.findMany({
-      where: {
-        fxSource: { startsWith: 'BANK_FEED' },
-        journalEntry: {
-          date: { gte: since },
-        },
-      },
-      include: {
-        journalEntry: { select: { description: true, date: true } },
-      },
-      orderBy: { journalEntry: { date: 'desc' } },
-      take: 50,
-    })
-
-    for (const line of lines) {
-      const desc = (line.journalEntry.description || '').toLowerCase()
-      const lineDesc = (line.description || '').toLowerCase()
-      if (desc.includes(merchantLower) || lineDesc.includes(merchantLower)) {
-        if (line.fxRateToBase != null && line.currency && line.fxDate) {
-          return {
-            fxRateToBase: Number(line.fxRateToBase),
-            fxSource: line.fxSource || 'BANK_FEED',
-            fxDate: line.fxDate.toISOString().slice(0, 10),
-            currency: (line.currency || 'EUR').toUpperCase(),
-          }
-        }
-      }
-    }
-  } catch {
-    // non-fatal
-  }
-  return null
 }
 
 async function answerDataQuery(text: string) {

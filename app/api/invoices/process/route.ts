@@ -86,6 +86,50 @@ function guessVendor(text: string): string | null {
   return null
 }
 
+// Merchant normalization for common variations (Vercel ↔ VERCEL CHARGES etc.)
+function normalizeMerchant(name: string): string[] {
+  const variants = [name.toLowerCase()]
+  const normalized = name.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const patterns: Record<string, string[]> = {
+    vercel: ['vercel', 'vercelcharges'],
+    stripe: ['stripe', 'stripecharges'],
+    paypal: ['paypal'],
+    github: ['github', 'github.com'],
+    aws: ['amazon web services', 'aws', 'amzn'],
+  }
+  for (const [, pats] of Object.entries(patterns)) {
+    if (pats.some(p => normalized.includes(p))) variants.push(...pats)
+  }
+  return [...new Set(variants)]
+}
+
+// Date proximity check (±1 day)
+function datesMatchOrNear(d1: string, d2: string): boolean {
+  if (!d1 || !d2) return false
+  const t1 = new Date(d1).getTime(), t2 = new Date(d2).getTime()
+  return !isNaN(t1) && !isNaN(t2) && Math.abs(t1 - t2) <= 24 * 60 * 60 * 1000
+}
+
+// Try to extract invoice date from PDF text
+function guessInvoiceDate(text: string): string | null {
+  const lines = text.split(/\r?\n/)
+  const datePatterns = [
+    /invoice\s*date[:\s]*([A-Za-z]+[\s\d]+[A-Za-z]*[\s\d]+)/i,
+    /date[:\s]*([A-Za-z]+[\s\d]+[A-Za-z]*[\s\d]+|\d{4}-\d{2}-\d{2})/,
+    /(\d{4}-\d{2}-\d{2})/,
+  ]
+  for (const line of lines) {
+    for (const pat of datePatterns) {
+      const m = line.match(pat)
+      if (m) {
+        const d = new Date(m[1])
+        if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10)
+      }
+    }
+  }
+  return null
+}
+
 // Very lightweight tax hint detector from PDF text.
 // Returns a best-guess rate (as decimal) and whether it looks like input tax.
 function detectTaxHints(text: string): { rate: number | null; jurisdictionGuess?: string; taxAmount?: number } {
@@ -140,6 +184,7 @@ export async function POST(request: Request) {
     const { currency, confidence } = detectCurrency(fullText)
     const total = guessTotal(fullText)
     const vendor = guessVendor(fullText)
+    const invoiceDate = guessInvoiceDate(fullText)
     const taxHints = detectTaxHints(fullText)
 
     // Load live tax rates so we can attach a taxRateId when we have a good hint
@@ -224,6 +269,20 @@ export async function POST(request: Request) {
 
         const vendorLower = (vendor || '').toLowerCase()
         const foreignTotal = total
+        const vendorVariants = vendor ? normalizeMerchant(vendor) : []
+        type FeedMatchResult = {
+          baseAmount: number
+          foreignAmount: number
+          currency: string
+          date: string
+          journalEntryId?: string
+          description?: string
+          settlementAccountCode?: string
+          fxRateToBase?: number
+          fxSource?: string
+          fxDate?: string
+        }
+        const bestMatch = { score: 0, match: null as FeedMatchResult | null }
 
         for (const line of candidates) {
           const amt = Math.max(Number(line.debit), Number(line.credit))
@@ -231,23 +290,37 @@ export async function POST(request: Request) {
 
           const lineCur = (line.currency || 'EUR').toUpperCase()
 
-          // Prefer lines in a different currency than what the PDF claims (i.e. the base settlement)
           const currencyDifferent = lineCur !== detectedCur
 
-          // Amount tolerance is intentionally loose because foreign vs base numbers differ by the rate
-          // We mainly look for "reasonable size" recent movements.
-          const sizeReasonable = Math.abs(amt - foreignTotal) < Math.max(foreignTotal * 0.8, 200) || amt > 10
+          const rateExpected = 0.5
+          const rateMax = 2.0
+          const amountReasonable = amt > 0 && foreignTotal && foreignTotal > 0 &&
+            (amt / foreignTotal >= rateExpected && amt / foreignTotal <= rateMax)
 
-          // Weak merchant hint
           const entryDesc = (line.journalEntry.description || '').toLowerCase()
-          const merchantHintMatch = vendorLower && entryDesc && (
-            entryDesc.includes(vendorLower.slice(0, 6)) || vendorLower.includes(entryDesc.slice(0, 6))
+          const lineDesc = (line.description || '').toLowerCase()
+          const merchantHintMatch = vendorVariants.some(v =>
+            entryDesc.includes(v) || lineDesc.includes(v) ||
+            entryDesc.includes(vendorLower.slice(0, 4)) || (vendorLower.length > 4 && lineDesc.includes(vendorLower.slice(0, 4)))
           )
 
-            if ((currencyDifferent && sizeReasonable) || merchantHintMatch) {
-            const hasFx = line.fxRateToBase != null
+          const dateProximityMatch = invoiceDate && datesMatchOrNear(invoiceDate, line.journalEntry.date.toISOString().slice(0, 10))
 
-            feedMatch = {
+          let matchScore = 0
+          if (merchantHintMatch && currencyDifferent && amountReasonable) matchScore = 10
+          else if (merchantHintMatch && currencyDifferent) matchScore = 8
+          else if (merchantHintMatch && amountReasonable) matchScore = 6
+          else if (merchantHintMatch) matchScore = 4
+          else if (currencyDifferent && amountReasonable) matchScore = 5
+          else if (currencyDifferent) matchScore = 2
+          else if (amountReasonable) matchScore = 1
+
+          if (dateProximityMatch) matchScore += 3
+
+          if (matchScore > 0 && matchScore > bestMatch.score) {
+            bestMatch.score = matchScore
+            const hasFx = line.fxRateToBase != null
+            bestMatch.match = {
               baseAmount: amt,
               foreignAmount: foreignTotal,
               currency: lineCur,
@@ -255,18 +328,15 @@ export async function POST(request: Request) {
               journalEntryId: line.journalEntry.id,
               description: line.journalEntry.description || undefined,
               settlementAccountCode: line.account?.code || undefined,
-              // Carry authoritative rate + source from the actual feed line when present
               fxRateToBase: hasFx ? Number(line.fxRateToBase) : undefined,
               fxSource: hasFx ? (line.fxSource || undefined) : undefined,
               fxDate: hasFx && line.fxDate ? line.fxDate.toISOString().slice(0, 10) : undefined,
             }
-
-            // Strongest preference: lines that already carry real fx metadata from a feed
-            if (hasFx && currencyDifferent) break
-            if (hasFx) break
-            if ((merchantHintMatch || hasFx) && currencyDifferent) break
-            if (currencyDifferent) break
           }
+        }
+
+        if (bestMatch.match && bestMatch.score >= 5) {
+          feedMatch = bestMatch.match
         }
       }
     } catch {
@@ -277,7 +347,7 @@ export async function POST(request: Request) {
     // try to find a previous authoritative BANK_FEED rate for that exact merchant.
     if (!feedMatch && vendor) {
       try {
-        const feedRate = await findRecentBankFeedRateForMerchant(vendor.toLowerCase())
+        const feedRate = await findRecentBankFeedRateForMerchant(vendor.toLowerCase(), invoiceDate || undefined)
         if (feedRate) {
           // We don't know the exact base amount here, but we can at least carry the real rate.
           // The PDF side will still be the foreign amount; the rate is the important authoritative part.
