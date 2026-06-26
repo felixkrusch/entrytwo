@@ -59,13 +59,24 @@ Copy `.env.example` to `.env` and fill in:
 # Required
 DATABASE_URL="postgresql://user:password@localhost:5432/entrytwo"
 
-# Auth (future)
+# Auth.js
 AUTH_SECRET="change-this-in-production"
+
+# Email for Magic Link (choose one)
+# SMTP (works with any SMTP server)
+SMTP_HOST=""       # smtp.gmail.com, etc.
+SMTP_PORT="587"
+SMTP_USER=""
+SMTP_PASS=""
+SMTP_FROM="noreply@yourdomain.com"
+
+# Or Resend API (recommended for cloud)
+RESEND_API_KEY=""
 
 # LLM keys (optional for Phase 1+)
 OPENAI_API_KEY=""
-ANTHROPIC_API_KEY=""
 XAI_API_KEY=""
+ANTHROPIC_API_KEY=""
 ```
 
 > **Note:** The current implementation does not yet enforce auth in the UI for local development. This will be added as part of the Admin UI work.
