@@ -13,18 +13,26 @@ interface AuditEvent {
   createdBy: string
 }
 
-export default function AuditLogPanel() {
+ export default function AuditLogPanel() {
   const t = useTranslations('app.panels.audit')
   const [events, setEvents] = useState<AuditEvent[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const fetchEvents = () => {
+    setLoading(true)
+    setError(null)
     fetch('/api/events')
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to load events')
+        return res.json()
+      })
       .then(data => {
         if (Array.isArray(data)) setEvents(data)
       })
-      .catch(() => {})
+      .catch((e: unknown) => {
+        setError((e as Error)?.message || 'Failed')
+      })
       .finally(() => setLoading(false))
   }
 
@@ -38,6 +46,9 @@ export default function AuditLogPanel() {
 
   return (
     <div className="mt-8">
+      {error && (
+        <div className="text-[10px] text-rose-400 mb-2">{error}</div>
+      )}
       <div className="flex items-center justify-between mb-4">
         <div className="text-sm text-zinc-500">{t('title')}</div>
         <div className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">{t('events')}</div>
