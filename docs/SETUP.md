@@ -185,13 +185,18 @@ npm start
 
 ## 10. Production Considerations (Later Phases)
 
-- Use a strong `AUTH_SECRET`
+- Use a strong `AUTH_SECRET` (required for Auth.js when implemented)
 - Enable HTTPS
-- Set up proper email delivery for magic links
+- Set up proper email delivery for magic links (Auth.js pending)
 - Use a managed Postgres (or well-secured self-hosted)
 - Regular backups
-- Add 2FA / TOTP for ADMIN accounts
+- Add 2FA / TOTP for ADMIN accounts (pending implementation)
 - Consider read replicas for reporting
+
+**Authentication Roadmap:**
+- Phase 3: Auth.js Magic Link via Email
+- Phase 3: TOTP 2FA for Admin accounts  
+- Phase 3: OAuth login (Google, Microsoft)
 
 ---
 
@@ -211,4 +216,18 @@ npx prisma generate
 
 ---
 
-This guide will be kept up to date as the Admin UI, authentication, and deployment stories mature.
+## 12. Data Export/Import (Backup & Migration)
+
+**Planned for Phase 3:** Data export/import functionality for:
+- Full database backup/restore
+- Migration from other systems (Xero, etc.)
+- JSON export of all journal entries, accounts, tax rates
+
+For now, use standard PostgreSQL tools:
+```bash
+# Export
+pg_dump entrytwo > backup.sql
+
+# Import  
+psql entrytwo < backup.sql
+```
