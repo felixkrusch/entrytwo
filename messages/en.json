@@ -124,12 +124,19 @@
         "checkEntries": "Check entries",
         "byCurrency": "By currency"
       },
-       "audit": {
-         "title": "Audit Log (last events)",
-         "events": "Events",
-         "loading": "Loading audit...",
-         "empty": "No activity yet."
-       },
+"audit": {
+          "title": "Audit Log (last events)",
+          "events": "Events",
+          "loading": "Loading audit...",
+          "empty": "No activity yet."
+        },
+        "templates": {
+          "title": "Transaction Templates",
+          "add": "+ New Template",
+          "use": "Use",
+          "delete": "×",
+          "none": "No templates yet. Create one from journal entries."
+        },
        "admin": {
          "title": "Admin",
          "loading": "Loading admin...",
