@@ -302,6 +302,48 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, date])
 
+  // Real-time verification: re-check when lines/data change (non-blocking)
+  useEffect(() => {
+    if (!isOpen || !initialSuggestion) return
+
+    const verifyLive = async () => {
+      if (lines.length < 2) return
+      const hasValidAccounts = lines.every(l => l.accountId)
+      if (!hasValidAccounts) return
+
+      const toVerify = {
+        description,
+        merchant: initialSuggestion.merchant,
+        lines: lines.map(l => ({
+          accountCode: accounts.find(a => a.id === l.accountId)?.code,
+          debit: Number(l.debit) || 0,
+          credit: Number(l.credit) || 0,
+          currency: l.currency || 'EUR',
+          fxRateToBase: l.fxRateToBase,
+          fxSource: l.fxSource,
+          taxRateId: l.taxRateId || undefined,
+        })),
+      }
+
+      try {
+        const vRes = await fetch('/api/verify-suggestion', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(toVerify),
+        })
+        const v = await vRes.json()
+        if (Array.isArray(v.warnings)) {
+          setVerificationWarnings(v.warnings)
+        }
+      } catch {
+        // Non-fatal: if verification endpoint is unreachable, continue silently
+      }
+    }
+
+    const id = setTimeout(verifyLive, 500) // debounce
+    return () => clearTimeout(id)
+  }, [isOpen, initialSuggestion, description, lines, accounts])
+
   // Reset form when modal closes (and no new suggestion)
   const handleClose = () => {
     setDescription('')
