@@ -231,7 +231,7 @@ export async function POST(req: NextRequest) {
     const dataAnswer = await answerDataQuery(lastMessage)
     if (dataAnswer) return Response.json(dataAnswer)
 
-    const llmConfig = await getLlmConfig()
+    const llmConfig = getLlmConfig()
     const hasKey = !!(llmConfig.apiKey || process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.ANTHROPIC_API_KEY)
 
     if (!hasKey) {
