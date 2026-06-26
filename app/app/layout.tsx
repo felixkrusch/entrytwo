@@ -9,6 +9,7 @@ import AuditLogPanel from './AuditLogPanel'
 import SummaryBar from './SummaryBar'
 import QuickFeedImport from './QuickFeedImport'
 import RecentFeedRates from './RecentFeedRates'
+import TemplatesPanel from './TemplatesPanel'
 import NewJournalEntryModal from './NewJournalEntryModal'
 import TopBar from './TopBar'
 import AdminPanel from './AdminPanel'
@@ -180,6 +181,7 @@ function AppContent({ children }: { children: ReactNode }) {
             <ReportsPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} />
             <ProfitLossPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} />
             <AuditLogPanel />
+            <TemplatesPanel />
             <QuickFeedImport />
             <RecentFeedRates />
           </div>

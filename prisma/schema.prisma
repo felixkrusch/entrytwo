@@ -133,3 +133,13 @@ model Setting {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// Transaction templates for recurring entries
+model Template {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  lines       Json     // Array of {accountCode, debit, credit, taxRateId}
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

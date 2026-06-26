@@ -14,7 +14,7 @@ export async function GET() {
     })
 
     const formatted = events.map(ev => {
-      const p = (ev.payload as { description?: string | null; lines?: unknown[] } | null) || null
+      const p = (ev.payload as { description?: string | null; lines?: unknown[]; journalEntry?: unknown } | null) || null
       return {
         id: ev.id,
         eventType: ev.eventType,
@@ -23,7 +23,8 @@ export async function GET() {
         createdAt: ev.createdAt,
         description: p?.description || null,
         summary: Array.isArray(p?.lines) ? `${p.lines.length} line(s)` : null,
-        createdBy: ev.user?.email || ev.createdBy || 'system'
+        createdBy: ev.user?.email || ev.createdBy || 'system',
+        payload: p // Include full payload for detail view
       }
     })
 
