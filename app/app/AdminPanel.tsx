@@ -291,12 +291,7 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
         <div className="font-medium mb-2">AI / LLM Provider</div>
         <div className="text-xs text-zinc-500 mb-4">
           LLM configuration is managed via environment variables in .env file.
-          Set NEXT_LLM_PROVIDER, NEXT_LLM_MODEL, and the corresponding API key.
-        </div>
-        <div className="text-[10px] text-zinc-500 space-y-1 font-mono">
-          <div>NEXT_LLM_PROVIDER = &#34;openai&#34; | &#34;anthropic&#34; | &#34;xai&#34; | &#34;openrouter&#34; | &#34;deepseek&#34; | &#34;gemini&#34; | &#34;kilocode&#34; | &#34;alibaba&#34; | &#34;huggingface&#34; | &#34;lmstudio&#34; | &#34;custom&#34;</div>
-          <div>NEXT_LLM_MODEL = &#34;gpt-4o-mini&#34; (or your preferred model)</div>
-          <div>OPENAI_API_KEY, XAI_API_KEY, ANTHROPIC_API_KEY, etc.</div>
+          Visit the <a href="/admin/ai" className="text-emerald-400 hover:underline">/admin/ai</a> page for full configuration details.
         </div>
       </div>
     </div>

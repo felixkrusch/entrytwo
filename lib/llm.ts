@@ -48,6 +48,17 @@ export function getLlmConfig(): LlmConfig {
   return { provider, model, apiKey, baseURL }
 }
 
+export function getLlmConfigStatus(): { provider: string; model: string; hasKey: boolean; keyEnv?: string } {
+  const config = getLlmConfig()
+  const keyEnv = ENV_KEYS[config.provider]
+  return {
+    provider: config.provider,
+    model: config.model,
+    hasKey: !!config.apiKey,
+    keyEnv,
+  }
+}
+
 export function createLlmModel(config: LlmConfig) {
   const key = config.apiKey || process.env.LLM_API_KEY || ''
 

@@ -1,35 +1,92 @@
+'use client'
+
+import { useEffect, useState } from 'react'
 import { PROVIDERS } from '@/lib/providers'
 
+interface LlmConfigStatus {
+  provider: string
+  model: string
+  hasKey: boolean
+  keyEnv?: string
+}
+
 export default function AiProviderPage() {
-  const providerOptions = PROVIDERS.map(p => ({ value: p.id, label: p.label }))
+  const [status, setStatus] = useState<LlmConfigStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch('/api/llm-config')
+        const data = await res.json()
+        setStatus(data)
+      } catch {
+        // ignore
+      } finally {
+        setLoading(false)
+      }
+    }
+    void fetchStatus()
+  }, [])
+
+  if (loading) {
+    return <div className="text-sm text-zinc-500">Loading...</div>
+  }
 
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-xl font-semibold">AI / LLM Provider</h1>
         <p className="text-xs text-zinc-500">
-          Connect OpenAI, xAI, Anthropic, OpenRouter, Kilo Gateway, DeepSeek, Gemini, Qwen, or Hugging Face.
-          All providers use API keys stored in environment variables for security.
+          Connect OpenAI, xAI (Grok), Anthropic, OpenRouter, Kilo Gateway, DeepSeek, Gemini, Qwen, or Hugging Face.
+          API keys are configured via environment variables for security.
         </p>
       </div>
 
       <div className="space-y-4 text-sm max-w-xl">
+        <div className="border border-zinc-800 rounded-lg p-4">
+          <div className="font-medium mb-2">Current Configuration</div>
+          <div className="space-y-1 text-xs">
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Provider:</span>
+              <span className="font-mono">{status?.provider || 'openai'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Model:</span>
+              <span className="font-mono">{status?.model || 'gpt-4o-mini'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-400">API Key:</span>
+              <span className={status?.hasKey ? 'text-emerald-400' : 'text-rose-400'}>
+                {status?.hasKey ? `${status.keyEnv} is set` : `${status?.keyEnv || 'LLM_API_KEY'} not configured`}
+              </span>
+            </div>
+          </div>
+        </div>
+
         <div className="text-[10px] text-zinc-500 leading-relaxed space-y-1">
-          <p>Set the following environment variables in your .env file:</p>
+          <p className="font-medium text-zinc-300">To configure, set these environment variables in your .env file:</p>
           <ul className="ml-4 space-y-0.5 font-mono">
-            <li><span className="text-emerald-400">NEXT_LLM_PROVIDER</span> - Provider selection (openai, anthropic, xai, openrouter, etc.)</li>
-            <li><span className="text-emerald-400">NEXT_LLM_MODEL</span> - Model name (e.g., gpt-4o-mini, claude-3-5-sonnet)</li>
-            <li><span className="text-emerald-400">NEXT_LLM_BASE_URL</span> - Optional: custom endpoint for &#34;custom&#34; provider</li>
+            <li><span className="text-emerald-400">NEXT_LLM_PROVIDER</span> = &#34;openai&#34; | &#34;xai&#34; | &#34;anthropic&#34; | &#34;openrouter&#34; | &#34;deepseek&#34; | &#34;gemini&#34; | &#34;kilocode&#34; | &#34;alibaba&#34; | &#34;huggingface&#34; | &#34;lmstudio&#34; | &#34;custom&#34;</li>
+            <li><span className="text-emerald-400">NEXT_LLM_MODEL</span> = &#34;gpt-4o-mini&#34; (or your preferred model)</li>
+            <li><span className="text-emerald-400">NEXT_LLM_BASE_URL</span> = (optional, for custom endpoint)</li>
             <li className="mt-2">Plus the corresponding API key:</li>
             <li>OPENAI_API_KEY, XAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY</li>
             <li>DEEPSEEK_API_KEY, GOOGLE_API_KEY, KILOCODE_API_KEY, DASHSCOPE_API_KEY, HF_TOKEN, LM_API_KEY</li>
           </ul>
+          <p className="mt-2 text-zinc-600">After editing .env, restart the server for changes to take effect.</p>
         </div>
 
         <div className="border-t border-zinc-800 pt-4 mt-4">
-          <p className="text-[10px] text-zinc-600">
-            Available providers: {providerOptions.map(p => p.label).join(', ')}
-          </p>
+          <div className="font-medium mb-2">Available Providers ({PROVIDERS.length})</div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            {PROVIDERS.map(p => (
+              <div key={p.id} className="border border-zinc-800 rounded px-2 py-1">
+                <div className="font-medium">{p.label}</div>
+                <div className="text-zinc-500 font-mono truncate">{p.keyEnv || 'no key'}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
