@@ -61,7 +61,7 @@ const devProvider = CredentialsProvider({
 })
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  adapter: PrismaAdapter(prisma),
+  adapter: process.env.SMTP_HOST ? PrismaAdapter(prisma) : undefined,
   providers: emailProviders.length > 0 ? emailProviders : [devProvider],
   secret: process.env.AUTH_SECRET || 'development-secret',
   pages: {
