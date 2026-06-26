@@ -411,19 +411,20 @@ Tax confidence rule (strict):
           finalText += `\n\nUsing real rate from previous feed for ${finalMerchant}.`
         }
 
+        // Return JSON for transactions (to include suggestions)
         return Response.json({ response: finalText, suggestion })
       } catch {
         return Response.json(await generateFallback(lastMessage))
       }
     }
 
+    // For non-transactions, stream the response
     const result = await streamText({ model, system, prompt: lastMessage })
-    let text = ''
-    for await (const d of result.textStream) text += d
-    return Response.json({ response: text.trim() || 'Understood.' })
+    return result.toTextStreamResponse()
   } catch (e) {
     console.error('chat error', e)
-    return Response.json(await generateFallback(''))
+    const fallback = await generateFallback('')
+    return Response.json(fallback)
   }
 }
 

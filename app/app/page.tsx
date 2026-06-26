@@ -11,6 +11,7 @@ interface Message {
   content: string
   action?: 'suggest_entry'
   suggestion?: NewEntrySuggestion
+  isStreaming?: boolean
 }
 
 export default function ChatPage() {
@@ -158,6 +159,14 @@ export default function ChatPage() {
     setInput('')
     setIsLoading(true)
 
+    // Add a placeholder for streaming response
+    const streamingMsgIndex = newMessages.length
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: '',
+      isStreaming: true
+    }])
+
     try {
       const history = newMessages.slice(-8).map(m => ({
         role: m.role,
@@ -174,25 +183,78 @@ export default function ChatPage() {
         throw new Error('Chat request failed')
       }
 
-      const data = await res.json()
+      // Check if response is streaming (text/plain) or JSON
+      const contentType = res.headers.get('content-type') || ''
+      if (contentType.includes('text/plain')) {
+        // Handle streaming response
+        const reader = res.body?.getReader()
+        const decoder = new TextDecoder()
+        let accumulatedContent = ''
 
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: data.response || 'Got it.',
-        action: data.suggestion ? 'suggest_entry' : undefined,
-        suggestion: data.suggestion
-      }])
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+
+            const chunk = decoder.decode(value, { stream: true })
+            accumulatedContent += chunk
+
+            setMessages(prev => {
+              const updated = [...prev]
+              if (updated[streamingMsgIndex]) {
+                updated[streamingMsgIndex] = {
+                  ...updated[streamingMsgIndex],
+                  content: accumulatedContent
+                }
+              }
+              return updated
+            })
+          }
+        }
+      } else {
+        // Handle JSON response (transactions with suggestions)
+        const data = await res.json()
+        setMessages(prev => {
+          const updated = [...prev]
+          if (updated[streamingMsgIndex]) {
+            updated[streamingMsgIndex] = {
+              role: 'assistant',
+              content: data.response || 'Got it.',
+              action: data.suggestion ? 'suggest_entry' : undefined,
+              suggestion: data.suggestion
+            }
+          }
+          return updated
+        })
+      }
     } catch {
       toast.error(tToasts('chatError') || 'Chat service unavailable, using local fallback.')
       const { response, suggestion } = generateResponse(current)
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: response,
-        action: suggestion ? 'suggest_entry' : undefined,
-        suggestion
-      }])
+      setMessages(prev => {
+        const updated = [...prev]
+        if (updated[streamingMsgIndex]) {
+          updated[streamingMsgIndex] = {
+            role: 'assistant',
+            content: response,
+            action: suggestion ? 'suggest_entry' : undefined,
+            suggestion
+          }
+        }
+        return updated
+      })
     } finally {
       setIsLoading(false)
+      // Mark the message as no longer streaming
+      setMessages(prev => {
+        const updated = [...prev]
+        if (updated[streamingMsgIndex]?.isStreaming) {
+          updated[streamingMsgIndex] = {
+            ...updated[streamingMsgIndex],
+            isStreaming: false
+          }
+        }
+        return updated
+      })
     }
   }
 
@@ -308,7 +370,10 @@ export default function ChatPage() {
             <div className={`max-w-[82%] rounded-2xl px-5 py-3 text-sm whitespace-pre-wrap ${
               msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-zinc-800'
             }`}>
-              {msg.content}
+              {msg.content || (msg.isStreaming ? '' : null)}
+                {msg.isStreaming && !msg.content && (
+                  <span className="text-zinc-500">...</span>
+                )}
                 {msg.action === 'suggest_entry' && (
                   <button
                     onClick={() => handleSuggest(msg.suggestion)}
@@ -337,11 +402,6 @@ export default function ChatPage() {
             </div>
           </div>
         ))}
-         {isLoading && (
-           <div className="flex">
-             <div className="bg-zinc-800 rounded-2xl px-5 py-3 text-sm">{t('thinking')}</div>
-           </div>
-         )}
       </div>
 
       <div className="border-t border-zinc-800 p-4">
