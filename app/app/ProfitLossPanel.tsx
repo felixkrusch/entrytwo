@@ -106,6 +106,9 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode }: 
 
   return (
     <div className="mt-8">
+      {error && (
+        <div className="text-[10px] text-rose-400 mb-2 px-2">{error}</div>
+      )}
       <div className="flex items-center justify-between mb-4">
         <div className="text-sm text-zinc-500 flex items-center gap-2">
           {t('title')}

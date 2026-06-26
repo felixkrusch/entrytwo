@@ -83,12 +83,14 @@
          "repeat": "Repeat",
          "repeatEntry": "Repeat this entry"
       },
-      "summary": {
-        "assets": "Total Assets",
-        "netIncome": "Net Income (YTD)",
-        "entries": "Journal Entries",
-        "events": "Audit Events"
-      },
+"summary": {
+         "assets": "Total Assets",
+         "revenue": "Revenue (YTD)",
+         "netIncome": "Net Income (YTD)",
+         "entries": "Journal Entries",
+         "events": "Audit Events",
+         "cash": "Cash Balance"
+       },
       "profitLoss": {
         "title": "Profit & Loss",
         "live": "Live",
