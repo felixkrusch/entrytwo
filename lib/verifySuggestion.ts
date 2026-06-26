@@ -150,8 +150,19 @@ export async function verifySuggestion(sugg: SuggestionToVerify): Promise<Verifi
 
   // 6. If we have a merchant and memory, light consistency check (non-fatal)
   if (sugg.merchant) {
-    // We don't block on this; just note if it differs from past
-    // (lightweight — we could expand later)
+    // Async micro-check: compare account suggestions with past merchant memory
+    try {
+      const { getMerchantMemory } = await import('@/lib/agentMemory')
+      const mem = await getMerchantMemory(sugg.merchant)
+      if (mem?.accountCode) {
+        const debitLine = lines.find(l => (l.debit || 0) > 0)
+        if (debitLine?.accountCode && debitLine.accountCode !== mem.accountCode) {
+          warnings.push(`Merchant "${sugg.merchant}" previously used account ${mem.accountCode}`)
+        }
+      }
+    } catch {
+      // Non-fatal
+    }
   }
 
   return { ok, warnings }
