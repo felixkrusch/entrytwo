@@ -190,27 +190,26 @@ Example flow:
  - ✅ **Admin UI**: `/admin/bank-feeds` with connection list, pending transactions table, and match interface
  - ✅ **API Routes**: GET/POST connections, GET transactions, POST match/ignore actions
 
- ### Required Configuration (Production):
- - [ ] Set `ENCRYPTION_KEY` (64 hex chars) in `.env` for credential encryption
- - [ ] Set `STRIPE_WEBHOOK_SECRET` in `.env` for webhook signature verification
- - [ ] Configure provider API keys via admin UI (currently no form - see below)
+### Required Configuration (Production):
+ - [x] Set `ENCRYPTION_KEY` (64 hex chars) in `.env` for credential encryption
+ - [x] Set `STRIPE_WEBHOOK_SECRET` in `.env` for webhook signature verification
+ - [x] Configure provider API keys via admin UI (JSON credentials field added)
 
  ### Missing for Production Connectors:
  
  #### Stripe/PayPal Webhook Activation:
- - Webhook endpoints receive data but skip signature verification in dev mode
- - Production mode requires `STRIPE_WEBHOOK_SECRET` to be set
- - **Current status**: Works in dev, signature verification code in place but gated
-
+ - ✅ Webhook endpoints receive data with signature verification (gated by env vars)
+ - ✅ Production mode requires `STRIPE_WEBHOOK_SECRET` to be set
+ 
  #### Provider Credential Management:
- - Admin UI shows "Connect Feed" modal but credentials field is empty object
- - No UI for entering OAuth tokens or API keys
- - **Next**: Add credentials input form with encryption display
-
- #### OAuth Flow (Plaid/Salt Edge):
- - No OAuth connection endpoints implemented
- - No token refresh/renewal logic
- - **Current**: Only Stripe/PayPal webhooks (no OAuth)
+ - ✅ Admin UI credentials input (JSON format) - stores `{"apiKey":"sk_..."}` for Stripe
+ - ✅ Encryption applied server-side via `encryptCredentials()`
+ - ⚠️ No OAuth flow UI for Plaid/Salt Edge
+ 
+ #### Sync Implementation:
+ - ✅ Manual sync endpoint (`/api/bank-feeds/sync`) fetches from Stripe API
+ - ⚠️ No PayPal API sync (webhook-only currently)
+ - ⚠️ No automatic nightly sync (requires background job/CRON)
 
  ### Environment Variables Required:
  ```bash
