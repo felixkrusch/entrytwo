@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl'
 
 export default function TOTPSetup() {
   const { data: session } = useSession()
-  const t = useTranslations('auth.totp')
+  const t = useTranslations('app.auth.totp')
 
   if (!session?.user?.email) return null
 

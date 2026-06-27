@@ -11,14 +11,14 @@
       "reviewReversal": "Review reversal →",
       "reviewAndConfirm": "Review & Confirm →",
       "usedRealFeedRate": "Using real rate from previous feed for {merchant}.",
-       "feeds": {
-         "title": "Quick Bank/Card Feed Import (authoritative FX)",
-         "import": "Import as BANK_FEED (authoritative)",
-         "close": "Close",
-         "success": "BANK_FEED imported — real rate recorded",
-         "successMsg": "Feed imported. Authoritative rate recorded.",
-         "errorGeneric": "Feed import failed"
-       },
+      "feeds": {
+        "title": "Quick Bank/Card Feed Import (authoritative FX)",
+        "import": "Import as BANK_FEED (authoritative)",
+        "close": "Close",
+        "success": "BANK_FEED imported — real rate recorded",
+        "successMsg": "Feed imported. Authoritative rate recorded.",
+        "errorGeneric": "Feed import failed"
+      },
       "uploadPdf": "Upload PDF",
       "pdfProcessing": "Processing PDF...",
       "pdfParsed": "PDF parsed. Click \"Create journal entry\" below to review.",
@@ -33,33 +33,33 @@
       "unlockedToast": "Chat unlocked. Actions enabled."
     },
     "panels": {
-       "accounts": {
-         "title": "Chart of Accounts",
-         "clearFilter": "(click to clear filter)",
-         "count": "{count} accounts",
-         "noAccounts": "No accounts. Run seed.",
-         "lines": "{count} lines",
-         "loading": "Loading accounts...",
-         "addAccount": "+ Add Account",
-         "addTitle": "Add New Account",
-         "code": "Code",
-         "name": "Name",
-         "type": "Type",
-         "create": "Add Account",
-         "cancel": "Cancel",
-         "codePlaceholder": "e.g. 1050",
-         "namePlaceholder": "Account name",
-         "creating": "Adding...",
-         "errorCodeExists": "Code already exists",
-         "errorGeneric": "Failed to add account",
-         "edit": "Edit",
-         "delete": "Delete",
-         "save": "Save",
-          "deleteConfirm": "Delete this account? (only possible if it has no journal lines)",
-          "deleteBlocked": "Cannot delete: account has journal entries",
-          "editTitle": "Edit Account",
-          "searchPlaceholder": "Search accounts..."
-        },
+      "accounts": {
+        "title": "Chart of Accounts",
+        "clearFilter": "(click to clear filter)",
+        "count": "{count} accounts",
+        "noAccounts": "No accounts. Run seed.",
+        "lines": "{count} lines",
+        "loading": "Loading accounts...",
+        "addAccount": "+ Add Account",
+        "addTitle": "Add New Account",
+        "code": "Code",
+        "name": "Name",
+        "type": "Type",
+        "create": "Add Account",
+        "cancel": "Cancel",
+        "codePlaceholder": "e.g. 1050",
+        "namePlaceholder": "Account name",
+        "creating": "Adding...",
+        "errorCodeExists": "Code already exists",
+        "errorGeneric": "Failed to add account",
+        "edit": "Edit",
+        "delete": "Delete",
+        "save": "Save",
+        "deleteConfirm": "Delete this account? (only possible if it has no journal lines)",
+        "deleteBlocked": "Cannot delete: account has journal entries",
+        "editTitle": "Edit Account",
+        "searchPlaceholder": "Search accounts..."
+      },
       "journal": {
         "title": "Recent Journal Entries",
         "filtered": "(filtered)",
@@ -77,20 +77,20 @@
         "debitsCredits": "Debits: {debits} | Credits: {credits}",
         "clickToCollapse": "Click to collapse",
         "confirmReverse": "Reverse this entry? This will create an offsetting reversing entry.",
-         "reversingSuccess": "Reversing entry created",
-         "reversingError": "Could not reverse entry",
-         "untitled": "Untitled Entry",
-         "repeat": "Repeat",
-         "repeatEntry": "Repeat this entry"
+        "reversingSuccess": "Reversing entry created",
+        "reversingError": "Could not reverse entry",
+        "untitled": "Untitled Entry",
+        "repeat": "Repeat",
+        "repeatEntry": "Repeat this entry"
       },
-"summary": {
-         "assets": "Total Assets",
-         "revenue": "Revenue (YTD)",
-         "netIncome": "Net Income (YTD)",
-         "entries": "Journal Entries",
-         "events": "Audit Events",
-         "cash": "Cash Balance"
-       },
+      "summary": {
+        "assets": "Total Assets",
+        "revenue": "Revenue (YTD)",
+        "netIncome": "Net Income (YTD)",
+        "entries": "Journal Entries",
+        "events": "Audit Events",
+        "cash": "Cash Balance"
+      },
       "profitLoss": {
         "title": "Profit & Loss",
         "live": "Live",
@@ -124,52 +124,37 @@
         "checkEntries": "Check entries",
         "byCurrency": "By currency"
       },
-"audit": {
-          "title": "Audit Log (last events)",
-          "events": "Events",
-          "loading": "Loading audit...",
-          "empty": "No activity yet."
-        },
-        "templates": {
-          "title": "Transaction Templates",
-          "add": "+ New Template",
-          "use": "Use",
-          "delete": "×",
-          "none": "No templates yet. Create one from journal entries."
-        },
-"auth": {
-           "signin": {
-             "title": "Sign In",
-             "description": "Enter your email for a magic link",
-             "emailPlaceholder": "you@company.com",
-             "send": "Send Magic Link",
-             "sending": "Sending...",
-             "checkEmail": "Check your email",
-             "magicSent": "A magic link has been sent to {email}"
-           }
-         },
-         "totp": {
-           "setup": "Enable TOTP 2FA",
-           "disable": "Disable Two-Factor Authentication"
-         },
-        "admin": {
-         "title": "Admin",
-         "loading": "Loading admin...",
-         "usersHeader": "Users",
-         "companySettingsHeader": "Company Settings",
-         "companyName": "Company Name",
-         "baseCurrency": "Base Currency",
-         "defaultTaxJurisdiction": "Default Tax Jurisdiction",
-         "createUser": "Create User",
-         "createFirstAdmin": "Create First Admin",
-         "delete": "Delete",
-         "noUsers": "No users yet.",
-         "changesAudited": "Changes are saved immediately and audited.",
-         "firstAdminTitle": "Create First Admin",
-         "firstAdminDesc": "No administrator exists yet. Create the initial ADMIN user to unlock the application.",
-         "bootstrapNote": "This user will be created with ADMIN role. After creation, the full application will be available."
-       }
-     },
+      "audit": {
+        "title": "Audit Log (last events)",
+        "events": "Events",
+        "loading": "Loading audit...",
+        "empty": "No activity yet."
+      },
+      "templates": {
+        "title": "Transaction Templates",
+        "add": "+ New Template",
+        "use": "Use",
+        "delete": "×",
+        "none": "No templates yet. Create one from journal entries."
+      },
+      "admin": {
+        "title": "Admin",
+        "loading": "Loading admin...",
+        "usersHeader": "Users",
+        "companySettingsHeader": "Company Settings",
+        "companyName": "Company Name",
+        "baseCurrency": "Base Currency",
+        "defaultTaxJurisdiction": "Default Tax Jurisdiction",
+        "createUser": "Create User",
+        "createFirstAdmin": "Create First Admin",
+        "delete": "Delete",
+        "noUsers": "No users yet.",
+        "changesAudited": "Changes are saved immediately and audited.",
+        "firstAdminTitle": "Create First Admin",
+        "firstAdminDesc": "No administrator exists yet. Create the initial ADMIN user to unlock the application.",
+        "bootstrapNote": "This user will be created with ADMIN role. After creation, the full application will be available."
+      }
+    },
     "modal": {
       "title": "New Journal Entry",
       "suggestedByChat": "Suggested by chat",
@@ -202,6 +187,31 @@
       "reversalPosted": "Reversal posted from chat suggestion",
       "entryReversed": "Entry reversed",
       "chatError": "Chat service unavailable, using local fallback."
+    },
+    "auth": {
+      "signin": {
+        "title": "Sign In",
+        "description": "Enter your email for a magic link",
+        "emailPlaceholder": "you@company.com",
+        "send": "Send Magic Link",
+        "sending": "Sending...",
+        "checkEmail": "Check your email",
+        "magicSent": "A magic link has been sent to {email}"
+      },
+      "totp": {
+        "setup": "Enable TOTP 2FA",
+        "disable": "Disable Two-Factor Authentication"
+      }
+    },
+    "backup": {
+      "title": "Backup & Export",
+      "export": "Export Data",
+      "import": "Import Data",
+      "exporting": "Exporting...",
+      "importing": "Importing...",
+      "chooseFile": "Choose File",
+      "exportDesc": "Download a JSON file with all accounts, tax rates, journal entries, settings, and templates.",
+      "importDesc": "Upload a previously exported JSON file to restore data. This will add to existing data."
     }
   }
 }

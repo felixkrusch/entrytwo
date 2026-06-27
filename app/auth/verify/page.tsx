@@ -3,7 +3,7 @@
 import { useTranslations } from 'next-intl'
 
 export default function VerifyRequestPage() {
-  const t = useTranslations('auth.signin')
+  const t = useTranslations('app.auth.signin')
 
   return (
     <div className="flex h-screen items-center justify-center bg-zinc-900 text-white">

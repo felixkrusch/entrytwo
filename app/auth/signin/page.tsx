@@ -7,7 +7,7 @@ import { useTranslations } from 'next-intl'
 const CALLBACK_URL = '/'
 
 export default function SignInPage() {
-  const t = useTranslations('auth.signin')
+  const t = useTranslations('app.auth.signin')
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
@@ -18,11 +18,18 @@ export default function SignInPage() {
     setLoading(true)
     setError('')
     try {
-      // In dev mode (no SMTP), use credentials provider; in prod use email
-      const provider = process.env.NEXT_PUBLIC_HAS_SMTP ? 'email' : 'dev-credentials'
-      await signIn(provider, { email: email, redirect: false, callbackUrl: CALLBACK_URL })
-      if (provider === 'email') {
-        setSent(true)
+      const isProd = !!process.env.NEXT_PUBLIC_HAS_SMTP
+      const provider = isProd ? 'email' : 'dev-credentials'
+
+      if (isProd) {
+        const result = await signIn(provider, { email, redirect: false, callbackUrl: CALLBACK_URL })
+        if (result && typeof result === 'object' && 'ok' in result && result.ok) {
+          setSent(true)
+        } else {
+          setError((result as { error?: string })?.error || 'Sign-in failed')
+        }
+      } else {
+        await signIn(provider, { email, redirect: true, callbackUrl: CALLBACK_URL })
       }
     } catch (err) {
       setError((err as Error)?.message || 'Sign-in failed')

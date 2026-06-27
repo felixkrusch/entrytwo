@@ -10,6 +10,7 @@ const navItems = [
   { href: '/admin/tax', label: 'Tax Settings' },
   { href: '/admin/users', label: 'Users' },
   { href: '/admin/ai', label: 'AI / LLM Provider' },
+  { href: '/admin/backup', label: 'Backup & Export' },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
