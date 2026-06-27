@@ -37,8 +37,8 @@ if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
 
 // Fallback credentials provider for development when no SMTP configured
 const devProvider = CredentialsProvider({
-  id: 'dev-credentials',
-  name: 'Development',
+  id: 'credentials',
+  name: 'Credentials',
   credentials: {
     email: { label: 'Email', type: 'email', placeholder: 'dev@entrytwo.local' },
   },

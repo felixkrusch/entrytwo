@@ -31,8 +31,8 @@ export default function SignInPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, role: 'ADMIN' }),
       })
-      // Now sign in
-      await signIn('dev-credentials', { email, redirect: true, callbackUrl: CALLBACK_URL })
+      // Now sign in with redirect
+      await signIn('credentials', { email, redirect: true, callbackUrl: CALLBACK_URL })
     } catch (err) {
       setError((err as Error)?.message || 'Failed')
     } finally {
@@ -55,12 +55,8 @@ export default function SignInPage() {
           setError((result as { error?: string })?.error || 'Sign-in failed')
         }
       } else {
-        const result = await signIn('dev-credentials', { email, redirect: false, callbackUrl: CALLBACK_URL })
-        if (result && typeof result === 'object' && 'ok' in result && result.ok) {
-          window.location.href = CALLBACK_URL
-        } else {
-          setError((result as { error?: string })?.error || 'Sign-in failed')
-        }
+        // Dev mode: sign in via credentials
+        await signIn('credentials', { email, redirect: true, callbackUrl: CALLBACK_URL })
       }
     } catch (err) {
       setError((err as Error)?.message || 'Sign-in failed')
