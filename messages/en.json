@@ -152,7 +152,10 @@
         "changesAudited": "Changes are saved immediately and audited.",
         "firstAdminTitle": "Create First Admin",
         "firstAdminDesc": "No administrator exists yet. Create the initial ADMIN user to unlock the application.",
-        "bootstrapNote": "This user will be created with ADMIN role. After creation, the full application will be available."
+        "bootstrapNote": "This user will be created with ADMIN role. After creation, the full application will be available.",
+        "advancedOnboarding": "Advanced Onboarding",
+        "completeOnboarding": "Complete Onboarding",
+        "back": "Back"
       }
     },
     "modal": {
@@ -221,7 +224,10 @@
       "noConnections": "No bank feed connections configured.",
       "connectNew": "+ Connect Feed",
       "configure": "Configure",
-      "provider": "Provider"
+      "provider": "Provider",
+      "sync": "Sync Now",
+      "lastSync": "Last sync: {time}",
+      "testConnection": "Test Connection"
     }
   }
 }

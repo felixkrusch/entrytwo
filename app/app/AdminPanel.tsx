@@ -29,10 +29,15 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
   const [settings, setSettings] = useState<Setting[]>([])
   const [loading, setLoading] = useState(true)
   const [isBootstrap, setIsBootstrap] = useState(false)
+  const [showOnboarding, setShowOnboarding] = useState(false)
 
   const [newEmail, setNewEmail] = useState('')
   const [newName, setNewName] = useState('')
   const [newRole, setNewRole] = useState<'ADMIN' | 'ACCOUNTANT' | 'VIEWER'>('ACCOUNTANT')
+
+  const [companyName, setCompanyName] = useState('')
+  const [baseCurrency, setBaseCurrency] = useState('USD')
+  const [defaultCountry, setDefaultCountry] = useState('')
 
   const fetchData = async () => {
     try {
@@ -78,6 +83,33 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
     if (onBootstrapComplete) onBootstrapComplete()
   }
 
+  const completeOnboarding = async () => {
+    const standardAccounts = [
+      { code: '1000', name: 'Cash', type: 'ASSET' as const },
+      { code: '1010', name: 'Bank Account', type: 'ASSET' as const },
+      { code: '2000', name: 'Accounts Payable', type: 'LIABILITY' as const },
+      { code: '3000', name: 'Retained Earnings', type: 'EQUITY' as const },
+      { code: '4000', name: 'Revenue', type: 'REVENUE' as const },
+      { code: '5000', name: 'Expenses', type: 'EXPENSE' as const },
+    ]
+
+    const res = await fetch('/api/onboarding', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: newEmail,
+        name: newName,
+        companyName: companyName || 'My Company',
+        baseCurrency,
+        accounts: standardAccounts,
+      }),
+    })
+    if (res.ok) {
+      await fetchData()
+      if (onBootstrapComplete) onBootstrapComplete()
+    }
+  }
+
   const changeRole = async (id: string, role: User['role']) => {
     await fetch(`/api/users/${id}`, {
       method: 'PATCH',
@@ -106,7 +138,6 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
   const companyNameSetting = ((settings.find(s => s.key === 'company.name')?.value as { value?: string } | undefined)?.value) || ''
   const defaultJurisdiction = ((settings.find(s => s.key === 'defaultTaxJurisdiction')?.value as { value?: string } | undefined)?.value) || ''
 
-  // Structured address support (new)
   const addressSetting = settings.find(s => s.key === 'company.address')?.value as { country?: string; region?: string } | undefined
   const addrObj = addressSetting || {}
   const [addrCountry, setAddrCountry] = useState<string>(addrObj?.country || '')
@@ -116,33 +147,110 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
     return <div className="text-sm text-zinc-500">{t('loading')}</div>
   }
 
-  // Bootstrap / First Admin mode - prominent card
+  // Bootstrap with advanced onboarding option
   if (isBootstrap) {
     return (
       <div className="mt-8 border border-amber-500/40 bg-zinc-950 rounded-lg p-6">
         <div className="text-amber-400 text-sm font-medium mb-1">{t('firstAdminTitle')}</div>
         <div className="text-xs text-zinc-400 mb-4">{t('firstAdminDesc')}</div>
 
-        <div className="flex flex-wrap gap-2">
-          <input
-            placeholder="admin@company.com"
-            value={newEmail}
-            onChange={e => setNewEmail(e.target.value)}
-            className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm flex-1 min-w-[220px]"
-          />
-          <input
-            placeholder="Name (optional)"
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm w-48"
-          />
-          <button
-            onClick={() => createUser(true)}
-            className="px-4 py-2 rounded bg-amber-500 text-black font-medium text-sm hover:bg-amber-400"
-          >
-            {t('createFirstAdmin')}
-          </button>
-        </div>
+        {!showOnboarding ? (
+          <div className="flex flex-wrap gap-2">
+            <input
+              placeholder="admin@company.com"
+              value={newEmail}
+              onChange={e => setNewEmail(e.target.value)}
+              className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm flex-1 min-w-[220px]"
+            />
+            <input
+              placeholder="Name (optional)"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm w-48"
+            />
+            <button
+              onClick={() => createUser(true)}
+              className="px-4 py-2 rounded bg-amber-500 text-black font-medium text-sm hover:bg-amber-400"
+            >
+              {t('createFirstAdmin')}
+            </button>
+            <button
+              onClick={() => setShowOnboarding(true)}
+              className="px-4 py-2 rounded bg-zinc-700 text-white font-medium text-sm hover:bg-zinc-600"
+            >
+              {t('advancedOnboarding')}
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label className="text-zinc-400 text-xs block mb-1">Your Email</label>
+              <input
+                placeholder="admin@company.com"
+                value={newEmail}
+                onChange={e => setNewEmail(e.target.value)}
+                className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm w-full"
+              />
+            </div>
+            <div>
+              <label className="text-zinc-400 text-xs block mb-1">Your Name</label>
+              <input
+                placeholder="Admin Name"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm w-full"
+              />
+            </div>
+            <div>
+              <label className="text-zinc-400 text-xs block mb-1">Company Name</label>
+              <input
+                placeholder="My Company"
+                value={companyName}
+                onChange={e => setCompanyName(e.target.value)}
+                className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm w-full"
+              />
+            </div>
+            <div>
+              <label className="text-zinc-400 text-xs block mb-1">Country</label>
+              <select
+                value={defaultCountry}
+                onChange={e => setDefaultCountry(e.target.value)}
+                className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm w-full"
+              >
+                <option value="">Select country…</option>
+                {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-zinc-400 text-xs block mb-1">Base Currency</label>
+              <select
+                value={baseCurrency}
+                onChange={e => setBaseCurrency(e.target.value)}
+                className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm w-full"
+              >
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+                <option value="CAD">CAD</option>
+                <option value="GBP">GBP</option>
+                <option value="CHF">CHF</option>
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={completeOnboarding}
+                className="px-4 py-2 rounded bg-emerald-500 text-black font-medium text-sm hover:bg-emerald-400"
+              >
+                {t('completeOnboarding')}
+              </button>
+              <button
+                onClick={() => setShowOnboarding(false)}
+                className="px-4 py-2 rounded bg-zinc-700 text-white font-medium text-sm hover:bg-zinc-600"
+              >
+                {t('back')}
+              </button>
+            </div>
+          </div>
+        )}
         <div className="text-[10px] text-zinc-500 mt-3">{t('bootstrapNote')}</div>
       </div>
     )
@@ -152,7 +260,6 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
     <div className="mt-8">
       <div className="text-sm text-zinc-500 mb-4">{t('title') || 'Admin'}</div>
 
-      {/* Users */}
       <div className="mb-8">
         <div className="font-medium mb-2">Users</div>
         <div className="space-y-2 text-sm">
@@ -191,11 +298,11 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
             onChange={e => setNewName(e.target.value)}
             className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-sm"
           />
-            <select
-              value={newRole}
-              onChange={e => setNewRole(e.target.value as 'ADMIN' | 'ACCOUNTANT' | 'VIEWER')}
-              className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm"
-            >
+          <select
+            value={newRole}
+            onChange={e => setNewRole(e.target.value as 'ADMIN' | 'ACCOUNTANT' | 'VIEWER')}
+            className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm"
+          >
             <option value="ADMIN">ADMIN</option>
             <option value="ACCOUNTANT">ACCOUNTANT</option>
             <option value="VIEWER">VIEWER</option>
@@ -204,7 +311,6 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
         </div>
       </div>
 
-      {/* Settings */}
       <div>
         <div className="font-medium mb-2">{t('companySettingsHeader')}</div>
         <div className="space-y-3 text-sm">
@@ -217,7 +323,6 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
             />
           </div>
 
-          {/* Structured address: Country + Region (ISO 3166-2) */}
           <div className="flex items-center gap-3">
             <label className="w-48 text-zinc-400">Country</label>
             <select
@@ -288,7 +393,6 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
         <div className="text-[10px] text-zinc-500 mt-2">Changes are saved immediately and audited.</div>
       </div>
 
-      {/* TOTP 2FA Setup */}
       <div className="mt-8 pt-6 border-t border-zinc-800">
         <div className="font-medium mb-3">Two-Factor Authentication (2FA)</div>
         <TOTPSetup />
