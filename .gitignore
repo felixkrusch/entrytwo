@@ -41,3 +41,10 @@ yarn-error.log*
 next-env.d.ts
 
 /app/generated/prisma
+
+# update system
+.update-lock
+.restart
+
+# backups (optional - uncomment if you don't want backups in repo)
+# /backups
