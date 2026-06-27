@@ -73,6 +73,18 @@ SMTP_FROM="noreply@yourdomain.com"
 # Or Resend API (recommended for cloud)
 RESEND_API_KEY=""
 
+# OAuth providers (optional)
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""
+GITHUB_CLIENT_ID=""
+GITHUB_CLIENT_SECRET=""
+
+# Bank feed encryption (required for storing provider credentials)
+ENCRYPTION_KEY=""  # 64 hex characters (32 bytes)
+
+# Stripe webhook verification (required for production)
+STRIPE_WEBHOOK_SECRET=""
+
 # LLM keys (optional for Phase 1+)
 OPENAI_API_KEY=""
 XAI_API_KEY=""
@@ -191,23 +203,27 @@ npm start
 - [ ] First ADMIN user created
 - [ ] You can see the chart of accounts and create a manual journal entry
 - [ ] You can upload a PDF and get a suggestion with currency + tax (if detected)
+- [ ] Bank feed connections work (add `{"apiKey":"sk_test_..."}` for Stripe)
+- [ ] OAuth login tested (optional: set GOOGLE_CLIENT_ID/SECRET)
 
 ---
 
-## 10. Production Considerations (Later Phases)
+## 10. Production Considerations
 
-- Use a strong `AUTH_SECRET` (required for Auth.js when implemented)
+- Use a strong `AUTH_SECRET` (required for Auth.js)
 - Enable HTTPS
-- Set up proper email delivery for magic links (Auth.js pending)
+- Set up proper email delivery for magic links (or use OAuth)
 - Use a managed Postgres (or well-secured self-hosted)
 - Regular backups
-- Add 2FA / TOTP for ADMIN accounts (pending implementation)
+- Set `ENCRYPTION_KEY` for bank feed credential storage
+- Set `STRIPE_WEBHOOK_SECRET` for webhook signature verification
+- Consider read replicas for reporting
 - Consider read replicas for reporting
 
 **Authentication Roadmap:**
-- Phase 3: Auth.js Magic Link via Email
-- Phase 3: TOTP 2FA for Admin accounts  
-- Phase 3: OAuth login (Google, Microsoft)
+- ✅ Phase 3: Auth.js Magic Link via Email (SMTP or dev fallback)
+- ✅ Phase 3: TOTP 2FA endpoints (setup + verify)
+- ✅ Phase 3: OAuth login (Google, GitHub - requires env vars)
 
 ---
 
@@ -229,12 +245,12 @@ npx prisma generate
 
 ## 12. Data Export/Import (Backup & Migration)
 
-**Planned for Phase 3:** Data export/import functionality for:
-- Full database backup/restore
-- Migration from other systems (Xero, etc.)
-- JSON export of all journal entries, accounts, tax rates
+**Implemented:** Data export/import via `/api/backup/export` and `/api/backup/import`:
+- JSON export includes: accounts, tax rates, journal entries, events, settings, templates
+- JSON import adds to existing data (upsert behavior)
+- Access via Admin → Backup & Export panel
 
-For now, use standard PostgreSQL tools:
+For complete database backup, use standard PostgreSQL tools:
 ```bash
 # Export
 pg_dump entrytwo > backup.sql
