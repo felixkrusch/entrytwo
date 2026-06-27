@@ -206,18 +206,20 @@ Example flow:
  - ✅ Encryption applied server-side via `encryptCredentials()`
  - ⚠️ No OAuth flow UI for Plaid/Salt Edge
  
- #### Sync Implementation:
- - ✅ Manual sync endpoint (`/api/bank-feeds/sync`) fetches from Stripe API
- - ⚠️ No PayPal API sync (webhook-only currently)
- - ⚠️ No automatic nightly sync (requires background job/CRON)
+#### Sync Implementation:
+ - ✅ Manual sync endpoint (`/api/bank-feeds/sync`) fetches from Stripe/PayPal API
+ - ✅ PayPal API sync implemented using access token
+ - ✅ Auto-sync endpoint (`/api/cron/sync-feeds`) for scheduled sync
+ - ⚠️ Plaid/Salt Edge API sync (OAuth flow needs implementation)
 
  ### Environment Variables Required:
  ```bash
  ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000  # 64 hex chars
  STRIPE_WEBHOOK_SECRET=whsec_xxx   # From Stripe webhook endpoint config
+ CRON_SECRET=xxx  # Optional: protect auto-sync endpoint
  ```
 
-### Production Checklist:
+ ### Production Checklist:
  1. Configure `.env` with encryption key and webhook secret
  2. Register webhook URLs in Stripe/PayPal dashboards
  3. Test with real provider data
@@ -226,6 +228,8 @@ Example flow:
  ### Production Status Update (Completed):
  - ✅ Credentials input added to admin UI (JSON format)
  - ✅ Encryption auto-applies on connection creation
- - ✅ Stripe webhook extracts billing details and handles multiple event types
- - ✅ PayPal webhook extracts merchant info and validates signature header in production
- - ✅ Raw data captured for debugging/reconciliation
+ - ✅ Stripe/PayPal webhook extraction and API sync
+ - ✅ Merchant learning from accepted matches
+ - ✅ Pending state handling (PATCH endpoint for status)
+ - ✅ Auto-sync CRON endpoint available
+ - ⚠️ Plaid/Salt Edge OAuth flows - skeleton endpoints added

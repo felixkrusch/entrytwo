@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { findMatch } from '@/lib/matching'
+import { findMatch, learnMerchant } from '@/lib/matching'
 
 export async function POST(request: Request) {
   try {
@@ -49,6 +49,12 @@ export async function POST(request: Request) {
             },
           },
         })
+
+        // Learn merchant pattern for higher confidence next time
+        const creditLine = match.suggestedEntry.lines.find(l => Number(l.credit) > 0)
+        if (creditLine?.accountId && tx.merchant) {
+          await learnMerchant(tx.merchant, creditLine.accountId)
+        }
 
         await prisma.feedTransaction.update({
           where: { id: transactionId },

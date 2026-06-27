@@ -15,6 +15,32 @@ interface FeedTxWithConnection extends FeedTransaction {
   connection: { accountId: string } | null
 }
 
+// Learn merchant patterns from user corrections
+export async function learnMerchant(merchant: string, accountId: string, taxRateId?: string | null) {
+  const setting = await prisma.setting.upsert({
+    where: { key: `merchant:${merchant.toLowerCase()}` },
+    create: {
+      key: `merchant:${merchant.toLowerCase()}`,
+      value: { accountId, taxRateId } as any,
+    },
+    update: {
+      value: { accountId, taxRateId } as any,
+    },
+  })
+  return setting
+}
+
+// Get learned merchant preferences
+export async function getMerchantPreference(merchant: string): Promise<{ accountId?: string; taxRateId?: string } | null> {
+  if (!merchant) return null
+
+  const setting = await prisma.setting.findUnique({
+    where: { key: `merchant:${merchant.toLowerCase()}` },
+  })
+
+  return setting?.value as { accountId?: string; taxRateId?: string } | null
+}
+
 export async function findMatch(tx: FeedTxWithConnection): Promise<MatchResult | null> {
   const potentialMatches = await prisma.journalEntry.findMany({
     where: {
@@ -67,9 +93,29 @@ function calculateConfidence(tx: FeedTxWithConnection, entry: { date: Date; desc
 }
 
 async function suggestEntry(tx: FeedTxWithConnection): Promise<{ confidence: number; entry: MatchResult['suggestedEntry'] }> {
+  const bankAccountId = tx.connection?.accountId || ''
+
+  // Check for learned merchant preferences
+  const preference = await getMerchantPreference(tx.merchant || tx.description)
+  const targetAccountId = preference?.accountId || ''
+
+  // If we have learned preference, use it with high confidence
+  if (targetAccountId) {
+    return {
+      confidence: 90,
+      entry: {
+        date: tx.date.toISOString().split('T')[0],
+        description: tx.merchant || tx.description,
+        lines: [
+          { accountId: bankAccountId, debit: Number(tx.amount), credit: 0 },
+          { accountId: targetAccountId, debit: 0, credit: Number(tx.amount) },
+        ],
+      },
+    }
+  }
+
   const revenueAccount = await prisma.account.findFirst({ where: { type: 'REVENUE' } })
   const expenseAccount = await prisma.account.findFirst({ where: { type: 'EXPENSE' } })
-  const bankAccountId = tx.connection?.accountId || ''
 
   if (Number(tx.amount) > 0) {
     return {
