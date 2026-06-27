@@ -1,6 +1,8 @@
 import NextAuth from 'next-auth'
 import EmailProvider from 'next-auth/providers/email'
 import CredentialsProvider from 'next-auth/providers/credentials'
+import GoogleProvider from 'next-auth/providers/google'
+import GitHubProvider from 'next-auth/providers/github'
 import { PrismaAdapter } from '@auth/prisma-adapter'
 import { prisma } from './prisma'
 
@@ -17,6 +19,7 @@ declare module 'next-auth' {
 }
 
 const emailProviders = []
+const oauthProviders = []
 
 // Only add email provider if SMTP is configured
 if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
@@ -31,6 +34,26 @@ if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
         },
       },
       from: process.env.SMTP_FROM || 'noreply@entrytwo.local',
+    })
+  )
+}
+
+// Google OAuth
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  oauthProviders.push(
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    })
+  )
+}
+
+// GitHub OAuth
+if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
+  oauthProviders.push(
+    GitHubProvider({
+      clientId: process.env.GITHUB_CLIENT_ID,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET,
     })
   )
 }
@@ -60,9 +83,11 @@ const devProvider = CredentialsProvider({
   },
 })
 
+const allProviders = [...emailProviders, ...oauthProviders, ...(emailProviders.length === 0 ? [devProvider] : [])]
+
 const authConfig = NextAuth({
   adapter: process.env.SMTP_HOST ? PrismaAdapter(prisma) : undefined,
-  providers: emailProviders.length > 0 ? emailProviders : [devProvider],
+  providers: allProviders.length > 0 ? allProviders : [devProvider],
   secret: process.env.AUTH_SECRET || 'development-secret',
   pages: {
     signIn: '/auth/signin',

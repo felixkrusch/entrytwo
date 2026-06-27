@@ -196,7 +196,10 @@
         "send": "Send Magic Link",
         "sending": "Sending...",
         "checkEmail": "Check your email",
-        "magicSent": "A magic link has been sent to {email}"
+        "magicSent": "A magic link has been sent to {email}",
+        "orContinue": "or continue with email",
+        "google": "Sign in with Google",
+        "github": "Sign in with GitHub"
       },
       "totp": {
         "setup": "Enable TOTP 2FA",

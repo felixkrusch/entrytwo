@@ -203,8 +203,8 @@ Once that works reliably, *then* start adding the AI layer on top.
 - ✅ Magic Link authentication (Auth.js with SMTP or dev fallback)
 - ✅ TOTP 2FA endpoints (setup + verify)
 - ✅ Data export/import for backup/migration
-- ✅ Bank feed foundation: Stripe/PayPal webhooks + admin UI
-- ⚠️ OAuth login (Google, Microsoft) - NOT IMPLEMENTED
+- ✅ Bank feed foundation: Stripe/PayPal webhooks + admin UI + manual sync
+- ✅ OAuth login (Google, GitHub) - implemented, requires env vars
 - ⚠️ Licensing/activation system - NOT IMPLEMENTED
 - ⚠️ Advanced onboarding flow - basic bootstrap exists
 
