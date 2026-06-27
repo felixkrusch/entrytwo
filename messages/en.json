@@ -212,6 +212,13 @@
       "chooseFile": "Choose File",
       "exportDesc": "Download a JSON file with all accounts, tax rates, journal entries, settings, and templates.",
       "importDesc": "Upload a previously exported JSON file to restore data. This will add to existing data."
+    },
+    "bankFeeds": {
+      "title": "Bank Feeds",
+      "noConnections": "No bank feed connections configured.",
+      "connectNew": "+ Connect Feed",
+      "configure": "Configure",
+      "provider": "Provider"
     }
   }
 }

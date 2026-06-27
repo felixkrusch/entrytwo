@@ -11,6 +11,7 @@ const navItems = [
   { href: '/admin/users', label: 'Users' },
   { href: '/admin/ai', label: 'AI / LLM Provider' },
   { href: '/admin/backup', label: 'Backup & Export' },
+  { href: '/admin/bank-feeds', label: 'Bank Feeds' },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

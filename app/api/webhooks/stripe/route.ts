@@ -1,20 +1,25 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { verifyStripeSignature } from '@/lib/webhook'
 
 export async function POST(request: Request) {
-  if (!process.env.SMTP_HOST) {
-    // Dev mode - trust the payload
-    const body = await request.json()
-    await handleStripeEvent(body)
-    return NextResponse.json({ received: true })
-  }
-
-  // Production - verify signature
   const signature = request.headers.get('stripe-signature')
   const body = await request.text()
 
-  // TODO: Implement signature verification
-  await handleStripeEventSafe(body)
+  // Production - verify signature
+  if (process.env.STRIPE_WEBHOOK_SECRET) {
+    if (!verifyStripeSignature(body, signature, process.env.STRIPE_WEBHOOK_SECRET)) {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+    }
+  }
+
+  try {
+    const data = JSON.parse(body) as Record<string, unknown>
+    await handleStripeEvent(data)
+  } catch (error) {
+    console.error('Stripe webhook error:', error)
+  }
+
   return NextResponse.json({ received: true })
 }
 
@@ -43,13 +48,4 @@ async function handleStripeEvent(data: Record<string, unknown>) {
       status: 'pending',
     },
   })
-}
-
-async function handleStripeEventSafe(body: string) {
-  try {
-    const data = JSON.parse(body) as Record<string, unknown>
-    await handleStripeEvent(data)
-  } catch (error) {
-    console.error('Stripe webhook error:', error)
-  }
 }
