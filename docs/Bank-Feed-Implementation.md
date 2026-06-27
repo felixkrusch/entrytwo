@@ -165,14 +165,68 @@ This is the core value proposition. When a feed transaction arrives:
 4. Audit log tracks all automatic decisions
 
 Example flow:
-```
-Stripe webhook: $1200 from ACME Corp
-↓
-Matching finds: No existing entries
-↓
-Creates suggestion: Debit Stripe account $1200, Credit Revenue $1200
-↓
-Admin accepts (or auto-accepts if rule matches)
-↓
-Journal entry created and linked to feed transaction
-```
+ ```
+ Stripe webhook: $1200 from ACME Corp
+ ↓
+ Matching finds: No existing entries
+ ↓
+ Creates suggestion: Debit Stripe account $1200, Credit Revenue $1200
+ ↓
+ Admin accepts (or auto-accepts if rule matches)
+ ↓
+ Journal entry created and linked to feed transaction
+ ```
+
+ ---
+
+ ## Production Readiness Status
+
+ ### Implemented (Ready for Production):
+ - ✅ **Database Schema**: BankConnection and FeedTransaction models with unique constraint on (connectionId, externalId)
+ - ✅ **Webhook Receivers**: `/api/webhooks/stripe` and `/api/webhooks/paypal` with signature verification hooks
+ - ✅ **Matching Engine**: `lib/matching.ts` - finds existing entries or suggests new ones based on amount/date/merchant
+ - ✅ **Transaction Lifecycle**: pending → matched → posted, or pending → ignored
+ - ✅ **Encryption Service**: `lib/encryption.ts` - AES-256-GCM for storing provider credentials
+ - ✅ **Admin UI**: `/admin/bank-feeds` with connection list, pending transactions table, and match interface
+ - ✅ **API Routes**: GET/POST connections, GET transactions, POST match/ignore actions
+
+ ### Required Configuration (Production):
+ - [ ] Set `ENCRYPTION_KEY` (64 hex chars) in `.env` for credential encryption
+ - [ ] Set `STRIPE_WEBHOOK_SECRET` in `.env` for webhook signature verification
+ - [ ] Configure provider API keys via admin UI (currently no form - see below)
+
+ ### Missing for Production Connectors:
+ 
+ #### Stripe/PayPal Webhook Activation:
+ - Webhook endpoints receive data but skip signature verification in dev mode
+ - Production mode requires `STRIPE_WEBHOOK_SECRET` to be set
+ - **Current status**: Works in dev, signature verification code in place but gated
+
+ #### Provider Credential Management:
+ - Admin UI shows "Connect Feed" modal but credentials field is empty object
+ - No UI for entering OAuth tokens or API keys
+ - **Next**: Add credentials input form with encryption display
+
+ #### OAuth Flow (Plaid/Salt Edge):
+ - No OAuth connection endpoints implemented
+ - No token refresh/renewal logic
+ - **Current**: Only Stripe/PayPal webhooks (no OAuth)
+
+ ### Environment Variables Required:
+ ```bash
+ ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000  # 64 hex chars
+ STRIPE_WEBHOOK_SECRET=whsec_xxx   # From Stripe webhook endpoint config
+ ```
+
+### Production Checklist:
+ 1. Configure `.env` with encryption key and webhook secret
+ 2. Register webhook URLs in Stripe/PayPal dashboards
+ 3. Test with real provider data
+ 4. Credentials input now available in admin UI (JSON format)
+
+ ### Production Status Update (Completed):
+ - ✅ Credentials input added to admin UI (JSON format)
+ - ✅ Encryption auto-applies on connection creation
+ - ✅ Stripe webhook extracts billing details and handles multiple event types
+ - ✅ PayPal webhook extracts merchant info and validates signature header in production
+ - ✅ Raw data captured for debugging/reconciliation

@@ -45,6 +45,7 @@ export default function BankFeedsPage() {
   const [showConnect, setShowConnect] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState('stripe')
   const [selectedAccount, setSelectedAccount] = useState('')
+  const [credentials, setCredentials] = useState('{}')
 
   useEffect(() => {
     Promise.all([
@@ -61,6 +62,13 @@ export default function BankFeedsPage() {
 
   const handleConnect = async () => {
     if (!selectedAccount || !selectedProvider) return
+    let parsedCreds: Record<string, unknown> = {}
+    try {
+      parsedCreds = JSON.parse(credentials)
+    } catch {
+      alert('Invalid JSON credentials')
+      return
+    }
     await fetch('/api/bank-feeds/connections', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -68,7 +76,7 @@ export default function BankFeedsPage() {
         accountId: selectedAccount,
         provider: selectedProvider,
         externalId: `${selectedProvider}-${selectedAccount}`,
-        credentials: {},
+        credentials: parsedCreds,
       }),
     })
     setShowConnect(false)
@@ -183,6 +191,19 @@ export default function BankFeedsPage() {
                   <option key={a.id} value={a.id}>{a.name} ({a.code})</option>
                 ))}
               </select>
+            </div>
+
+            <div className="mb-4">
+              <label className="text-xs text-zinc-400">Credentials (JSON)</label>
+              <textarea
+                value={credentials}
+                onChange={e => setCredentials(e.target.value)}
+                placeholder='{"apiKey":"sk_live_..."}'
+                className="w-full h-20 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 mt-1 font-mono text-xs"
+              />
+              <div className="text-[10px] text-zinc-500 mt-1">
+                Enter provider credentials as JSON. Will be encrypted at rest.
+              </div>
             </div>
 
             <div className="flex gap-2">

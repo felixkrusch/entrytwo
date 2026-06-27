@@ -33,18 +33,33 @@ async function handleStripeEvent(data: Record<string, unknown>) {
     where: { provider: 'stripe' },
   })
 
-  if (!connection) return
+  if (!connection) {
+    console.warn('No Stripe connection found')
+    return
+  }
+
+  // Determine amount and currency from various Stripe event types
+  let amount = 0
+  let currency = 'usd'
+
+  if ('amount' in eventData && typeof eventData.amount === 'number') {
+    amount = eventData.amount
+  } else if ('amount_total' in eventData && typeof eventData.amount_total === 'number') {
+    amount = eventData.amount_total
+  }
+
+  currency = (eventData.currency as string) || 'usd'
 
   await prisma.feedTransaction.create({
     data: {
       connectionId: connection.id,
       externalId: (eventData.id as string) || '',
       date: new Date(((eventData.created as number) || Date.now()) * 1000),
-      description: (eventData.description as string) || eventType,
-      merchant: eventData.description as string | undefined,
-      amount: (typeof eventData.amount === 'number' ? eventData.amount : 0) / 100,
-      currency: (eventData.currency as string) || 'usd',
-      rawData: {},
+      description: (eventData.description as string) || (eventData as any).statement_descriptor || eventType,
+      merchant: (eventData as any).billing_details?.name || (eventData as any).description || eventType,
+      amount: amount / 100,
+      currency: currency,
+      rawData: { type: eventType, ...(eventData as any) } as any,
       status: 'pending',
     },
   })

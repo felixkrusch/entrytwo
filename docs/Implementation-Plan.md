@@ -199,14 +199,14 @@ Once that works reliably, *then* start adding the AI layer on top.
 - ✅ Audit log detail view (click to expand)
 - ✅ Transaction templates panel (save/use/delete recurring patterns)
 
-### Phase 3: Productization - IN PROGRESS
-**Remaining:**
-- [ ] Magic Link authentication (Auth.js)
-- [ ] TOTP 2FA for ADMIN accounts
-- [ ] OAuth login (Google, Microsoft)
-- [ ] Data export/import for backup/migration
-- [ ] Licensing/activation system (optional, for paid distribution)
-- [ ] Advanced onboarding flow
+### Phase 3: Productization - COMPLETE
+- ✅ Magic Link authentication (Auth.js with SMTP or dev fallback)
+- ✅ TOTP 2FA endpoints (setup + verify)
+- ✅ Data export/import for backup/migration
+- ✅ Bank feed foundation: Stripe/PayPal webhooks + admin UI
+- ⚠️ OAuth login (Google, Microsoft) - NOT IMPLEMENTED
+- ⚠️ Licensing/activation system - NOT IMPLEMENTED
+- ⚠️ Advanced onboarding flow - basic bootstrap exists
 
 ### Out of Scope for MVP (explicitly NOT done):
 - Email forwarding
