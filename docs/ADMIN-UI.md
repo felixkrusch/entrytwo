@@ -13,11 +13,11 @@ This document describes the current and planned Admin UI for entrytwo.
 
 ---
 
-## Current State (2026-06-24)
+## Current State (2026-06-27)
 
 ### Schema
 
-`prisma/schema.prisma` already defines:
+`prisma/schema.prisma` defines:
 
 ```prisma
 enum Role {
@@ -37,11 +37,20 @@ model User {
 }
 ```
 
-`Setting` model now exists (for company/global configuration).
+`Setting` model exists (for company/global configuration).
 
 ### Application (Implemented)
 
 - Full **Admin UI** exists at `app/app/AdminPanel.tsx` (always rendered in the main layout).
+- **Admin Routes** (`/admin/*`):
+  - `/admin` - Overview with quick links
+  - `/admin/company` - Company settings (name, country, currency, tax jurisdiction)
+  - `/admin/users` - User management
+  - `/admin/ai` - AI/LLM provider configuration
+  - `/admin/reports` - **Balance Sheet and Profit & Loss statements with date filters**
+  - `/admin/bank-feeds` - Bank feed connections (Stripe, PayPal)
+  - `/admin/backup` - Data export/import
+
 - Current features:
   - List users (email, name, role, createdAt)
   - Create users (email + optional name + role)
@@ -49,18 +58,32 @@ model User {
   - Delete users (audited)
   - Live company settings:
     - Company name (`company.name`)
+    - Country with region selector
     - Base currency
     - Default tax jurisdiction
-- All admin actions create `Event` audit records.
+  - **Reports page with date range filters and tax summary**
+  - All admin actions create `Event` audit records.
+
 - **First-admin bootstrap**:
   - `GET /api/bootstrap/status` returns `{ needsBootstrap: true }` when zero ADMIN users exist.
-  - On fresh DB, the right panel is replaced by a prominent "Create First Admin" form (AdminPanel in bootstrap mode).
+  - On fresh DB, the right panel shows a "Create First Admin" form (basic or advanced onboarding).
   - Creating the first ADMIN immediately unlocks the full application.
-- After bootstrap, the normal AdminPanel + full chat/panels UI is shown.
 
-### Chat Lock
+- **Advanced Onboarding** (new):
+  - Option during bootstrap to set up company name, country, currency, and default accounts
+  - Creates standard chart of accounts automatically
 
-A "Chat Lock (advisory-only)" toggle already exists in the chat interface as a deliberate safety control.
+### Reports UX
+
+The **Reports page** (`/admin/reports`) provides:
+
+- **Date range filtering** - Filter Profit & Loss by date range
+- **Balance Sheet** - Assets, Liabilities, Equity with totals and balance check
+- **Profit & Loss** - Revenue, expenses, net income with tax summary
+- **Multi-currency support** - Native currency breakdown where available
+- **Tax summary** - Input/output/net tax amounts for applicable periods
+
+Reports are also accessible in the main app via the right panel (live view).
 
 ---
 
@@ -74,11 +97,13 @@ Most of the "Planned Admin UI" below is now **implemented**:
 - Company settings (name, base currency, default jurisdiction) via `Setting` model
 - First-admin bootstrap gate (blocks entire app until first ADMIN is created)
 - AdminPanel always visible (during bootstrap and after)
+- **Reports page with date filters**
+- **Bank feeds admin UI**
+- **Backup & export page**
 
 ### Still Planned / Future
 
-- Explicit "Admin" navigation link (currently always shown in the panel list)
-- Role-based visibility (hide AdminPanel for non-ADMINS in later phases)
+- Role-based visibility (hide admin sections for non-ADMINS in later phases)
 - TOTP / stronger protection for ADMIN actions
 - More settings (fiscal year, default accounts, etc.)
 
@@ -128,7 +153,7 @@ On a completely fresh database (no `User` with `role = ADMIN`):
 
 ---
 
-## Data Model Additions (Planned)
+## Data Model
 
 ```prisma
 model Setting {
@@ -140,43 +165,28 @@ model Setting {
 }
 ```
 
-Or a more structured `Company` model if we prefer strong typing later.
-
 ---
 
 ## Security & Audit
 
 - All user creation / role changes must create an `Event` record.
 - Sensitive actions (role elevation to ADMIN) should be extra visible in the audit log.
-- In later phases: require re-auth / TOTP for ADMIN actions.
+- TOTP 2FA can be enabled via the AdminPanel for additional security.
 
 ---
 
 ## Current vs Target (Updated)
 
-| Area                    | Current (2026-06-24)                          | Target |
-|-------------------------|-----------------------------------------------|--------|
+| Area                    | Current (2026-06-27)                                    | Target |
+|-------------------------|---------------------------------------------------------|--------|
 | User model              | Exists (`User` + `Role`)                      | Done + bootstrap flow |
-| Admin UI                | Full AdminPanel (users + settings + bootstrap) | Keep + polish (role visibility, navigation) |
+| Admin UI                | Full AdminPanel (users + settings + bootstrap) | Done |
 | User management         | Create / list / change role / delete (audited) | Done |
 | Company settings        | Live via `Setting` model                      | Done (expand later) |
 | First admin bootstrap   | Implemented (gate + prominent form)           | Done |
 | Audit for admin actions | `Event` records created on all changes        | Done (more types later) |
-
----
-
-## Next Steps (Historical)
-
-The items below were the original plan. As of 2026-06-24 they are **largely complete**:
-
-1. ~~Add `Setting` model + migration~~ Done
-2. ~~Create `AdminPanel.tsx`~~ Done (always rendered)
-3. ~~Implement list/create/change-role + settings~~ Done
-4. ~~Implement first-admin bootstrap gate~~ Done (blocks UI + prominent form)
-5. Wire role-based visibility / top nav link (future polish)
-6. Update docs + seed (done, seed includes default settings)
-
-Future work is tracked in Phase 2+ docs.
+| Reports UX              | `/admin/reports` with date filters            | Done |
+| Bank feeds              | `/admin/bank-feeds` with connections UI       | Done |
 
 ---
 

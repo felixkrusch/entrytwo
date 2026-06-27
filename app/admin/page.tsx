@@ -36,6 +36,30 @@ export default function AdminOverview() {
           <div className="font-medium mb-1">AI / LLM Provider</div>
           <div className="text-xs text-zinc-500">Choose model provider, API keys, base URLs.</div>
         </Link>
+
+        <Link
+          href="/admin/reports"
+          className="block border border-zinc-800 rounded-lg p-5 hover:border-zinc-700 transition-colors bg-zinc-950"
+        >
+          <div className="font-medium mb-1">Reports</div>
+          <div className="text-xs text-zinc-500">Balance Sheet and Profit & Loss statements.</div>
+        </Link>
+
+        <Link
+          href="/admin/bank-feeds"
+          className="block border border-zinc-800 rounded-lg p-5 hover:border-zinc-700 transition-colors bg-zinc-950"
+        >
+          <div className="font-medium mb-1">Bank Feeds</div>
+          <div className="text-xs text-zinc-500">Connect Stripe, PayPal, and bank accounts.</div>
+        </Link>
+
+        <Link
+          href="/admin/backup"
+          className="block border border-zinc-800 rounded-lg p-5 hover:border-zinc-700 transition-colors bg-zinc-950"
+        >
+          <div className="font-medium mb-1">Backup & Export</div>
+          <div className="text-xs text-zinc-500">Export/import all data as JSON.</div>
+        </Link>
       </div>
 
       <div className="mt-10 text-xs text-zinc-500">
