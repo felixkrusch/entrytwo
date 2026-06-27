@@ -45,11 +45,11 @@ const devProvider = CredentialsProvider({
   async authorize(credentials) {
     if (!credentials?.email) return null
     const email = credentials.email as string
-    
+
     try {
       const existing = await prisma.user.findUnique({ where: { email } })
       if (existing) return { id: existing.id, email: existing.email, name: existing.name || '' }
-      
+
       const user = await prisma.user.create({
         data: { email, role: 'ADMIN' },
       })
@@ -60,7 +60,7 @@ const devProvider = CredentialsProvider({
   },
 })
 
-export const { handlers, signIn, signOut, auth } = NextAuth({
+const authConfig = NextAuth({
   adapter: process.env.SMTP_HOST ? PrismaAdapter(prisma) : undefined,
   providers: emailProviders.length > 0 ? emailProviders : [devProvider],
   secret: process.env.AUTH_SECRET || 'development-secret',
@@ -80,6 +80,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
       return session
     },
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id as string
+      }
+      return token
+    },
   },
   trustHost: true,
 })
+
+export const { handlers, signIn, signOut, auth } = authConfig

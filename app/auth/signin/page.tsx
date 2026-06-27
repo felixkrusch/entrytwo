@@ -1,6 +1,5 @@
 'use client'
 
-import { signIn } from '@/lib/auth-client'
 import { useState, useEffect } from 'react'
 import { useTranslations } from 'next-intl'
 
@@ -31,8 +30,24 @@ export default function SignInPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, role: 'ADMIN' }),
       })
-      // Now sign in with redirect
-      await signIn('credentials', { email, redirect: true, callbackUrl: CALLBACK_URL })
+      // Sign in via credentials callback
+      const csrf = await (await fetch('/api/auth/csrf')).json()
+      const res = await fetch('/api/auth/callback/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          csrfToken: csrf.csrfToken,
+          email,
+          callbackUrl: CALLBACK_URL,
+          redirect: 'false',
+        }),
+      })
+      const data = await res.json()
+      if (data?.ok) {
+        window.location.href = CALLBACK_URL
+      } else {
+        setError(data?.error || 'Sign-in failed')
+      }
     } catch (err) {
       setError((err as Error)?.message || 'Failed')
     } finally {
@@ -48,15 +63,24 @@ export default function SignInPage() {
       const isProd = !!process.env.NEXT_PUBLIC_HAS_SMTP
 
       if (isProd) {
-        const result = await signIn('email', { email, redirect: false, callbackUrl: CALLBACK_URL })
+        const result = await (await import('@/lib/auth-client')).signIn('email', { email, redirect: false, callbackUrl: CALLBACK_URL })
         if (result && typeof result === 'object' && 'ok' in result && result.ok) {
           setSent(true)
         } else {
           setError((result as { error?: string })?.error || 'Sign-in failed')
         }
       } else {
-        // Dev mode: sign in via credentials
-        await signIn('credentials', { email, redirect: true, callbackUrl: CALLBACK_URL })
+        // Dev mode: call dev sign-in endpoint that creates session directly
+        const res = await fetch('/api/auth/dev', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        })
+        if (res.ok) {
+          window.location.href = CALLBACK_URL
+        } else {
+          setError('Sign-in failed')
+        }
       }
     } catch (err) {
       setError((err as Error)?.message || 'Sign-in failed')
