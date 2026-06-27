@@ -91,11 +91,52 @@ XAI_API_KEY=""
 ANTHROPIC_API_KEY=""
 ```
 
-> **Note:** The current implementation does not yet enforce auth in the UI for local development. This will be added as part of the Admin UI work.
+---
+
+## 4. Obtaining OAuth Credentials
+
+### Google OAuth
+
+1. Visit [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select an existing one
+3. Go to **APIs & Services** → **Credentials**
+4. Click **Create Credentials** → **OAuth 2.0 Client IDs**
+5. Choose **Web application** type
+6. Set **Authorized redirect URI**: `https://yourdomain.com/api/auth/callback/google`
+7. Copy the Client ID and Client Secret to your `.env` file
+
+### GitHub OAuth
+
+1. Visit [GitHub Settings → Developer settings → OAuth Apps](https://github.com/settings/developers)
+2. Click **New OAuth App**
+3. Fill in:
+   - **Application name**: entrytwo
+   - **Homepage URL**: `https://yourdomain.com`
+   - **Authorization callback URL**: `https://yourdomain.com/api/auth/callback/github`
+4. Register the application
+5. Copy the Client ID and Client Secret to your `.env` file
+
+### Plaid (Bank Feeds - US/Canada)
+
+1. Sign up at [Plaid Dashboard](https://dashboard.plaid.com/)
+2. Create a new app in the **Team Settings**
+3. Get your **Client ID** and **Secret**
+4. Set **Webhook URL**: `https://yourdomain.com/api/webhooks/plaid`
+5. Add `PLAID_CLIENT_ID` and `PLAID_SECRET` to your `.env` file (for future implementation)
+
+### Stripe (Bank Feeds - Payments)
+
+1. Go to [Stripe Dashboard](https://dashboard.stripe.com/)
+2. Go to **Developers** → **Webhooks**
+3. Click **Add endpoint**
+4. Set endpoint URL: `https://yourdomain.com/api/webhooks/stripe`
+5. Select events: `payment_intent.succeeded`, `charge.refunded`, `charge.dispute.created`
+6. Copy the **Webhook secret** to `STRIPE_WEBHOOK_SECRET` in `.env`
+7. For API sync, use your **Secret key** (`sk_live_...` or `sk_test_...`) stored in bank connection credentials
 
 ---
 
-## 4. Database
+## 5. Database
 
 ### Using Docker Compose (included)
 
@@ -142,7 +183,7 @@ npx prisma db seed
 
 ---
 
-## 5. First Admin Bootstrap (Important)
+## 6. First Admin Bootstrap (Important)
 
 entrytwo is designed so that the very first user created in a fresh installation becomes an **ADMIN**.
 
@@ -154,7 +195,7 @@ In production this flow will be protected and usually triggered during initial o
 
 ---
 
-## 6. Running the Application
+## 7. Running the Application
 
 ```bash
 npm run dev
@@ -166,7 +207,7 @@ npm run dev
 
 ---
 
-## 7. Docker (Full Stack)
+## 8. Docker (Full Stack)
 
 ```bash
 docker compose up --build
@@ -176,7 +217,7 @@ This will start the Next.js app + Postgres. Adjust ports in `compose.yaml` / `co
 
 ---
 
-## 8. Common Commands
+## 9. Common Commands
 
 ```bash
 # Database
@@ -195,7 +236,7 @@ npm start
 
 ---
 
-## 9. First Time Checklist
+## 10. First Time Checklist
 
 - [ ] Database is running and `DATABASE_URL` is correct
 - [ ] `npx prisma migrate dev` succeeded
@@ -208,7 +249,7 @@ npm start
 
 ---
 
-## 10. Production Considerations
+## 11. Production Considerations
 
 - Use a strong `AUTH_SECRET` (required for Auth.js)
 - Enable HTTPS
@@ -218,16 +259,15 @@ npm start
 - Set `ENCRYPTION_KEY` for bank feed credential storage
 - Set `STRIPE_WEBHOOK_SECRET` for webhook signature verification
 - Consider read replicas for reporting
-- Consider read replicas for reporting
 
-**Authentication Roadmap:**
+**Authentication Status:**
 - ✅ Phase 3: Auth.js Magic Link via Email (SMTP or dev fallback)
 - ✅ Phase 3: TOTP 2FA endpoints (setup + verify)
 - ✅ Phase 3: OAuth login (Google, GitHub - requires env vars)
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 **"Error: P1001: Can't reach database server"**
 - Check that Postgres is running and the host/port in `DATABASE_URL` are correct.
@@ -243,7 +283,7 @@ npx prisma generate
 
 ---
 
-## 12. Data Export/Import (Backup & Migration)
+## 13. Data Export/Import (Backup & Migration)
 
 **Implemented:** Data export/import via `/api/backup/export` and `/api/backup/import`:
 - JSON export includes: accounts, tax rates, journal entries, events, settings, templates
