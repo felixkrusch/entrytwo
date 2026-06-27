@@ -155,7 +155,20 @@
         "bootstrapNote": "This user will be created with ADMIN role. After creation, the full application will be available.",
         "advancedOnboarding": "Advanced Onboarding",
         "completeOnboarding": "Complete Onboarding",
-        "back": "Back"
+        "back": "Back",
+        "systemUpdate": "System Update",
+        "updateAvailable": "Update Available",
+        "updateNow": "Update Now",
+        "refresh": "Refresh",
+        "updateConfirm": "This will update the application. Continue?",
+        "upToDate": "System is up to date"
+      },
+      "updateStatus": {
+        "pullingCode": "Pulling latest code...",
+        "installing": "Installing dependencies...",
+        "migrating": "Running database migrations...",
+        "building": "Building application...",
+        "restarting": "Restarting server..."
       }
     },
     "modal": {

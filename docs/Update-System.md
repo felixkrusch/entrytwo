@@ -16,117 +16,47 @@ The update system provides:
 
 ---
 
-## Implementation Strategy
+## Implementation Status: ✅ IMPLEMENTED
 
-### 1. Update Endpoint (`/api/admin/update`)
+### Files Created
 
-```typescript
-// POST /api/admin/update
-export async function POST(request: Request) {
-  // 1. Verify admin session
-  // 2. Create backup
-  // 3. Pull latest code (git pull origin main)
-  // 4. Install dependencies (npm install)
-  // 5. Run migrations (npx prisma migrate deploy)
-  // 6. Build (npm run build)
-  // 7. Restart server (or signal for hot reload)
-}
-```
-
-### 2. Pre-Update Safety Checks
-
-- Check if update is available (compare local commit with remote)
-- Ensure sufficient disk space for backup
-- Verify backup endpoint succeeded
-- Confirm admin authentication
-
-### 3. Backup Integration
-
-Use existing `/api/backup/export` endpoint before update:
-```typescript
-const backupRes = await fetch('/api/backup/export', { method: 'GET' })
-const backup = await backupRes.json()
-// Store backup with timestamp: backup-2026-06-27.json
-```
+- `app/api/admin/update/route.ts` - GET/POST endpoints for checking and executing updates
+- `app/admin/update/page.tsx` - Admin UI page at `/admin/update`
+- `app/admin/page.tsx` - Updated with update indicator dot
 
 ---
 
-## Deployment Options
+## Current Implementation (Git-based)
 
-### Option A: Server-Side Git (Simplest)
+### Update Endpoint (`app/api/admin/update/route.ts`)
 
-**Requirements:**
-- Server has git installed
-- Server has write access to codebase
-- Server runs Node.js with process manager (PM2, systemd, or Docker)
+**GET** - Check for available updates:
+- Compares local commit (`git rev-parse HEAD`) with remote (`git rev-parse origin/main`)
+- Returns update status with current/latest commit hashes
+- Runs every minute in background when admin page is open
 
-**Flow:**
-1. Admin clicks "Check for Updates" in `/admin/update`
-2. System runs `git fetch origin` to check for updates
-3. If update available, shows "Update Available" with changelog
-4. Admin confirms, system:
-   - Calls `/api/backup/export` for pre-update backup
-   - Runs `git pull origin main`
-   - Runs `npm install --production`
-   - Runs `npx prisma migrate deploy`
-   - Runs `npm run build`
-   - Restarts via process manager
+**POST** - Execute update process:
+1. Verifies no update is already in progress (lock file)
+2. Creates backup via `/api/backup/export` (stored in `backups/pre-update-{timestamp}.json`)
+3. Runs `git pull origin main`
+4. Runs `npm install --omit=dev` (production dependencies only)
+5. Runs `npx prisma migrate deploy` (production-safe migration)
+6. Runs `npm run build`
+7. Creates `.restart` signal file for external process manager
+8. Logs audit event to `Event` table
 
-### Option B: Docker Image Pull
-
-**Requirements:**
-- Application deployed via Docker
-- Registry access (GitHub Container Registry, Docker Hub)
-
-**Flow:**
-1. New images pushed to registry on each release
-2. Admin clicks "Check for Updates"
-3. System checks for newer image tags
-4. On confirm:
-   - Creates backup via API
-   - Runs `docker pull` for new image
-   - `docker compose up -d --force-recreate`
-   - Runs `prisma migrate deploy` in container
-
-### Option C: Manual Download (Most Compatible)
-
-**Requirements:**
-- HTTP endpoint with release ZIP/TAR
-- Server can download and extract
-
-**Flow:**
-1. Admin clicks "Check for Updates"
-2. Pulls latest release info from GitHub API
-3. Downloads release archive to temp location
-4. Creates backup
-5. Extracts to alternate directory
-6. Runs migrations
-7. Swaps symlink or copies files
-8. Restarts
-
----
-
-## Admin UI Design
-
-### Update Page (`/admin/update`)
+### Admin UI (`/admin/update`)
 
 ```
 ┌─────────────────────────────────────┐
-│ Update & Maintenance                  │
+│ System Update                        │
 ├─────────────────────────────────────┤
+│ Current Version: #abc123             │
+│ Available Update:  #def456           │ ← Shows only when update available
 │                                       │
-│ Current Version: v0.3.1 (abc123)     │
-│ Latest Version:  v0.3.2 (def456)    │
-│ Status: Update available              │
+│ [x] Create backup before update      │
 │                                       │
-│ Changes in v0.3.2:                    │
-│ • Bank feed sync improvements         │
-│ • OAuth credential setup guide        │
-│ • Reports date filtering              │
-│                                       │
-│ [x] Create backup before update       │
-│                                       │
-│ [ Check for Updates ]  [ Update Now ]   │
+│ [ Check for Updates ]  [ Update Now ] │
 │                                       │
 └─────────────────────────────────────┘
 ```
@@ -135,17 +65,62 @@ const backup = await backupRes.json()
 
 ```
 ┌─────────────────────────────────────┐
-│ Updating... 75%                       │
+│ Updating...                          │
 ├─────────────────────────────────────┤
-│ [■■■■■■■■□□□□□]                    │
+│ [■■■■■■■■■■]                       │
 │                                       │
-│ 1. ✓ Backup created (backup-2026-)    │
-│ 2. ✓ Code pulled                      │
-│ 3. ✓ Dependencies installed           │
-│ 4. ✓ Migrations applied               │
-│ 5. ○ Building...                      │
-│                                       │
+│ Pulling latest code... ✓              │
+│ Installing dependencies... ✓           │
+│ Running database migrations... ✓       │
+│ Building application... ✓              │
+│ Restarting server... ✓                 │
 └─────────────────────────────────────┘
+```
+
+### Dashboard Indicator
+
+When an update is available, a green pulsing dot appears next to the "System Update" link in the admin overview.
+
+---
+
+## Deployment Requirements
+
+### Server-Side Git (Current Implementation)
+
+**Requirements:**
+- Node.js server with git installed
+- Write access to codebase directory
+- Process manager (PM2, systemd, or Docker) to handle restarts
+- `NEXT_PUBLIC_APP_URL` set for internal API calls during update
+
+### External Process Manager Integration
+
+Create a restart script that monitors for `.restart` file:
+
+```bash
+#!/bin/bash
+# restart-watcher.sh
+while true; do
+  if [ -f .restart ]; then
+    rm .restart
+    echo "Restart signal detected, restarting..."
+    pm2 restart entrytwo
+  fi
+  sleep 5
+done
+```
+
+Or use PM2 ecosystem config:
+```javascript
+// ecosystem.config.js
+module.exports = {
+  apps: [{
+    name: 'entrytwo',
+    script: 'npm start',
+    watch: ['./.restart'],
+    // ... config
+  }]
+}
 ```
 
 ---
@@ -154,45 +129,26 @@ const backup = await backupRes.json()
 
 ### Automatic Detection
 
-```bash
-# Before pulling, check if schema.prisma changed
-git diff --name-only HEAD origin/main | grep "prisma/schema.prisma"
-```
+The update endpoint runs `prisma migrate deploy` which:
+- Compares migration history with current DB state
+- Only applies migrations that haven't run yet
+- Is production-safe (won't prompt for interactive decisions)
 
 ### Migration Process
 
-1. Compare current DB version with migration history
-2. Run `npx prisma migrate deploy` (production-safe)
-3. If migration fails, restore from backup and rollback
-
-### Safety Features
-
-- Migration runs in transaction when possible
-- Backup created before migration attempt
-- Clear error messages on failure
-- Manual rollback instructions
+If migration fails:
+1. Error is returned to client
+2. Backup file remains available for manual restore
+3. Git workspace may need manual reset
 
 ---
 
 ## Security Considerations
 
-### Access Control
-
-- Only `ADMIN` role can access update endpoint
-- Rate limit update checks (max 1 per hour)
-- Log all update attempts via Event table
-
-### Code Integrity
-
-- Verify git signature or checksums if signed commits
-- Use HTTPS for all external calls
-- Sanitize any downloaded content
-
-### Process Isolation
-
-- Run update in separate process/subprocess
-- Prevent concurrent updates
-- Lock file to prevent conflicts
+- Only accessible when authenticated (middleware)
+- Update lock prevents concurrent updates
+- All update actions logged via `Event` table with `eventType: 'SYSTEM'`
+- Backup created automatically before any destructive operations
 
 ---
 
@@ -200,66 +156,28 @@ git diff --name-only HEAD origin/main | grep "prisma/schema.prisma"
 
 If update fails:
 
-1. **Automatic rollback** (if implemented):
+1. **Manual rollback**:
    ```bash
    git reset --hard HEAD~1
    npm install
    npm run build
+   # Restart server
    ```
 
-2. **Manual rollback**:
-   - Restore backup via `/api/backup/import`
-   - Revert git to previous commit
-   - Restart application
-
-3. **Docker rollback**:
-   ```bash
-   docker compose down
-   # Restore volume from backup
-   docker compose up -d previous-tag
-   ```
-
----
-
-## Implementation Steps
-
-### Step 1: Create Update API Route
-
-Create `app/api/admin/update/route.ts`:
-- GET: Check for available updates
-- POST: Execute update process
-
-### Step 2: Add Update UI Page
-
-Create `app/admin/update/page.tsx`:
-- Display current/lates version
-- Show changelog from GitHub releases
-- Trigger update via modal confirmation
-
-### Step 3: Integrate with Backup System
-
-- Call backup API before update
-- Store backup with update timestamp
-- Make backup available during rollback
-
-### Step 4: Add Environment Config
-
-```env
-# Update configuration
-UPDATE_METHOD="git"        # git | docker | download
-GITHUB_REPO="org/repo"     # For release info
-DOCKER_IMAGE="ghcr.io/org/repo"  # If using Docker
-```
+2. **Data restore**:
+   - Go to `/admin/backup`
+   - Upload the backup created before update (`backups/pre-update-*.json`)
 
 ---
 
 ## Future Enhancements
 
-- **Auto-update toggle**: Automatic updates for patch versions
-- **Staged rollout**: Update subset of servers first
-- **Health checks**: Verify update success before completing
-- **Notifications**: Email/slack on update completion
-- **Scheduled updates**: Update during maintenance window
+- **Docker image pull** mode (instead of git)
+- **Auto-update toggle** for patch versions
+- **Health checks** after update
+- **Notifications** via email/slack on completion
+- **Scheduled updates** during maintenance windows
+- **Release notes** display from GitHub API
 
 ---
 
@@ -274,13 +192,9 @@ DOCKER_IMAGE="ghcr.io/org/repo"  # If using Docker
 
 ---
 
-## Current Status
+## Environment Variables (Optional)
 
-**Not yet implemented.** This document serves as the specification for future development.
-
-### Prerequisites for Implementation
-
-- Server must have git installed and write access
-- Process manager (PM2, systemd, or Docker)
-- GitHub releases or package registry access
-- Admin authentication fully working (currently in place)
+```env
+# For internal API calls during update
+NEXT_PUBLIC_APP_URL="https://yourdomain.com"
+```

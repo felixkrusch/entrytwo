@@ -1,17 +1,17 @@
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
-const publicRoutes = ['/auth/signin', '/auth/verify', '/auth/error', '/api/auth', '/api/bootstrap/status', '/api/users', '/api/settings', '/api/auth/dev', '/api/webhooks', '/api/bank-feeds', '/api/feeds']
+const publicRoutes = ['/auth/signin', '/auth/verify', '/auth/error', '/api/auth', '/api/bootstrap/status', '/api/users', '/api/settings', '/api/auth/dev', '/api/webhooks', '/api/bank-feeds', '/api/feeds', '/api/admin/update']
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
-  // Allow public routes
+  // Allow public routes (including update status check)
   const isPublic = publicRoutes.some(r => pathname.startsWith(r))
   if (isPublic) return NextResponse.next()
 
   // Check for session token (basic check)
-  const hasSession = req.cookies.has('authjs.session') || 
+  const hasSession = req.cookies.has('authjs.session') ||
                      req.cookies.has('authjs.session_token') ||
                      req.cookies.has('__Secure-authjs.session-token')
 

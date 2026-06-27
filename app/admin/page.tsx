@@ -1,8 +1,32 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
+
+type UpdateStatus = {
+  updateAvailable: boolean
+  currentCommit: string
+  latestCommit: string
+}
 
 export default function AdminOverview() {
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const res = await fetch('/api/admin/update')
+        if (res.ok) {
+          const data = await res.json()
+          setUpdateStatus(data)
+        }
+      } catch {}
+    }
+    void check()
+    const interval = setInterval(check, 60000)
+    return () => clearInterval(interval)
+  }, [])
+
   return (
     <div>
       <div className="mb-8">
@@ -59,6 +83,17 @@ export default function AdminOverview() {
         >
           <div className="font-medium mb-1">Backup & Export</div>
           <div className="text-xs text-zinc-500">Export/import all data as JSON.</div>
+        </Link>
+
+        <Link
+          href="/admin/update"
+          className="block border border-zinc-800 rounded-lg p-5 hover:border-zinc-700 transition-colors bg-zinc-950 relative"
+        >
+          <div className="font-medium mb-1">System Update</div>
+          <div className="text-xs text-zinc-500">Check for and apply application updates.</div>
+          {updateStatus?.updateAvailable && (
+            <div className="absolute top-2 right-2 w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
+          )}
         </Link>
       </div>
 
