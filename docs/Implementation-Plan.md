@@ -63,8 +63,7 @@ Build the **Accounting Core** first, then layer the AI on top. Never let the AI 
 - **Multi-Currency Foundation**: JournalLine must support amount + currencyCode. System base currency required. Historical exchange rates (date, rate, source). **Automatic conversion to base currency using the rate effective on the transaction/payment date** (pinned via fxDate + fxRateToBase + fxSource on each line). 
   - **Bank/credit card feed rates are authoritative** for imported transactions. When the feed provides the foreign amount and the exact base-currency amount charged, the system records the derived rate and marks the source. This is required for correct double-entry reconciliation with the real bank movement.
   - **PDF uploads must reason about currency and cross-check feeds**: The system must extract currency from PDFs (symbols, codes, "Total in USD", etc.). If a matching automatic credit card or bank feed entry exists, the actual feed rate and currency must be preferred. If the currency is ambiguous or no confident feed match is found, the chat **must ask the user to confirm** before creating the entry.
-  - The system should be able to look up rates from public central bank APIs (examples: ECB Statistical Data Warehouse https://data.ecb.europa.eu/help/api/data, Bank of Canada Valet https://www.bankofcanada.ca/valet/docs) when a rate is not available from a feed or statement.
-  Currency-aware P&L / Balance Sheet / cash positions. Tax calculations that respect currency. Chat/AI must propose balanced multi-currency entries with correct fx metadata. "We'll add currencies later" is forbidden.
+  - Currency-aware P&L / Balance Sheet / cash positions. Tax calculations that respect currency. Chat/AI must propose balanced multi-currency entries with correct fx metadata. "We'll add currencies later" is forbidden.
 - **Chat Lock Safety Mode**: A visible lock icon in the chat input area. When locked the chat is strictly advisory — it cannot create, modify, or reverse any entries. Action buttons from chat suggestions must be disabled. Clear visual state. Easy toggle. This is a deliberate safety control.
 
 **Tasks:**
@@ -77,8 +76,6 @@ Build the **Accounting Core** first, then layer the AI on top. Never let the AI 
 - Set up i18n framework and externalize **all** UI and chat strings
 - Ensure all number/date/currency formatting is locale-aware
 - **Implement automatic currency conversion** pinned to transaction/payment date (JournalLine.fxDate + fxRateToBase + fxSource; base-currency equivalents in reports). 
-  - When importing from bank or credit card feeds, derive and store the actual rate applied by the provider (baseAmount / foreignAmount) and set `fxSource` accordingly. This is the authoritative rate for that transaction.
-  - Optionally call public FX APIs (ECB, Bank of Canada, etc.) to fetch a published rate for the date when feed data is not available.
 
 **Deliverable:** A working double-entry accounting backend that you can trust, is fully translation-ready, and handles taxes correctly for multiple jurisdictions from the first commit. No technical debt on i18n or tax.
 
@@ -203,50 +200,22 @@ Once that works reliably, *then* start adding the AI layer on top.
 - ✅ Magic Link authentication (Auth.js with SMTP or dev fallback)
 - ✅ TOTP 2FA endpoints (setup + verify)
 - ✅ Data export/import for backup/migration
-- ✅ Bank feed foundation: Stripe/PayPal webhooks + admin UI + manual sync
+- ✅ Bank feed foundation: webhooks + admin UI + Stripe/PayPal API sync + auto-sync CRON endpoint
 - ✅ OAuth login (Google, GitHub) - implemented, requires env vars
+- ✅ Plaid/Salt Edge OAuth flow endpoints (skeleton for production)
 - ⚠️ Licensing/activation system - NOT IMPLEMENTED
-- ⚠️ Advanced onboarding flow - basic bootstrap exists
+- ✅ Advanced onboarding flow (company setup + default accounts during bootstrap)
 
 ### Out of Scope for MVP (explicitly NOT done):
 - Email forwarding
 - Voice input  
-- Automatic bank feeds (manual feed import exists)
 - Invoicing module
 
 ---
-**Current Status (2026-06-24):**
-- Phase 0 foundations complete:
-  - Full i18n (next-intl) wired across entire UI. Zero hardcoded English strings. All panels, chat, modal, toasts use translation keys.
-  - TaxRate model expanded (jurisdiction, effective dates, taxType, input/output). Tax lines supported on journal entries.
-  - New Journal Entry Modal shows live tax selector per line.
-  - Journal entries now display tax badges when present.
-  - Chat backend receives live tax rates in context and fallback suggestions can attach tax.
-  - P&L now returns taxSummary (input/output/net) and UI shows it.
-- **Multi-Currency**: Fully implemented in core flows:
-  - JournalLine carries currency + fxRateToBase + fxSource + fxDate
-  - Bank/credit card feed rates are authoritative
-  - Automatic date-pinned conversion to base in journal creation, reversals, P&L, Balance Sheet
-  - PDF processing extracts currency, cross-checks feeds, and returns FX-enriched suggestions
-  - Rich per-currency breakdown (native + base) in reports + UI
-  - Dedicated `/api/fx` lookup and `/api/feeds/import` (authoritative BANK_FEED entries)
-- **Chat Lock (Safety Mode)**: Implemented (Lock/Unlock toggle, advisory-only mode, blocks create/reverse actions).
-- All user-facing text goes through i18n. Tax data is collected at entry creation.
-- No technical debt on i18n, tax, multi-currency architecture, or safety controls.
 
-**Admin UI & Setup: IMPLEMENTED (2026-06-24)**
-- `docs/SETUP.md` + overhauled `README.md` with complete first-run, Docker, seeding, and bootstrap instructions.
-- `docs/ADMIN-UI.md` created and kept up to date.
-- `Setting` model + migration added for company/global config.
-- Full `AdminPanel.tsx` with:
-  - User list / create / role change / delete (all audited via Event)
-  - Live editable company settings (name, baseCurrency, defaultTaxJurisdiction)
-- First-admin bootstrap:
-  - `GET /api/bootstrap/status`
-  - Main layout now **gates the entire application** — shows only the bootstrap form until at least one ADMIN exists.
-  - Creating the first ADMIN immediately unlocks full UI.
-- Default settings seeded.
-- All changes go through audit events.
-- i18n strings added for Admin UI.
-
-**Document Status:** Draft v1 (Phase 0 foundations + Admin UI + Setup + Bootstrap all implemented)
+**Current Status (2026-06-27):**
+- All Phase 0-3 core features implemented and building successfully
+- Bank feeds ready: Stripe/PayPal webhooks + API sync + auto-sync endpoint
+- Merchant learning implemented for higher confidence matches
+- Pending state transaction lifecycle API endpoints
+- Advanced onboarding with company defaults available
