@@ -51,6 +51,7 @@ model Account {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   journalLines JournalLine[]
+  bankConnections BankConnection[]
 }
 
 model Contact {
@@ -69,6 +70,7 @@ model JournalEntry {
   createdAt   DateTime      @default(now())
   createdBy   String?
   lines       JournalLine[]
+  feedTransactions FeedTransaction[]
 }
 
 model JournalLine {
@@ -145,4 +147,46 @@ model Template {
   lines       Json     // Array of {accountCode, debit, credit, taxRateId}
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// Bank feed connections - links chart of accounts to external providers
+model BankConnection {
+  id           String   @id @default(uuid())
+  accountId    String   // Links to Chart of Accounts
+  provider     String   // 'stripe', 'paypal', 'plaid', 'salt-edge', 'csv'
+  externalId   String   // Provider account/identifier
+  credentials  String?  // Encrypted tokens/secrets (JSON blob encrypted)
+  lastSyncAt   DateTime?
+  syncEnabled  Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id])
+  feedTransactions FeedTransaction[]
+
+  @@index([provider])
+}
+
+// Raw feed transactions before matching to journal entries
+model FeedTransaction {
+  id            String   @id @default(uuid())
+  connectionId  String   // Links to BankConnection
+  externalId    String   // Provider's transaction ID
+  date          DateTime
+  description   String
+  merchant      String?  // Normalized merchant name
+  amount        Decimal
+  currency      String   @default("EUR")
+  fxRateToBase  Decimal? // Rate at transaction time
+  status        String   @default("pending") // 'pending', 'matched', 'posted', 'ignored'
+  rawData       Json?    // Original provider data for matching
+  journalEntryId String? // Links to created journal entry
+  createdAt     DateTime @default(now())
+
+  connection BankConnection @relation(fields: [connectionId], references: [id])
+  journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id])
+
+  @@unique([connectionId, externalId])
+  @@index([status])
+  @@index([date])
 }

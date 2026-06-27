@@ -25,28 +25,16 @@ export default function SignInPage() {
     setLoading(true)
     setError('')
     try {
-      await fetch('/api/users', {
+      // In dev mode, use the dev sign-in endpoint
+      const res = await fetch('/api/auth/dev', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, role: 'ADMIN' }),
+        body: JSON.stringify({ email }),
       })
-      // Sign in via credentials callback
-      const csrf = await (await fetch('/api/auth/csrf')).json()
-      const res = await fetch('/api/auth/callback/credentials', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          csrfToken: csrf.csrfToken,
-          email,
-          callbackUrl: CALLBACK_URL,
-          redirect: 'false',
-        }),
-      })
-      const data = await res.json()
-      if (data?.ok) {
+      if (res.ok) {
         window.location.href = CALLBACK_URL
       } else {
-        setError(data?.error || 'Sign-in failed')
+        setError('Sign-in failed')
       }
     } catch (err) {
       setError((err as Error)?.message || 'Failed')
