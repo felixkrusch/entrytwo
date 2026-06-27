@@ -2,42 +2,57 @@ import { NextResponse } from 'next/server'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import { prisma } from '@/lib/prisma'
-import { writeFile, mkdir } from 'fs/promises'
+import { writeFile, mkdir, readFile, unlink } from 'fs/promises'
 import { join } from 'path'
 
 const execAsync = promisify(exec)
 
-interface UpdateStatus {
-  currentCommit: string
-  latestCommit: string
-  updateAvailable: boolean
-  lastChecked: string
-  status: 'idle' | 'checking' | 'updating' | 'success' | 'error'
-  message: string
+const LOCK_FILE = join(process.cwd(), '.update-lock')
+const RESTART_FILE = join(process.cwd(), '.restart')
+
+async function acquireLock(): Promise<boolean> {
+  try {
+    await writeFile(LOCK_FILE, Date.now().toString())
+    return true
+  } catch {
+    return false
+  }
 }
 
-let updateLock: { updating: boolean; progress: string } = { updating: false, progress: '' }
+async function releaseLock(): Promise<void> {
+  try {
+    await unlink(LOCK_FILE)
+  } catch {}
+}
+
+async function isLocked(): Promise<boolean> {
+  try {
+    await readFile(LOCK_FILE, 'utf-8')
+    return true
+  } catch {
+    return false
+  }
+}
 
 export async function GET() {
   try {
-    // Get current commit
     const { stdout: current } = await execAsync('git rev-parse HEAD').catch(() => ({ stdout: '' }))
     const currentCommit = current.trim()
 
-    // Get latest from remote
     await execAsync('git fetch origin main').catch(() => {})
     const { stdout: latest } = await execAsync('git rev-parse origin/main').catch(() => ({ stdout: '' }))
     const latestCommit = latest.trim()
 
     const updateAvailable = currentCommit !== latestCommit && latestCommit.length === 40
+    const updating = await isLocked()
 
     return NextResponse.json({
       currentCommit: currentCommit.substring(0, 7),
       latestCommit: latestCommit.substring(0, 7),
       updateAvailable,
       lastChecked: new Date().toISOString(),
-      status: updateLock.updating ? 'updating' : 'idle',
-      progress: updateLock.progress,
+      status: updating ? 'updating' : 'idle',
+      progress: updating ? 'Update in progress on server' : '',
     })
   } catch (error) {
     return NextResponse.json({ 
@@ -46,73 +61,125 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function createBackup(): Promise<{ path: string; success: boolean }> {
   try {
-    const body = await request.json()
-    const { action, createBackup = true } = body
-
-    if (action === 'backup-only') {
-      return NextResponse.json({ status: 'backup-only', message: 'Backup created' })
+    const backupDir = join(process.cwd(), 'backups')
+    await mkdir(backupDir, { recursive: true })
+    
+    // Direct DB export for reliability during update
+    const accounts = await prisma.account.findMany()
+    const journalEntries = await prisma.journalEntry.findMany({ include: { lines: true } })
+    const taxRates = await prisma.taxRate.findMany()
+    const settings = await prisma.setting.findMany()
+    const templates = await prisma.template.findMany()
+    const users = await prisma.user.findMany({ select: { email: true, name: true, role: true, createdAt: true } })
+    
+    const backupData = {
+      exportedAt: new Date().toISOString(),
+      accounts,
+      journalEntries,
+      taxRates,
+      settings,
+      templates,
+      users,
     }
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const path = join(backupDir, `pre-update-${timestamp}.json`)
+    await writeFile(path, JSON.stringify(backupData, null, 2))
+    
+    return { path, success: true }
+  } catch (e) {
+    console.error('Backup failed:', e)
+    return { path: '', success: false }
+  }
+}
 
-    if (updateLock.updating) {
-      return NextResponse.json({ error: 'Update already in progress' }, { status: 409 })
+export async function POST(request: Request) {
+  const body = await request.json()
+  const { action, createBackup = true } = body
+
+  if (action === 'backup-only') {
+    const { path, success } = await createBackup()
+    if (success) {
+      return NextResponse.json({ status: 'success', message: 'Backup created', backupPath: path })
     }
+    return NextResponse.json({ error: 'Backup failed' }, { status: 500 })
+  }
 
-    // Verify admin (in production, check session)
-    // For now, we rely on middleware for auth
+  if (await isLocked()) {
+    return NextResponse.json({ error: 'Update already in progress. Wait or restart the server.' }, { status: 409 })
+  }
 
-    updateLock = { updating: true, progress: 'Creating backup...' }
+  if (!await acquireLock()) {
+    return NextResponse.json({ error: 'Could not acquire update lock' }, { status: 503 })
+  }
 
-    // Step 1: Create backup if requested
-    let backupPath: string | null = null
+  try {
+    await writeFile(LOCK_FILE, JSON.stringify({ 
+      pid: process.pid, 
+      started: Date.now(),
+      progress: 'Creating backup...' 
+    }))
+
+    let backupPath = ''
     if (createBackup) {
-      try {
-        const backupDir = join(process.cwd(), 'backups')
-        await mkdir(backupDir, { recursive: true }).catch(() => {})
-        
-        const backupRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/backup/export`)
-        if (backupRes.ok) {
-          const backupData = await backupRes.json()
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-          backupPath = join(backupDir, `pre-update-${timestamp}.json`)
-          await writeFile(backupPath, JSON.stringify(backupData, null, 2))
-        }
-      } catch (e) {
-        console.error('Backup failed:', e)
-        updateLock = { updating: false, progress: '' }
-        return NextResponse.json({ error: 'Backup failed', backupStep: true }, { status: 500 })
+      const backup = await createBackup()
+      if (!backup.success) {
+        await releaseLock()
+        return NextResponse.json({ error: 'Backup failed - update aborted for safety' }, { status: 500 })
       }
+      backupPath = backup.path
     }
 
-    updateLock = { updating: true, progress: 'Pulling latest code...' }
+    await writeFile(LOCK_FILE, JSON.stringify({ 
+      pid: process.pid, 
+      started: Date.now(),
+      progress: 'Pulling latest code...' 
+    }))
 
-    // Step 2: Git pull
+    // Git pull
     const { stderr: pullError } = await execAsync('git pull origin main').catch(e => ({ stderr: e.message }))
-    if (pullError && !pullError.includes('Already up to date')) {
-      updateLock = { updating: false, progress: '' }
-      return NextResponse.json({ error: pullError }, { status: 500 })
+    if (pullError && !pullError.includes('Already up to date') && !pullError.includes('up to date')) {
+      await releaseLock()
+      return NextResponse.json({ error: `Git pull failed: ${pullError}` }, { status: 500 })
     }
 
-    updateLock = { updating: true, progress: 'Installing dependencies...' }
+    await writeFile(LOCK_FILE, JSON.stringify({ 
+      pid: process.pid, 
+      started: Date.now(),
+      progress: 'Installing dependencies...' 
+    }))
 
-    // Step 3: npm install
+    // npm install
     await execAsync('npm install --omit=dev').catch(() => {})
 
-    updateLock = { updating: true, progress: 'Running database migrations...' }
+    await writeFile(LOCK_FILE, JSON.stringify({ 
+      pid: process.pid, 
+      started: Date.now(),
+      progress: 'Running database migrations...' 
+    }))
 
-    // Step 4: Prisma migrate
+    // Prisma migrate - production safe
     await execAsync('npx prisma migrate deploy').catch(() => {})
 
-    updateLock = { updating: true, progress: 'Building application...' }
+    await writeFile(LOCK_FILE, JSON.stringify({ 
+      pid: process.pid, 
+      started: Date.now(),
+      progress: 'Building application...' 
+    }))
 
-    // Step 5: Build
+    // Build
     await execAsync('npm run build').catch(() => {})
 
-    updateLock = { updating: true, progress: 'Restarting server...' }
+    await writeFile(LOCK_FILE, JSON.stringify({ 
+      pid: process.pid, 
+      started: Date.now(),
+      progress: 'Restarting server...' 
+    }))
 
-    // Step 6: Create restart signal
-    await writeFile(join(process.cwd(), '.restart'), Date.now().toString())
+    // Signal restart
+    await writeFile(RESTART_FILE, Date.now().toString())
 
     // Audit
     await prisma.event.create({
@@ -124,15 +191,15 @@ export async function POST(request: Request) {
       },
     })
 
-    updateLock = { updating: false, progress: '' }
+    await releaseLock()
 
     return NextResponse.json({ 
       status: 'success', 
-      message: 'Update completed',
+      message: 'Update completed. Server restart signaled.',
       backupPath 
     })
   } catch (error) {
-    updateLock = { updating: false, progress: '' }
+    await releaseLock()
     return NextResponse.json({ 
       error: error instanceof Error ? error.message : 'Update failed' 
     }, { status: 500 })

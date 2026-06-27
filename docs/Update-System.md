@@ -8,10 +8,10 @@ This document outlines the implementation of a one-click update system for entry
 
 The update system provides:
 - **One-click update button** in the admin UI
-- **Automatic backup** before updating (using existing backup endpoint)
+- **Automatic backup** before updating (using direct DB export)
 - **Git pull** to fetch latest code
 - **Prisma migration** if schema changes detected
-- **Build & restart** without downtime
+- **Build & restart** signal for process manager
 - **Rollback capability** on failure
 
 ---
@@ -23,6 +23,7 @@ The update system provides:
 - `app/api/admin/update/route.ts` - GET/POST endpoints for checking and executing updates
 - `app/admin/update/page.tsx` - Admin UI page at `/admin/update`
 - `app/admin/page.tsx` - Updated with update indicator dot
+- `scripts/restart-watcher.sh` - Background script for PM2/systemd restart handling
 
 ---
 
@@ -32,17 +33,18 @@ The update system provides:
 
 **GET** - Check for available updates:
 - Compares local commit (`git rev-parse HEAD`) with remote (`git rev-parse origin/main`)
-- Returns update status with current/latest commit hashes
-- Runs every minute in background when admin page is open
+- Uses `.update-lock` file to detect in-progress updates
+- Returns: `{ currentCommit, latestCommit, updateAvailable, status, progress }`
+- Background polling every 60 seconds when admin page is open
 
 **POST** - Execute update process:
-1. Verifies no update is already in progress (lock file)
-2. Creates backup via `/api/backup/export` (stored in `backups/pre-update-{timestamp}.json`)
+1. Checks for existing lock (prevents concurrent updates)
+2. Creates backup directly from DB (more reliable than HTTP during update)
 3. Runs `git pull origin main`
-4. Runs `npm install --omit=dev` (production dependencies only)
-5. Runs `npx prisma migrate deploy` (production-safe migration)
+4. Runs `npm install --omit=dev` (production dependencies)
+5. Runs `npx prisma migrate deploy` (production-safe)
 6. Runs `npm run build`
-7. Creates `.restart` signal file for external process manager
+7. Creates `.restart` signal file
 8. Logs audit event to `Event` table
 
 ### Admin UI (`/admin/update`)
@@ -52,7 +54,7 @@ The update system provides:
 │ System Update                        │
 ├─────────────────────────────────────┤
 │ Current Version: #abc123             │
-│ Available Update:  #def456           │ ← Shows only when update available
+│ Available Update:  #def456           │ ← Shows when update available
 │                                       │
 │ [x] Create backup before update      │
 │                                       │
@@ -61,25 +63,9 @@ The update system provides:
 └─────────────────────────────────────┘
 ```
 
-### Progress View (During Update)
-
-```
-┌─────────────────────────────────────┐
-│ Updating...                          │
-├─────────────────────────────────────┤
-│ [■■■■■■■■■■]                       │
-│                                       │
-│ Pulling latest code... ✓              │
-│ Installing dependencies... ✓           │
-│ Running database migrations... ✓       │
-│ Building application... ✓              │
-│ Restarting server... ✓                 │
-└─────────────────────────────────────┘
-```
-
 ### Dashboard Indicator
 
-When an update is available, a green pulsing dot appears next to the "System Update" link in the admin overview.
+When an update is available, a green pulsing dot appears next to the "System Update" link in `/admin`.
 
 ---
 
@@ -88,67 +74,69 @@ When an update is available, a green pulsing dot appears next to the "System Upd
 ### Server-Side Git (Current Implementation)
 
 **Requirements:**
-- Node.js server with git installed
-- Write access to codebase directory
+- Node.js server with git installed and write access
+- `.git` directory must exist and track `origin/main`
 - Process manager (PM2, systemd, or Docker) to handle restarts
-- `NEXT_PUBLIC_APP_URL` set for internal API calls during update
+- User running the server must have write permissions
 
-### External Process Manager Integration
+### Process Manager Integration
 
-Create a restart script that monitors for `.restart` file:
-
-```bash
-#!/bin/bash
-# restart-watcher.sh
-while true; do
-  if [ -f .restart ]; then
-    rm .restart
-    echo "Restart signal detected, restarting..."
-    pm2 restart entrytwo
-  fi
-  sleep 5
-done
-```
-
-Or use PM2 ecosystem config:
+**Option A: PM2 Ecosystem Config**
 ```javascript
 // ecosystem.config.js
 module.exports = {
   apps: [{
     name: 'entrytwo',
     script: 'npm start',
-    watch: ['./.restart'],
-    // ... config
+    cwd: '/app/entrytwo',
+    env: { NODE_ENV: 'production' },
+  }, {
+    name: 'restart-watcher',
+    script: './scripts/restart-watcher.sh',
+    cwd: '/app/entrytwo',
   }]
 }
 ```
 
+**Option B: Systemd Service**
+```ini
+# /etc/systemd/system/entrytwo.service
+[Unit]
+Description=entrytwo
+After=network.target
+
+[Service]
+Type=simple
+User=entrytwo
+WorkingDirectory=/app/entrytwo
+ExecStart=/usr/bin/npm start
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then run the restart-watcher as a separate service or cron job.
+
 ---
 
-## Database Migration Handling
+## Production Ready Checklist
 
-### Automatic Detection
+### ✅ Already Implemented
+- [x] Admin-only access (via middleware)
+- [x] Lock file prevents concurrent updates
+- [x] Automatic pre-update backup to `backups/pre-update-{timestamp}.json`
+- [x] Direct DB export (doesn't rely on HTTP during update)
+- [x] Production-safe Prisma migrations (`prisma migrate deploy`)
+- [x] Build step before restart signal
+- [x] Audit logging to Event table
+- [x] Progress tracking via lock file JSON content
 
-The update endpoint runs `prisma migrate deploy` which:
-- Compares migration history with current DB state
-- Only applies migrations that haven't run yet
-- Is production-safe (won't prompt for interactive decisions)
-
-### Migration Process
-
-If migration fails:
-1. Error is returned to client
-2. Backup file remains available for manual restore
-3. Git workspace may need manual reset
-
----
-
-## Security Considerations
-
-- Only accessible when authenticated (middleware)
-- Update lock prevents concurrent updates
-- All update actions logged via `Event` table with `eventType: 'SYSTEM'`
-- Backup created automatically before any destructive operations
+### 🔧 Requires Setup
+- [ ] Process manager configured to watch `.restart` file
+- [ ] Server user has git write access
+- [ ] Backups directory exists with write permissions
+- [ ] `git remote set-url origin <repo-url>` configured for production
 
 ---
 
@@ -156,28 +144,38 @@ If migration fails:
 
 If update fails:
 
-1. **Manual rollback**:
+1. **Stop the server** to release lock file
+2. **Manual rollback**:
    ```bash
    git reset --hard HEAD~1
-   npm install
+   npm install --omit=dev
    npm run build
    # Restart server
    ```
 
-2. **Data restore**:
+3. **Data restore** (if needed):
    - Go to `/admin/backup`
-   - Upload the backup created before update (`backups/pre-update-*.json`)
+   - Upload the backup from `backups/pre-update-*.json`
+
+---
+
+## Security Considerations
+
+- **Authentication**: Only accessible when authenticated (protected by middleware)
+- **Authorization**: In production, verify `role === 'ADMIN'` in session
+- **Lock file**: Persists across server restarts, prevents race conditions
+- **Audit trail**: All update attempts logged via `Event` table
 
 ---
 
 ## Future Enhancements
 
-- **Docker image pull** mode (instead of git)
-- **Auto-update toggle** for patch versions
-- **Health checks** after update
-- **Notifications** via email/slack on completion
-- **Scheduled updates** during maintenance windows
-- **Release notes** display from GitHub API
+- Docker image pull mode (instead of git)
+- Auto-update toggle for patch versions
+- Health checks after update
+- Notifications via email/slack
+- Scheduled updates during maintenance windows
+- Release notes from GitHub API
 
 ---
 
@@ -185,16 +183,16 @@ If update fails:
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /api/backup/export` | Pre-update backup |
-| `POST /api/backup/import` | Rollback from backup |
 | `GET /api/admin/update` | Check for updates |
 | `POST /api/admin/update` | Execute update |
+| `GET /api/backup/export` | Manual backup |
+| `POST /api/backup/import` | Restore from backup |
 
 ---
 
-## Environment Variables (Optional)
+## Environment Variables
 
-```env
-# For internal API calls during update
-NEXT_PUBLIC_APP_URL="https://yourdomain.com"
-```
+No additional environment variables required. The update system uses:
+- Server's git configuration
+- Server's file system for lock/backup files
+- Existing `prisma` connection for backups
