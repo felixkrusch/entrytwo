@@ -18,6 +18,8 @@ The entrytwo accounting application is functionally complete for Phase 3 with th
 - ✅ Transaction templates panel
 - ✅ Data export/import for backup/migration
 - ✅ Remote update system with file-based lock
+- ✅ Contacts management with fuzzy matching
+- ✅ Health check endpoint for monitoring
 
 ---
 
@@ -32,11 +34,11 @@ Add error boundary components to gracefully handle UI errors and prevent crashes
 ### 2. Rate Limiting Middleware
 Protect API routes from abuse and DoS attacks.  
 **Implementation:**
-- Create `middleware/rate-limit.ts` using a token bucket algorithm
+- Create `lib/rate-limit.ts` using a token bucket algorithm
 - Apply to all `/api/*` routes
 - Configure limits: 60 req/min for authenticated, 10 req/min for unauthenticated
 
-### 3. Health Check Endpoint
+### 3. Health Check Endpoint ✅ DONE
 Create `/api/health` for monitoring and uptime checks.  
 **Requirements:**
 - Return 200 OK with DB connectivity check
@@ -63,84 +65,29 @@ Add comprehensive test suites.
 - API routes - Request validation and response format
 - Report calculations - P&L and balance sheet totals
 
-### 5b. Contacts Feature (In Progress)
-See `docs/contacts-page-plan.md` for detailed implementation plan.  
-**Next steps:**
-- Implement `/api/contacts` routes with duplicate detection
-- Build contacts page UI with search + pagination
-- Integrate auto-contact creation from PDF uploads
-- Add contact linking to journal entries
+### 6. Contacts Feature ✅ DONE
+- `/api/contacts` routes with fuzzy match duplicate detection
+- Contacts page UI with search + pagination
+- Auto-contact creation from PDF uploads
+- Contact linking to journal entries
 
-### 5c. Backup System Improvements (Planned)
-See `docs/backup-improvement-plan.md` for detailed plan.  
-**Next steps:**
-- Add selective export/import to `/admin/backup`
-- Support entity type filters and date ranges
-- Add backup-before-update hook in update system
+### 7. Backup System Improvements ✅ DONE
+- Selective export/import to `/admin/backup` with entity checkboxes
+- Supports accounts, taxRates, journalEntries, contacts, templates, settings
 
-### 6. Docker Compose for Updates
+### 8. Docker Compose for Updates
 Add `compose.update.yaml` for containerized deployments.  
 **Features:**
 - Multi-service orchestration (app, db, redis)
 - Automatic backup volume mounting
 - Restart signal handling via `.restart` file
 
-### 7. Restart Watcher Script
+### 9. Restart Watcher Script ✅ DONE
 Production-ready script for PM2/systemd to handle `.restart` signal.  
-**Location:** `scripts/restart-watcher.sh` (already created)  
+**Location:** `scripts/restart-watcher.sh`  
 **Integration:**
 - PM2 ecosystem config with watch on `.restart`
 - Or systemd path unit to trigger service restart
-
-### 8. Input Validation Schemas
-Add Zod schemas for all API request bodies.  
-**Routes to validate:**
-- `/api/journal-entries` - Entry creation payload
-- `/api/settings` - Key/value pairs
-- `/api/tax-rates` - Tax rate objects
-- `/api/templates` - Template definitions
-
----
-
-## Contact & Invoicing (Out of Scope for MVP)
-
-Per `Project-Scope-Architecture.md`, invoicing is explicitly **out of scope** for Phase 0-3 MVP. The following data model exists but without full UI:
-
-### Contact Model (Prisma)
-```
-model Contact {
-  id        String   @id @default(uuid())
-  name      String
-  email     String?
-  type      String   // "CUSTOMER" or "VENDOR"
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-```
-
-### Contact Links
-- `JournalLine.contactId` references Contact (nullable)
-- Seed data includes sample contact "Acme Corp" (type: CUSTOMER)
-
-### Invoicing Ideas (Future Implementation)
-When invoicing is added (Phase 4+):
-1. **Invoice model** with:
-   - Invoice number (sequential)
-   - Contact reference
-   - Line items with amounts
-   - Tax breakdown per line
-   - Status (draft, sent, paid, overdue)
-
-2. **UI considerations**:
-   - Contact picker with address/details
-   - Line item table with tax rate selector
-   - PDF generation endpoint
-   - Payment matching to bank feeds
-
-3. **Integration with existing features**:
-   - Auto-create journal entry on invoice payment
-   - Tax calculation matches existing tax engine
-   - Multi-currency support per existing architecture
 
 ---
 
