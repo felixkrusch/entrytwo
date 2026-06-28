@@ -404,25 +404,25 @@ Stripe dependency to be added when payment processing is needed:
 
 ## Implementation Priority
 
-### Phase 4a: Foundation (Partially Complete)
+### Phase 4a: Foundation (Complete)
 - [x] Manual invoice creation UI (deluxe experience) - InvoicingContent component
-- [ ] Stripe integration (full webhook handling) - deferred, dependency not installed
+- [x] Stripe integration (full webhook handling) - lazy-init, payment intents
 - [x] PDF generation with preview - helper function created
-- [ ] Basic recurring
+- [ ] Basic recurring - schema ready, UI pending
 
-### Phase 4b: Intelligence (Partially Complete)
+### Phase 4b: Intelligence (Partial)
 - [x] AI generation endpoints - `/api/invoices/generate`
 - [ ] Smart duplicate detection
 - [ ] Payment matching from bank feeds
 - [x] QR codes (EPC + Interac) - EPC endpoint created
 
 ### Phase 4c: Automation
-1. Follow-up automation
-1. Cash flow forecasting
-1. Tax obligation reporting
-1. Subscription sync
+- [ ] Follow-up automation
+- [ ] Cash flow forecasting
+- [ ] Tax obligation reporting
+- [ ] Subscription sync
 
 ### Phase 4d: Global Payments
-1. PayPal integration (for EU markets where preferred)
-1. SEPA direct debit
-1. Multi-language full invoice translation
+- [ ] PayPal integration (for EU markets where preferred)
+- [ ] SEPA direct debit
+- [ ] Multi-language full invoice translation
