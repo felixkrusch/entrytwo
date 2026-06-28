@@ -7,14 +7,13 @@ export interface SuggestedLine {
   debit?: number
   credit?: number
   description?: string
-  taxRateId?: string   // tax foundation from chat
-  taxIsInput?: boolean // explicit direction for this tax application (null/undefined = derive)
-  currency?: string    // multi-currency from chat
-
-  // FX metadata (populated especially from PDF + feed cross-check)
+  taxRateId?: string
+  taxIsInput?: boolean
+  currency?: string
   fxRateToBase?: number
   fxSource?: string
-  fxDate?: string      // YYYY-MM-DD
+  fxDate?: string
+  contactId?: string
 }
 
 export interface FeedMatchInfo {
@@ -30,22 +29,22 @@ export interface FeedMatchInfo {
 
 export interface NewEntrySuggestion {
   description?: string
-  merchant?: string              // vendor / client name - helps feed matching and UX
+  merchant?: string
   lines?: SuggestedLine[]
-  reversingOriginalId?: string   // when present, this is a reversal suggestion
-  source?: 'pdf' | 'chat' | 'repeat'   // origin of the suggestion
-  needsConfirmation?: boolean    // true when currency or rate should be reviewed by user (esp. from PDF when no confident feed match)
-  feedMatch?: FeedMatchInfo      // when PDF was cross-checked against a bank/card feed
-
-  // Phase 2: when repeating an old entry, carry the original date so the modal can default to it
-  originalDate?: string   // YYYY-MM-DD of the entry being repeated
-
-  // Phase 2 lightweight memory (remembered from previous transactions for this merchant)
+  reversingOriginalId?: string
+  source?: 'pdf' | 'chat' | 'repeat'
+  needsConfirmation?: boolean
+  feedMatch?: FeedMatchInfo
+  originalDate?: string
   memory?: {
     merchant?: string
     suggestedAccountCode?: string
     suggestedTaxRateId?: string
     lastUsed?: string
+  }
+  contact?: {
+    id: string
+    newlyCreated?: boolean
   }
 }
 

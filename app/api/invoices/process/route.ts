@@ -1,8 +1,48 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { findRecentBankFeedRateForMerchant } from '@/lib/feedMatching'
+import { EventType } from '@prisma/client'
 
-// Basic currency detector for PDF text (supports common symbols and codes)
+function normalizeName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function levenshtein(a: string, b: string): number {
+  const matrix = Array.from({ length: b.length + 1 }, (_, i) => [i])
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1]
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        )
+      }
+    }
+  }
+  return matrix[b.length][a.length]
+}
+
+function calculateMatchScore(
+  candidate: { name: string; email?: string | null; taxId?: string | null; type?: string },
+  queryName: string,
+  queryType?: string
+): number {
+  const candidateName = normalizeName(candidate.name)
+  const queryNameNorm = normalizeName(queryName)
+
+  if (candidateName === queryNameNorm) return 1.0
+  if (candidate.name.toLowerCase() === queryName.toLowerCase()) return 0.9
+  if (candidateName.includes(queryNameNorm) || queryNameNorm.includes(candidateName)) return 0.7
+  if (levenshtein(candidateName, queryNameNorm) <= 3) return 0.6
+
+  const typeBonus = candidate.type === queryType ? 0.1 : 0
+  return typeBonus
+}
+
 function detectCurrency(text: string): { currency: string | null; confidence: 'high' | 'medium' | 'low' } {
   const t = text.toUpperCase()
 
@@ -25,7 +65,6 @@ function detectCurrency(text: string): { currency: string | null; confidence: 'h
     return { currency: Array.from(found)[0], confidence: 'high' }
   }
   if (found.size > 1) {
-    // Prefer the one that appears with "Total" or "Amount" context if possible
     for (const code of found) {
       const ctx = new RegExp(`(TOTAL|AMOUNT|DUE|INVOICE).*?${code}|${code}.*?(TOTAL|AMOUNT|DUE|INVOICE)`, 'i')
       if (ctx.test(text)) return { currency: code, confidence: 'medium' }
@@ -33,7 +72,6 @@ function detectCurrency(text: string): { currency: string | null; confidence: 'h
     return { currency: Array.from(found)[0], confidence: 'low' }
   }
 
-  // Fallback: look for lone symbols
   if (/\$/.test(text) && !/€|£|¥/.test(text)) return { currency: 'USD', confidence: 'low' }
   if (/€/.test(text)) return { currency: 'EUR', confidence: 'low' }
   if (/£/.test(text)) return { currency: 'GBP', confidence: 'low' }
@@ -41,7 +79,6 @@ function detectCurrency(text: string): { currency: string | null; confidence: 'h
   return { currency: null, confidence: 'low' }
 }
 
-// Simple keyword → account code heuristic for expense suggestions
 function suggestExpenseAccountCode(text: string): string {
   const t = text.toLowerCase()
   if (/software|subscription|saas|adobe|github|aws|google cloud|vercel|stripe/.test(t)) return '5100'
@@ -49,11 +86,10 @@ function suggestExpenseAccountCode(text: string): string {
   if (/travel|flight|hotel|airbnb|uber|lyft|taxi|train/.test(t)) return '5200'
   if (/consult|professional|legal|accounting|agency|freelance/.test(t)) return '5200'
   if (/marketing|ads|facebook|google ads|linkedin/.test(t)) return '5200'
-  return '5200' // default generic expense
+  return '5200'
 }
 
 function guessTotal(text: string): number | null {
-  // Look for lines containing TOTAL / AMOUNT DUE / INVOICE TOTAL near a number
   const lines = text.split(/\r?\n/)
   const totalRe = /(total|amount\s*due|invoice\s*total|grand\s*total|balance\s*due)[:\s]*([€$£¥]?\s*[\d,.]+)/i
 
@@ -65,7 +101,6 @@ function guessTotal(text: string): number | null {
     }
   }
 
-  // Fallback: last reasonably large number on the page (crude)
   const allNums = text.match(/[\d,.]{2,}/g) || []
   for (let i = allNums.length - 1; i >= 0; i--) {
     const n = parseFloat(allNums[i].replace(/,/g, ''))
@@ -75,7 +110,6 @@ function guessTotal(text: string): number | null {
 }
 
 function guessVendor(text: string): string | null {
-  // Very rough heuristics: first non-empty line that looks like a company name
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
   for (let i = 0; i < Math.min(lines.length, 8); i++) {
     const l = lines[i]
@@ -86,7 +120,6 @@ function guessVendor(text: string): string | null {
   return null
 }
 
-// Merchant normalization for common variations (Vercel ↔ VERCEL CHARGES etc.)
 function normalizeMerchant(name: string): string[] {
   const variants = [name.toLowerCase()]
   const normalized = name.toLowerCase().replace(/[^a-z0-9]/g, '')
@@ -103,14 +136,12 @@ function normalizeMerchant(name: string): string[] {
   return [...new Set(variants)]
 }
 
-// Date proximity check (±1 day)
 function datesMatchOrNear(d1: string, d2: string): boolean {
   if (!d1 || !d2) return false
   const t1 = new Date(d1).getTime(), t2 = new Date(d2).getTime()
   return !isNaN(t1) && !isNaN(t2) && Math.abs(t1 - t2) <= 24 * 60 * 60 * 1000
 }
 
-// Try to extract invoice date from PDF text
 function guessInvoiceDate(text: string): string | null {
   const lines = text.split(/\r?\n/)
   const datePatterns = [
@@ -130,12 +161,9 @@ function guessInvoiceDate(text: string): string | null {
   return null
 }
 
-// Very lightweight tax hint detector from PDF text.
-// Returns a best-guess rate (as decimal) and whether it looks like input tax.
 function detectTaxHints(text: string): { rate: number | null; jurisdictionGuess?: string; taxAmount?: number } {
   const t = text.toLowerCase()
 
-  // Try to find explicit tax amount near a rate, e.g. "MwSt 19% 22.80", "Tax 19.00", "VAT 19% €22.80"
   let explicitTaxAmount: number | null = null
   const taxAmtRe = /(mwst|ust|vat|sales\s*tax|steuer|vorsteuer|tax)[^\d]{0,10}(\d{1,3}(?:[.,]\d{2})?)/i
   const amtMatch = t.match(taxAmtRe)
@@ -143,7 +171,6 @@ function detectTaxHints(text: string): { rate: number | null; jurisdictionGuess?
     explicitTaxAmount = parseFloat(amtMatch[2].replace(',', '.'))
   }
 
-  // Rate patterns
   const pctMatch = t.match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*%?\s*(mwst|ust|vat|sales\s*tax|steuer|vorsteuer)?/i)
   let rate: number | null = null
   if (pctMatch) {
@@ -173,7 +200,6 @@ export async function POST(request: Request) {
 
     const buffer = Buffer.from(await file.arrayBuffer())
 
-    // Dynamic import to avoid Turbopack bundling issues with pdf-parse
     const pdfParseMod = await import('pdf-parse')
     const pdfParse = ((pdfParseMod as { default?: (b: Buffer) => Promise<{ text: string; numpages?: number }> }).default || pdfParseMod) as (b: Buffer) => Promise<{ text: string; numpages?: number }>
     const data = await pdfParse(buffer)
@@ -187,13 +213,44 @@ export async function POST(request: Request) {
     const invoiceDate = guessInvoiceDate(fullText)
     const taxHints = detectTaxHints(fullText)
 
-    // Load live tax rates so we can attach a taxRateId when we have a good hint
+    // Auto-contact creation from vendor extraction
+    let contactMatch: { contact: { id: string; name: string }; created: boolean } | null = null
+    if (vendor) {
+      try {
+        // First try to find existing match
+        const contacts = await prisma.contact.findMany({ where: { type: 'VENDOR' } })
+        const matches = contacts
+          .map(c => ({ contact: c, score: calculateMatchScore(c, vendor, 'VENDOR') }))
+          .filter(m => m.score >= 0.8)
+          .sort((a, b) => b.score - a.score)
+
+        if (matches[0]?.score >= 0.9) {
+          contactMatch = { contact: { id: matches[0].contact.id, name: matches[0].contact.name }, created: false }
+        } else {
+          // Create new contact
+          const newContact = await prisma.contact.create({
+            data: { name: vendor, type: 'VENDOR' },
+          })
+          await prisma.event.create({
+            data: {
+              eventType: EventType.CONTACT_CREATED,
+              entityType: 'Contact',
+              entityId: newContact.id,
+              payload: { name: vendor, type: 'VENDOR', source: 'pdf-auto' },
+            },
+          })
+          contactMatch = { contact: { id: newContact.id, name: newContact.name }, created: true }
+        }
+      } catch {
+        // non-fatal
+      }
+    }
+
     let matchedTaxRateId: string | undefined
     let matchedTaxRate: { id: string; rate: unknown; name: string; jurisdiction: string } | null = null
     try {
       const rates = await prisma.taxRate.findMany({ orderBy: [{ jurisdiction: 'asc' }, { rate: 'desc' }] })
       if (rates.length && taxHints.rate != null) {
-        // Score: jurisdiction match + rate closeness (direction decided at use time)
         let best: { id: string; rate: unknown; name: string; jurisdiction: string } | null = null
         let bestScore = -1
         for (const r of rates) {
@@ -224,23 +281,15 @@ export async function POST(request: Request) {
       // non-fatal
     }
 
-    // Feed matching for PDF + multi-currency (authoritative rate from bank/card feed).
-    // Strategy:
-    // - PDF total = foreign currency amount on the invoice (e.g. 120 USD)
-    // - We look for a recent journal line in a *different* currency (typically EUR/base) that represents the actual settlement amount.
-    // - We prefer lines whose currency != detected PDF currency.
-    // - We use a loose tolerance + optional merchant hint.
-    // - When the matched line already carries fxRateToBase/fxSource/fxDate, we treat those as authoritative.
-    // - Result: we use the real rate when available; otherwise derive fxRateToBase = baseAmount / foreignAmount.
     let feedMatch: {
-      baseAmount: number          // amount in the settlement (base) currency from the feed line
-      foreignAmount: number       // amount from the PDF (foreign currency)
-      currency: string            // currency of the base settlement line (e.g. EUR)
+      baseAmount: number
+      foreignAmount: number
+      currency: string
       date: string
       journalEntryId?: string
       description?: string
       settlementAccountCode?: string
-      fxRateToBase?: number       // authoritative rate from the matched feed line, if present
+      fxRateToBase?: number
       fxSource?: string
       fxDate?: string
     } | null = null
@@ -249,7 +298,7 @@ export async function POST(request: Request) {
 
     try {
       if (total && total > 0) {
-        const since = new Date(Date.now() - 1000 * 60 * 60 * 24 * 30) // last 30 days
+        const since = new Date(Date.now() - 1000 * 60 * 60 * 24 * 30)
         const candidates = await prisma.journalLine.findMany({
           where: {
             journalEntry: {
@@ -262,7 +311,6 @@ export async function POST(request: Request) {
               select: { id: true, date: true, description: true },
             },
           },
-          // fxRateToBase, fxSource, fxDate are scalars on JournalLine and will be returned
           orderBy: { journalEntry: { date: 'desc' } },
           take: 200,
         })
@@ -270,6 +318,7 @@ export async function POST(request: Request) {
         const vendorLower = (vendor || '').toLowerCase()
         const foreignTotal = total
         const vendorVariants = vendor ? normalizeMerchant(vendor) : []
+
         type FeedMatchResult = {
           baseAmount: number
           foreignAmount: number
@@ -343,14 +392,10 @@ export async function POST(request: Request) {
       // non-fatal
     }
 
-    // Phase 1 improvement: if we have a vendor but no good feed match yet,
-    // try to find a previous authoritative BANK_FEED rate for that exact merchant.
     if (!feedMatch && vendor) {
       try {
         const feedRate = await findRecentBankFeedRateForMerchant(vendor.toLowerCase(), invoiceDate || undefined)
         if (feedRate) {
-          // We don't know the exact base amount here, but we can at least carry the real rate.
-          // The PDF side will still be the foreign amount; the rate is the important authoritative part.
           feedMatch = {
             baseAmount: 0,
             foreignAmount: total || 0,
@@ -366,7 +411,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // Build suggestion lines
     const suggestionLines: Array<{
       accountCode: string
       debit?: number
@@ -374,6 +418,7 @@ export async function POST(request: Request) {
       description?: string
       currency: string
       taxRateId?: string
+      contactId?: string
       fxRateToBase?: number
       fxSource?: string
       fxDate?: string
@@ -383,10 +428,8 @@ export async function POST(request: Request) {
     const useAmount = total || 100
     const expenseCode = suggestExpenseAccountCode(fullText)
 
-    // Always a concrete string for the credit/settlement side account code
     const creditAccountCode: string = feedMatch?.settlementAccountCode || '1100'
 
-    // Helper to split gross into net + tax when we have a rate
     const splitGross = (gross: number, rate: number) => {
       const net = gross / (1 + rate)
       const tax = gross - net
@@ -394,7 +437,6 @@ export async function POST(request: Request) {
     }
 
     if (feedMatch) {
-      // Prefer the authoritative rate from the matched feed line if it already has fx metadata.
       const fx = feedMatch.fxRateToBase
       const hasRealRate = fx != null && isFinite(Number(fx)) && Number(fx) > 0
       const derivedRate = feedMatch.foreignAmount > 0
@@ -409,7 +451,6 @@ export async function POST(request: Request) {
       const foreignGross = feedMatch.foreignAmount
 
       if (matchedTaxRateId && taxHints.rate != null && foreignGross > 0) {
-        // Prefer an explicit tax amount from the PDF if present and plausible
         let tax = 0
         let net = foreignGross
         if (taxHints.taxAmount && taxHints.taxAmount > 0 && taxHints.taxAmount < foreignGross) {
@@ -421,7 +462,6 @@ export async function POST(request: Request) {
           tax = split.tax
         }
 
-        // Net expense in foreign currency
         suggestionLines.push({
           accountCode: expenseCode,
           debit: net,
@@ -431,8 +471,8 @@ export async function POST(request: Request) {
           fxSource: sourceToUse,
           fxDate: feedMatch.fxDate || feedMatch.date,
           taxRateId: matchedTaxRateId,
+          contactId: contactMatch?.contact.id,
         })
-        // Explicit tax line (direction decided later from account type)
         suggestionLines.push({
           accountCode: expenseCode,
           debit: tax,
@@ -442,9 +482,9 @@ export async function POST(request: Request) {
           fxSource: sourceToUse,
           fxDate: feedMatch.fxDate || feedMatch.date,
           taxRateId: matchedTaxRateId,
+          contactId: contactMatch?.contact.id,
         })
       } else {
-        // No confident tax split — post the full foreign amount with taxRateId attached if we have one
         suggestionLines.push({
           accountCode: expenseCode,
           debit: foreignGross,
@@ -454,10 +494,10 @@ export async function POST(request: Request) {
           fxSource: sourceToUse,
           fxDate: feedMatch.fxDate || feedMatch.date,
           taxRateId: matchedTaxRateId,
+          contactId: contactMatch?.contact.id,
         })
       }
 
-      // Base-currency settlement (authoritative amount from feed)
       const feedDesc = feedMatch.description
         ? `Paid via feed (${feedMatch.date}) — ${feedMatch.description}`
         : `Paid via feed (${feedMatch.date})`
@@ -469,7 +509,6 @@ export async function POST(request: Request) {
         currency: feedMatch.currency,
       })
     } else {
-      // No feed match
       if (matchedTaxRateId && taxHints.rate != null && useAmount > 0) {
         const { net, tax } = splitGross(useAmount, taxHints.rate)
         suggestionLines.push({
@@ -478,6 +517,7 @@ export async function POST(request: Request) {
           description: vendor ? `Invoice from ${vendor} (net)` : 'Invoice expense (net)',
           currency: useCurrency,
           taxRateId: matchedTaxRateId,
+          contactId: contactMatch?.contact.id,
         })
         suggestionLines.push({
           accountCode: expenseCode,
@@ -485,6 +525,7 @@ export async function POST(request: Request) {
           description: `Tax (${(taxHints.rate * 100).toFixed(0)}%)`,
           currency: useCurrency,
           taxRateId: matchedTaxRateId,
+          contactId: contactMatch?.contact.id,
         })
         suggestionLines.push({
           accountCode: creditAccountCode,
@@ -499,6 +540,7 @@ export async function POST(request: Request) {
           description: vendor ? `Invoice from ${vendor}` : 'Invoice expense',
           currency: useCurrency,
           taxRateId: matchedTaxRateId,
+          contactId: contactMatch?.contact.id,
         })
         suggestionLines.push({
           accountCode: creditAccountCode,
@@ -546,7 +588,6 @@ export async function POST(request: Request) {
         lines: suggestionLines,
         source: 'pdf',
         needsConfirmation: !(
-          // High confidence currency + we have an authoritative feed-sourced rate (either loose match or merchant lookup)
           (confidence === 'high' || (feedMatch && String(feedMatch.fxSource || '').startsWith('BANK_FEED'))) &&
           !!currency &&
           (feedInfo.matched || (feedMatch && String(feedMatch.fxSource || '').startsWith('BANK_FEED'))) &&
@@ -554,10 +595,15 @@ export async function POST(request: Request) {
         ),
         feedMatch: feedInfo.matched ? feedInfo : undefined,
       },
+      contact: contactMatch ? {
+        ...contactMatch.contact,
+        newlyCreated: contactMatch.created,
+      } : null,
       message: [
         currency ? `Detected currency ${currency} (confidence: ${confidence}).` : null,
         taxInfo ? `Detected tax ${taxInfo.jurisdiction} ${taxInfo.name} (${(taxInfo.rate * 100).toFixed(0)}%).` : null,
         feedInfo.matched ? 'Matched to feed.' : null,
+        contactMatch?.created ? 'Created vendor contact.' : null,
       ].filter(Boolean).join(' '),
     })
   } catch (error) {

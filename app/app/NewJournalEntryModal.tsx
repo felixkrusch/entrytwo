@@ -21,6 +21,12 @@ interface TaxRate {
   taxType: string
 }
 
+interface Contact {
+  id: string
+  name: string
+  type: 'CUSTOMER' | 'VENDOR'
+}
+
 interface NewJournalEntryModalProps {
   isOpen: boolean
   onClose: () => void
@@ -34,8 +40,10 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
 
   const [accounts, setAccounts] = useState<Account[]>([])
   const [taxRates, setTaxRates] = useState<TaxRate[]>([])
+  const [contacts, setContacts] = useState<Contact[]>([])
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [description, setDescription] = useState('')
+  const [contactId, setContactId] = useState<string>('')
   const [lines, setLines] = useState<Array<{
     accountId: string
     debit: number
@@ -47,6 +55,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
     fxRateToBase?: number
     fxSource?: string
     fxDate?: string
+    contactId?: string
   }>>([
     { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: 'EUR' },
     { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: 'EUR' }
@@ -61,18 +70,14 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   const isReversal = !!initialSuggestion?.reversingOriginalId
   const requiresConfirmation = !!initialSuggestion?.needsConfirmation
 
-  // Reset confirmation requirement whenever the suggestion changes
   useEffect(() => {
-    // Defer to satisfy "no setState synchronously in effect"
     const id = setTimeout(() => setUserConfirmed(!requiresConfirmation), 0)
     return () => clearTimeout(id)
   }, [initialSuggestion, requiresConfirmation])
 
-  // Phase 2 memory: when chat provides a suggested account code from memory, auto-select it for the first line
   useEffect(() => {
     if (!isOpen || !initialSuggestion?.memory?.suggestedAccountCode || accounts.length === 0) return
     const code = initialSuggestion.memory.suggestedAccountCode
-    // Defer setLines to avoid setState-in-effect lint error
     const id = setTimeout(() => {
       setLines(prev => {
         if (!prev.length) return prev
@@ -88,56 +93,53 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
     return () => clearTimeout(id)
   }, [isOpen, initialSuggestion, accounts])
 
-  // For "repeat" suggestions, default to the original date (or today's date if not present)
   useEffect(() => {
     if (isOpen && initialSuggestion?.source === 'repeat') {
       const target = initialSuggestion.originalDate || new Date().toISOString().split('T')[0]
-      // Defer to satisfy "no setState in effect" lint rule
       const id = setTimeout(() => setDate(target), 0)
       return () => clearTimeout(id)
     }
   }, [isOpen, initialSuggestion?.source, initialSuggestion?.originalDate])
 
-  // Fetch accounts + tax rates when modal opens (i18n + tax foundation from day one)
   useEffect(() => {
     if (isOpen) {
       Promise.all([
         fetch('/api/accounts').then(r => r.json()),
-        fetch('/api/tax-rates').then(r => r.json())
-      ]).then(([accData, taxData]) => {
+        fetch('/api/tax-rates').then(r => r.json()),
+        fetch('/api/contacts').then(r => r.json())
+      ]).then(([accData, taxData, contactData]) => {
         if (Array.isArray(accData)) setAccounts(accData)
         if (Array.isArray(taxData)) setTaxRates(taxData)
+        if (contactData?.contacts) setContacts(contactData.contacts)
       }).catch(() => {})
     }
   }, [isOpen])
 
-  // Prefill from chat suggestion when suggestion changes (robust to async accounts)
   useEffect(() => {
     const applySuggestion = (accList: Account[], taxList: TaxRate[]) => {
       if (!initialSuggestion) return
       if (initialSuggestion.description) {
         setDescription(initialSuggestion.description)
       }
+      // Set contact from PDF auto-creation
+      if ((initialSuggestion as { contact?: { id: string; newlyCreated?: boolean } }).contact?.id) {
+        setContactId((initialSuggestion as { contact: { id: string } }).contact.id)
+      }
       if (initialSuggestion.lines && initialSuggestion.lines.length > 0) {
-          const mapped = initialSuggestion.lines.map(l => {
-            const match = accList.find(a => a.code === l.accountCode)
-            return {
-              accountId: match?.id || '',
-              debit: l.debit || 0,
-              credit: l.credit || 0,
-              description: l.description || '',
-              taxRateId: l.taxRateId || '',
-              taxIsInput: l.taxIsInput,
-              currency: l.currency || 'EUR',
-              // carry FX metadata through when PDF+feed provided it
-              fxRateToBase: l.fxRateToBase,
-              fxSource: l.fxSource,
-              fxDate: l.fxDate,
-            }
-          })
+        const mapped = initialSuggestion.lines.map(l => ({
+          accountId: accList.find(a => a.code === l.accountCode)?.id || '',
+          debit: l.debit || 0,
+          credit: l.credit || 0,
+          description: l.description || '',
+          taxRateId: l.taxRateId || '',
+          taxIsInput: l.taxIsInput,
+          currency: l.currency || 'EUR',
+          fxRateToBase: l.fxRateToBase,
+          fxSource: l.fxSource,
+          fxDate: l.fxDate,
+          contactId: l.contactId || (initialSuggestion as { contact?: { id: string } }).contact?.id,
+        }))
 
-        // If a line has a taxRateId (e.g. from PDF detection), auto-insert a tax line for clarity.
-        // Only do this if we don't already see a separate tax line in the suggestion (PDF API may have split gross).
         const looksLikeAlreadySplit = mapped.some((m, i) =>
           i > 0 && m.taxRateId && (m.description || '').toLowerCase().includes('tax')
         )
@@ -151,26 +153,25 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
               if (tr) {
                 const taxAmt = Math.round(line.debit * Number(tr.rate) * 100) / 100
                 if (taxAmt > 0) {
-                   const mainAcc = accList.find(a => a.id === line.accountId)
-                   const explicitDir = mainAcc ? getTaxDirection(mainAcc.type, { debit: line.debit, credit: line.credit }) : undefined
-                   newLines.push({
-                     accountId: line.accountId,
-                     debit: taxAmt,
-                     credit: 0,
-                     description: `Tax (${(Number(tr.rate) * 100).toFixed(0)}%)`,
-                     taxRateId: tr.id,
-                     taxIsInput: explicitDir,
-                     currency: line.currency || 'EUR',
-                     // copy fx metadata from the main line if present
-                     fxRateToBase: (line as { fxRateToBase?: number }).fxRateToBase,
-                     fxSource: (line as { fxSource?: string }).fxSource,
-                     fxDate: (line as { fxDate?: string }).fxDate,
-                   })
+                  const mainAcc = accList.find(a => a.id === line.accountId)
+                  const explicitDir = mainAcc ? getTaxDirection(mainAcc.type, { debit: line.debit, credit: line.credit }) : undefined
+                  newLines.push({
+                    accountId: line.accountId,
+                    debit: taxAmt,
+                    credit: 0,
+                    description: `Tax (${(Number(tr.rate) * 100).toFixed(0)}%)`,
+                    taxRateId: tr.id,
+                    taxIsInput: explicitDir,
+                    currency: line.currency || 'EUR',
+                    fxRateToBase: (line as { fxRateToBase?: number }).fxRateToBase,
+                    fxSource: (line as { fxSource?: string }).fxSource,
+                    fxDate: (line as { fxDate?: string }).fxDate,
+                    contactId: line.contactId,
+                  })
                 }
               }
             }
           })
-          // ensure at least 2 lines total for the form
           while (newLines.length < 2) {
             newLines.push({
               accountId: '',
@@ -183,6 +184,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
               fxRateToBase: undefined,
               fxSource: undefined,
               fxDate: undefined,
+              contactId: undefined,
             })
           }
           setLines(newLines)
@@ -201,6 +203,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
             fxRateToBase: undefined,
             fxSource: undefined,
             fxDate: undefined,
+            contactId: undefined,
           })
         }
         setLines(mapped)
@@ -215,7 +218,6 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
       if (accounts.length > 0 && taxRates.length > 0) {
         doApply(accounts, taxRates)
       } else {
-        // fetch both if needed
         Promise.all([
           accounts.length ? Promise.resolve(accounts) : fetch('/api/accounts').then(r => r.json()),
           taxRates.length ? Promise.resolve(taxRates) : fetch('/api/tax-rates').then(r => r.json()),
@@ -228,7 +230,6 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
     }
   }, [isOpen, initialSuggestion, accounts, taxRates])
 
-  // Helper functions defined early so effects can reference them without TDZ
   const updateLineFx = (index: number, fx: { fxRateToBase?: number; fxSource?: string; fxDate?: string }) => {
     const newLines = [...lines]
     newLines[index] = { ...newLines[index], ...fx }
@@ -248,7 +249,6 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
           next.debit = expectedTax
           next.currency = newLines[index].currency || 'EUR'
         } else {
-          // Derive explicit direction from the main line's account when possible
           const mainAcc = accounts.find(a => a.id === newLines[index].accountId)
           const explicitDir = mainAcc ? getTaxDirection(mainAcc.type, newLines[index]) : undefined
           newLines.splice(index + 1, 0, {
@@ -262,6 +262,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
             fxRateToBase: (newLines[index] as { fxRateToBase?: number }).fxRateToBase,
             fxSource: (newLines[index] as { fxSource?: string }).fxSource,
             fxDate: (newLines[index] as { fxDate?: string }).fxDate,
+            contactId: newLines[index].contactId,
           })
         }
       }
@@ -276,7 +277,6 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
     }
   }
 
-  // Auto-lookup rate for foreign currency lines that arrived without fx metadata (chat or manual)
   useEffect(() => {
     if (!isOpen) return
 
@@ -299,10 +299,8 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
         })
         .catch(() => {})
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, date])
 
-  // Real-time verification: re-check when lines/data change (non-blocking)
   useEffect(() => {
     if (!isOpen || !initialSuggestion) return
 
@@ -335,18 +333,16 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
         if (Array.isArray(v.warnings)) {
           setVerificationWarnings(v.warnings)
         }
-      } catch {
-        // Non-fatal: if verification endpoint is unreachable, continue silently
-      }
+      } catch {}
     }
 
-    const id = setTimeout(verifyLive, 500) // debounce
+    const id = setTimeout(verifyLive, 500)
     return () => clearTimeout(id)
   }, [isOpen, initialSuggestion, description, lines, accounts])
 
-  // Reset form when modal closes (and no new suggestion)
   const handleClose = () => {
     setDescription('')
+    setContactId('')
     setLines([
       { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: 'EUR' },
       { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: 'EUR' }
@@ -355,9 +351,8 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
     onClose()
   }
 
-  // Small helper to keep fx fields when adding manual lines
   const addLineWithFx = () => {
-    setLines([...lines, { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: 'EUR' }])
+    setLines([...lines, { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: 'EUR', contactId: contactId || undefined }])
   }
 
   if (!isOpen) return null
@@ -371,7 +366,6 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
     setSubmitting(true)
 
     try {
-      // Phase 2 verification layer: double-check the suggestion before POST
       if (initialSuggestion) {
         const toVerify = {
           description: description || initialSuggestion.description,
@@ -407,12 +401,9 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
           } else {
             setVerificationWarnings([])
           }
-        } catch {
-          // Non-fatal: if the verify endpoint is unreachable we still let the normal POST happen (user already confirmed)
-        }
+        } catch {}
       }
 
-      // If this is a reversal suggestion, use the dedicated reversal endpoint
       if (isReversal && initialSuggestion?.reversingOriginalId) {
         const revRes = await fetch('/api/journal-entries/reverse', {
           method: 'POST',
@@ -442,6 +433,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
           fxRateToBase: l.fxRateToBase,
           fxSource: l.fxSource,
           fxDate: l.fxDate,
+          contactId: l.contactId || contactId || undefined,
         }))
       }
 
@@ -480,7 +472,6 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                 {initialSuggestion.feedMatch?.matched && (
                   <span className="ml-2 text-emerald-400">• matched to feed</span>
                 )}
-                {/* Real authoritative feed rate in use (from previous import or exact merchant lookup) */}
                 {Array.isArray(initialSuggestion.lines) &&
                  initialSuggestion.lines.some((l: { fxSource?: string }) => String(l.fxSource || '').startsWith('BANK_FEED')) && (
                   <span className="ml-2 text-emerald-400">• real feed rate</span>
@@ -489,7 +480,6 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                   <span className="ml-2 text-amber-400">• {initialSuggestion.merchant}</span>
                 )}
 
-                {/* Phase 2 memory hint */}
                 {initialSuggestion.memory?.suggestedAccountCode && (
                   <span className="ml-2 text-violet-400">
                     • remember: {initialSuggestion.memory.suggestedAccountCode}
@@ -502,7 +492,6 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                   <span className="ml-2 text-sky-400">• repeated from {initialSuggestion.originalDate || 'older entry'}</span>
                 )}
 
-                {/* Phase 2: gentle reminder when repeating foreign-currency lines */}
                 {initialSuggestion.source === 'repeat' &&
                  Array.isArray(initialSuggestion.lines) &&
                  initialSuggestion.lines.some((l: { currency?: string; fxRateToBase?: number | null }) => l.currency && l.currency !== 'EUR' && l.fxRateToBase != null) && (
@@ -523,7 +512,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
         )}
 
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="block text-sm text-zinc-400 mb-1">{t('date')}</label>
               <input
@@ -542,6 +531,21 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                 placeholder={t('descriptionPlaceholder')}
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-500"
               />
+            </div>
+            <div>
+              <label className="block text-sm text-zinc-400 mb-1">Contact</label>
+              <select
+                value={contactId}
+                onChange={e => setContactId(e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white"
+              >
+                <option value="">— No contact —</option>
+                {contacts.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.type === 'CUSTOMER' ? 'cust' : 'vend'})
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -593,11 +597,11 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                     ))}
                   </select>
                    <input
-                     placeholder={t('note')}
-                     value={line.description}
-                     onChange={e => updateLine(index, 'description', e.target.value)}
-                     className="col-span-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-sm text-white"
-                   />
+                      placeholder={t('note')}
+                      value={line.description}
+                      onChange={e => updateLine(index, 'description', e.target.value)}
+                      className="col-span-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-sm text-white"
+                    />
                     <select
                       value={line.currency || 'EUR'}
                       onChange={e => updateLine(index, 'currency', e.target.value)}
@@ -607,7 +611,6 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                       {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
 
-                    {/* FX badge / read-only indicator for PDF+feed sourced lines */}
                     {line.fxRateToBase != null && (
                       <div className="col-span-12 text-[10px] text-emerald-400 px-1 pt-1 -mt-1">
                         fx {line.fxRateToBase.toFixed(6)} via {line.fxSource || 'feed'} on {line.fxDate || 'n/a'}
@@ -636,27 +639,26 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
           </div>
 
            {requiresConfirmation && !isReversal && (
-             <div className="mt-3 p-3 rounded-lg border border-rose-500/50 bg-rose-950/40 text-sm">
-               <label className="flex items-start gap-2 cursor-pointer select-none">
-                 <input
-                   type="checkbox"
-                   checked={userConfirmed}
-                   onChange={(e) => setUserConfirmed(e.target.checked)}
-                   className="mt-0.5 accent-rose-400"
-                 />
-                 <span className="text-rose-300">
-                   {t('confirmationRequired') || 'I have reviewed the currency, amounts, tax, and any bank/card feed match. The values are correct and I want to post this entry.'}
-                 </span>
-               </label>
-             </div>
-           )}
+              <div className="mt-3 p-3 rounded-lg border border-rose-500/50 bg-rose-950/40 text-sm">
+                <label className="flex items-start gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={userConfirmed}
+                    onChange={(e) => setUserConfirmed(e.target.checked)}
+                    className="mt-0.5 accent-rose-400"
+                  />
+                  <span className="text-rose-300">
+                    {t('confirmationRequired') || 'I have reviewed the currency, amounts, tax, and any bank/card feed match. The values are correct and I want to post this entry.'}
+                  </span>
+                </label>
+              </div>
+            )}
 
-           {/* Phase 2: show verification warnings (non-blocking) */}
-           {verificationWarnings.length > 0 && (
-             <div className="mt-2 text-[11px] text-amber-400 bg-amber-950/30 p-2 rounded">
-               {verificationWarnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
-             </div>
-           )}
+            {verificationWarnings.length > 0 && (
+              <div className="mt-2 text-[11px] text-amber-400 bg-amber-950/30 p-2 rounded">
+                {verificationWarnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+              </div>
+            )}
         </div>
 
         <div className="flex gap-3 mt-8">

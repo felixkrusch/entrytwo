@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 
-  const createEntrySchema = z.object({
+const createEntrySchema = z.object({
   date: z.string().refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid date format' }),
   description: z.string().optional(),
   lines: z.array(z.object({
@@ -12,10 +12,11 @@ import { z } from 'zod'
     description: z.string().optional(),
     taxRateId: z.string().uuid().optional(),
     taxIsInput: z.boolean().optional(),
-    currency: z.string().min(3).max(3).optional(),   // ISO-4217
+    currency: z.string().min(3).max(3).optional(),
     fxRateToBase: z.number().positive().optional(),
     fxSource: z.string().optional(),
     fxDate: z.string().refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid fxDate' }).optional(),
+    contactId: z.string().uuid().optional(),
   })).min(2)
 })
 
@@ -32,6 +33,9 @@ export async function GET() {
             },
             taxRate: {
               select: { id: true, jurisdiction: true, name: true, rate: true, taxType: true }
+            },
+            contact: {
+              select: { id: true, name: true, type: true }
             }
           }
         }
@@ -61,13 +65,8 @@ export async function POST(request: Request) {
 
     const { date, description, lines } = parsed.data
 
-    // FX-aware balancing + auto rate derivation (Phase 0):
-    // - If any foreign-currency line is missing fxRateToBase, look for a line in EUR/base with a matching amount
-    //   and derive the rate (baseAmount / foreignAmount).
-    // - We also set a reasonable fxDate (entry date) and source if not provided.
     const entryDate = date
 
-    // Collect potential foreign and base lines
     const foreignLines = lines.filter(l => (l.currency || 'EUR').toUpperCase() !== 'EUR')
     const baseLines = lines.filter(l => (l.currency || 'EUR').toUpperCase() === 'EUR')
 
@@ -77,15 +76,12 @@ export async function POST(request: Request) {
       const fAmt = Math.max(f.debit || 0, f.credit || 0)
       if (fAmt <= 0) continue
 
-      // Try to find a base line whose amount we can treat as the exact base equivalent
       for (const b of baseLines) {
         const bAmt = Math.max(b.debit || 0, b.credit || 0)
         if (bAmt <= 0) continue
 
-        // Heuristic: if amounts are close in "economic size" after a typical rate band, or the user
-        // explicitly put two different amounts on purpose, we accept it as the pair.
         const ratio = bAmt / fAmt
-        const plausible = ratio > 0.1 && ratio < 10 // very loose; real rates are ~0.7-1.5 for major pairs
+        const plausible = ratio > 0.1 && ratio < 10
 
         if (plausible) {
           const derived = bAmt / fAmt
@@ -116,7 +112,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // Create journal entry + audit event in a transaction
     const entry = await prisma.$transaction(async (tx) => {
       const created = await tx.journalEntry.create({
         data: {
@@ -134,6 +129,7 @@ export async function POST(request: Request) {
               fxRateToBase: line.fxRateToBase != null ? line.fxRateToBase : null,
               fxSource: line.fxSource || null,
               fxDate: line.fxDate ? new Date(line.fxDate) : null,
+              contactId: line.contactId || null,
             }))
           }
         },
@@ -141,13 +137,13 @@ export async function POST(request: Request) {
           lines: {
             include: {
               account: { select: { code: true, name: true } },
-              taxRate: { select: { id: true, jurisdiction: true, name: true, rate: true, taxType: true } }
+              taxRate: { select: { id: true, jurisdiction: true, name: true, rate: true, taxType: true } },
+              contact: { select: { id: true, name: true, type: true } }
             }
           }
         }
       })
 
-      // Write audit event (Phase 0 requirement)
       await tx.event.create({
         data: {
           eventType: 'JOURNAL_ENTRY_CREATED',
@@ -161,12 +157,12 @@ export async function POST(request: Request) {
               debit: Number(l.debit),
               credit: Number(l.credit),
               currency: l.currency,
+              contact: l.contact?.name,
               fxRateToBase: l.fxRateToBase != null ? Number(l.fxRateToBase) : null,
               fxSource: l.fxSource,
               fxDate: l.fxDate ? l.fxDate.toISOString().slice(0, 10) : null,
             }))
           },
-          // createdBy will be filled when we have auth
         }
       })
 
@@ -179,13 +175,12 @@ export async function POST(request: Request) {
 
     const err = error as { code?: string; message?: string }
     if (err?.code === 'P2025') {
-      return NextResponse.json({ error: 'Referenced account or tax rate not found' }, { status: 404 })
+      return NextResponse.json({ error: 'Referenced account, tax rate, or contact not found' }, { status: 404 })
     }
     if (err?.code === 'P2002') {
       return NextResponse.json({ error: 'Duplicate entry conflict' }, { status: 409 })
     }
 
-    // Surface Zod-like or balance issues if they bubbled (defensive)
     if (err?.message?.includes('Debits must equal')) {
       return NextResponse.json({ error: err.message }, { status: 400 })
     }
