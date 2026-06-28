@@ -178,16 +178,16 @@ function AppContent({ children }: { children: ReactNode }) {
 
 {view === 'contacts' && (
                <ContactsContent />
-             )}
+              )}
 
-             {view === 'invoicing' && (
-               <InvoicingContent />
-             )}
+              {view === 'invoicing' && (
+                <InvoicingContent />
+              )}
 
-             {view === 'reports' && (
-               <ReportsContent />
-             )}
-          </div>
+              {view === 'reports' && (
+                <ReportsContent />
+              )}
+           </div>
         </div>
       </div>
 
@@ -362,7 +362,6 @@ function ContactsContent() {
       const res = await fetch(`/api/contacts/validate-vat?vatId=${encodeURIComponent(vatId)}`)
       const data = await res.json()
       if (data.valid === true) {
-        // Find contact with this taxId
         const contact = contacts.find(c => c.taxId === vatId)
         if (contact) {
           await fetch(`/api/contacts/validate-vat`, {
@@ -659,27 +658,27 @@ function ContactsContent() {
               </div>
             </div>
 <div className="flex gap-2 mt-6">
-               {editingContact && (
-                 <button
-                   onClick={e => void deleteContact(editingContact.id, e)}
-                   className="px-3 py-2 rounded bg-rose-900/50 text-rose-400 hover:bg-rose-900/70"
-                 >
-                   Delete
-                 </button>
-               )}
-               <button
-                 onClick={saveContact}
-                 className="flex-1 px-4 py-2 rounded bg-emerald-500 text-black font-medium"
-               >
-                 {editingContact ? 'Save Contact' : 'Add Contact'}
-               </button>
-               <button
-                 onClick={() => { setShowAddModal(false); resetForm() }}
-                 className="px-4 py-2 rounded bg-zinc-800 text-zinc-300"
-               >
-                 Cancel
-               </button>
-             </div>
+              {editingContact && (
+                <button
+                  onClick={e => void deleteContact(editingContact.id, e)}
+                  className="px-3 py-2 rounded bg-rose-900/50 text-rose-400 hover:bg-rose-900/70"
+                >
+                  Delete
+                </button>
+              )}
+              <button
+                onClick={saveContact}
+                className="flex-1 px-4 py-2 rounded bg-emerald-500 text-black font-medium"
+              >
+                {editingContact ? 'Save Contact' : 'Add Contact'}
+              </button>
+              <button
+                onClick={() => { setShowAddModal(false); resetForm() }}
+                className="px-4 py-2 rounded bg-zinc-800 text-zinc-300"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -982,19 +981,29 @@ interface Invoice {
   lines: { description: string; quantity: number; unitPrice: number; lineTotal: number }[]
 }
 
+interface InvoiceLineForm {
+  description: string
+  quantity: number
+  unitPrice: number
+}
+
 function InvoicingContent() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'SENT' | 'PAID' | 'OVERDUE' | 'CANCELLED'>('ALL')
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [contacts, setContacts] = useState<{ id: string; name: string; email?: string }[]>([])
+  const [contacts, setContacts] = useState<ContactItem[]>([])
   const [processingPayment, setProcessingPayment] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  
+  const [newContactId, setNewContactId] = useState('')
+  const [newLines, setNewLines] = useState<InvoiceLineForm[]>([{ description: '', quantity: 1, unitPrice: 0 }])
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/invoices?status=${statusFilter === 'ALL' ? '' : statusFilter}`)
+      const res = await fetch(`/api/invoices${statusFilter === 'ALL' ? '' : `?status=${statusFilter}`}`)
       const data = await res.json()
       setInvoices(data.invoices || [])
     } catch {
@@ -1006,13 +1015,18 @@ function InvoicingContent() {
 
   const fetchContacts = useCallback(async () => {
     try {
-      const res = await fetch('/api/contacts')
+      const res = await fetch('/api/contacts?type=CUSTOMER')
       const data = await res.json()
       setContacts(data.contacts || [])
     } catch {
       // ignore
     }
   }, [])
+
+  useEffect(() => {
+    void fetchInvoices()
+    void fetchContacts()
+  }, [fetchInvoices, fetchContacts])
 
   const createPaymentLink = async (invoiceId: string) => {
     setProcessingPayment(invoiceId)
@@ -1054,19 +1068,53 @@ function InvoicingContent() {
     }
   }
 
-  useEffect(() => {
-    void fetchInvoices()
-    void fetchContacts()
-  }, [fetchInvoices, fetchContacts])
+  const addLine = () => {
+    setNewLines([...newLines, { description: '', quantity: 1, unitPrice: 0 }])
+  }
 
-  const createInvoice = async (contactId: string, description: string, amount: number) => {
-    await fetch('/api/invoices/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description }),
-    })
-    void fetchInvoices()
-    setShowCreateModal(false)
+  const removeLine = (index: number) => {
+    setNewLines(newLines.filter((_, i) => i !== index))
+  }
+
+  const updateLine = (index: number, field: keyof InvoiceLineForm, value: string | number) => {
+    setNewLines(newLines.map((line, i) => 
+      i === index ? { ...line, [field]: field === 'quantity' || field === 'unitPrice' ? Number(value) || 0 : value } : line
+    ))
+  }
+
+  const subtotal = useMemo(() => {
+    return newLines.reduce((sum, line) => sum + (line.quantity * line.unitPrice), 0)
+  }, [newLines])
+
+  const saveInvoice = async () => {
+    if (!newContactId || newLines.every(l => !l.description.trim())) return
+    
+    setSaving(true)
+    try {
+      const validLines = newLines.filter(l => l.description.trim())
+      
+      const res = await fetch('/api/invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contactId: newContactId,
+          lines: validLines.map(l => ({
+            description: l.description,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice
+          }))
+        })
+      })
+      
+      if (res.ok) {
+        setNewContactId('')
+        setNewLines([{ description: '', quantity: 1, unitPrice: 0 }])
+        setShowCreateModal(false)
+        void fetchInvoices()
+      }
+    } finally {
+      setSaving(false)
+    }
   }
 
   const statusColor = (status: string) => {
@@ -1131,41 +1179,41 @@ function InvoicingContent() {
               key={invoice.id}
               className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 hover:border-zinc-700 transition-colors"
             >
-<div className="flex items-center justify-between">
-                 <div>
-                   <div className="font-medium">{invoice.invoiceNumber}</div>
-                   <div className="text-xs text-zinc-400">{invoice.contact.name}</div>
-                   <div className="text-xs text-zinc-500 mt-1">
-                     {new Date(invoice.issueDate).toLocaleDateString()} → {new Date(invoice.dueDate).toLocaleDateString()}
-                   </div>
-                 </div>
-                 <div className="flex items-center gap-2">
-                   <span className={`px-2 py-0.5 rounded text-xs ${statusColor(invoice.status)}`}>
-                     {invoice.status}
-                   </span>
-                   <span className="font-medium">{formatCurrency(invoice.total, invoice.currency)}</span>
-                   {invoice.status === 'DRAFT' && (
-                     <>
-                       <button
-                         onClick={() => void createPaymentLink(invoice.id)}
-                         disabled={processingPayment === invoice.id}
-                         className="p-1 rounded text-zinc-400 hover:text-emerald-400 disabled:opacity-50"
-                         title="Send via Stripe"
-                       >
-                         Stripe
-                       </button>
-                       <button
-                         onClick={() => void sendPayPalInvoice(invoice.id)}
-                         disabled={processingPayment === invoice.id}
-                         className="p-1 rounded text-zinc-400 hover:text-blue-400 disabled:opacity-50"
-                         title="Send via PayPal"
-                       >
-                         PayPal
-                       </button>
-                     </>
-                   )}
-                 </div>
-               </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">{invoice.invoiceNumber}</div>
+                  <div className="text-xs text-zinc-400">{invoice.contact.name}</div>
+                  <div className="text-xs text-zinc-500 mt-1">
+                    {new Date(invoice.issueDate).toLocaleDateString()} → {new Date(invoice.dueDate).toLocaleDateString()}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-0.5 rounded text-xs ${statusColor(invoice.status)}`}>
+                    {invoice.status}
+                  </span>
+                  <span className="font-medium">{formatCurrency(invoice.total, invoice.currency)}</span>
+                  {invoice.status === 'DRAFT' && (
+                    <>
+                      <button
+                        onClick={() => void createPaymentLink(invoice.id)}
+                        disabled={processingPayment === invoice.id}
+                        className="p-1 rounded text-zinc-400 hover:text-emerald-400 disabled:opacity-50"
+                        title="Send via Stripe"
+                      >
+                        Stripe
+                      </button>
+                      <button
+                        onClick={() => void sendPayPalInvoice(invoice.id)}
+                        disabled={processingPayment === invoice.id}
+                        className="p-1 rounded text-zinc-400 hover:text-blue-400 disabled:opacity-50"
+                        title="Send via PayPal"
+                      >
+                        PayPal
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           ))}
         </div>
@@ -1175,34 +1223,90 @@ function InvoicingContent() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-semibold mb-4">Create New Invoice</h2>
-            <p className="text-sm text-zinc-400 mb-4">
-              AI-powered invoice creation coming soon. Manual creation via API is available.
-            </p>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-zinc-400 block mb-1">Contact</label>
-                <select className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700">
-                  <option>Select a contact...</option>
+                <label className="text-xs text-zinc-400 block mb-1">Contact *</label>
+                <select
+                  value={newContactId}
+                  onChange={e => setNewContactId(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                  required
+                >
+                  <option value="">Select a contact...</option>
                   {contacts.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
+                    <option key={c.id} value={c.id}>{c.name}{c.email ? ` (${c.email})` : ''}</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="text-xs text-zinc-400 block mb-1">Description</label>
-                <input
-                  type="text"
-                  placeholder="e.g., 'Website design for Sarah'"
-                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
-                />
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs text-zinc-400">Line Items</label>
+                  <button
+                    type="button"
+                    onClick={addLine}
+                    className="text-xs text-emerald-400 hover:text-emerald-300"
+                  >
+                    + Add Line
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {newLines.map((line, index) => (
+                    <div key={index} className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Description"
+                        value={line.description}
+                        onChange={e => updateLine(index, 'description', e.target.value)}
+                        className="flex-1 px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-sm"
+                      />
+                      <input
+                        type="number"
+                        min="1"
+                        value={line.quantity}
+                        onChange={e => updateLine(index, 'quantity', e.target.value)}
+                        className="w-16 px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-sm"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={line.unitPrice}
+                        onChange={e => updateLine(index, 'unitPrice', e.target.value)}
+                        className="w-24 px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-sm"
+                        placeholder="0.00"
+                      />
+                      {newLines.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeLine(index)}
+                          className="px-2 text-rose-400 hover:text-rose-300"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="border-t border-zinc-700 pt-3 text-right">
+                <span className="text-sm text-zinc-400">Subtotal: </span>
+                <span className="font-medium">{formatCurrency(subtotal)}</span>
               </div>
             </div>
             <div className="flex gap-2 mt-6">
               <button
-                onClick={() => setShowCreateModal(false)}
+                onClick={() => { setShowCreateModal(false); setNewContactId(''); setNewLines([{ description: '', quantity: 1, unitPrice: 0 }]) }}
                 className="px-4 py-2 rounded bg-zinc-800 text-zinc-300"
+                disabled={saving}
               >
                 Cancel
+              </button>
+              <button
+                onClick={() => void saveInvoice()}
+                disabled={saving || !newContactId || newLines.every(l => !l.description.trim())}
+                className="flex-1 px-4 py-2 rounded bg-emerald-500 text-black font-medium disabled:opacity-50"
+              >
+                {saving ? 'Saving...' : 'Create Invoice'}
               </button>
             </div>
           </div>
