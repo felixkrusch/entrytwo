@@ -176,17 +176,17 @@ function AppContent({ children }: { children: ReactNode }) {
               </>
             )}
 
-            {view === 'contacts' && (
-              <ContactsContent />
-            )}
+{view === 'contacts' && (
+               <ContactsContent />
+             )}
 
-{view === 'invoicing' && (
+             {view === 'invoicing' && (
                <InvoicingContent />
              )}
 
-            {view === 'reports' && (
-              <ReportsContent />
-            )}
+             {view === 'reports' && (
+               <ReportsContent />
+             )}
           </div>
         </div>
       </div>
