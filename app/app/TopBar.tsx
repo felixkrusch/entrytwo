@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Settings, BarChart3, FileText, Users, CreditCard } from 'lucide-react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 
 interface TopBarProps {
   showSettings?: boolean
@@ -12,12 +12,13 @@ interface TopBarProps {
 export default function TopBar({ showSettings = false }: TopBarProps) {
   const [isAdmin, setIsAdmin] = useState(false)
   const pathname = usePathname()
+  const router = useRouter()
 
   const navItems = [
-    { name: 'Finances', href: '/app', icon: CreditCard },
-    { name: 'Invoicing', href: '/invoicing', icon: FileText },
-    { name: 'Contacts', href: '/contacts', icon: Users },
-    { name: 'Reports', href: '/reports', icon: BarChart3 },
+    { name: 'Finances', view: 'dashboard', icon: CreditCard },
+    { name: 'Invoicing', view: 'invoicing', icon: FileText },
+    { name: 'Contacts', view: 'contacts', icon: Users },
+    { name: 'Reports', view: 'reports', icon: BarChart3 },
   ]
 
   useEffect(() => {
@@ -28,7 +29,9 @@ export default function TopBar({ showSettings = false }: TopBarProps) {
       .catch(() => setIsAdmin(false))
   }, [showSettings])
 
-  const isActive = (href: string) => pathname === href
+  const currentView = typeof window !== 'undefined' 
+    ? (new URLSearchParams(window.location.search).get('view') ?? (pathname === '/app' ? 'dashboard' : ''))
+    : 'dashboard'
 
   return (
     <div className="h-11 border-b border-zinc-800 bg-zinc-950 flex items-center px-4 justify-between shrink-0">
@@ -41,20 +44,19 @@ export default function TopBar({ showSettings = false }: TopBarProps) {
         <nav className="flex items-center gap-1">
           {navItems.map((item) => {
             const Icon = item.icon
+            const active = pathname === '/app' && (currentView === item.view || (!currentView && item.view === 'dashboard'))
             return (
-              <Link
-                key={item.href}
-                href={item.href}
+              <button
+                key={item.view}
+                onClick={() => router.push(`/app?view=${item.view}`)}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors ${
-                  isActive(item.href)
-                    ? 'bg-zinc-800 text-zinc-200'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                  active ? 'bg-zinc-800 text-zinc-200' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
                 }`}
                 title={item.name}
               >
                 <Icon className="w-3.5 h-3.5" />
                 {item.name}
-              </Link>
+              </button>
             )
           })}
         </nav>
