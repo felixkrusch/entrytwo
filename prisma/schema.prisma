@@ -57,12 +57,20 @@ model Account {
 }
 
 model Contact {
-  id        String   @id @default(uuid())
-  name      String
-  email     String?
-  type      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String    @id @default(uuid())
+  name           String
+  email          String?
+  type           String    // "CUSTOMER" or "VENDOR"
+  phone          String?   // International format, max 50 chars
+  address        String?   // Multi-line billing address
+  taxId          String?   // VAT/EIN/tax identification
+  currency       String?   // Preferred currency (ISO 4217), fallback to company default
+  notes          String?   // Internal notes
+  vatValidated   Boolean   @default(false)
+  vatValidatedAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  journalLines   JournalLine[]
 }
 
 model JournalEntry {
@@ -92,6 +100,7 @@ model JournalLine {
 
   journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id])
   account      Account      @relation(fields: [accountId], references: [id])
+  contact      Contact?     @relation(fields: [contactId], references: [id])
   taxRate      TaxRate?     @relation(fields: [taxRateId], references: [id])
 }
 
