@@ -62,8 +62,14 @@ model Contact {
   email          String?
   type           String    // "CUSTOMER" or "VENDOR"
   phone          String?   // International format, max 50 chars
-  address        String?   // Multi-line billing address
+  addressStreet  String?   // Line 1 (street address)
+  addressCity    String?   // City
+  addressState   String?   // State/Province
+  addressZip     String?   // Postal/ZIP code
+  addressCountry String?   // ISO 3166-1 alpha-2 country code (e.g., "DE", "US")
+  addressLine2   String?   // Additional address line (P.O. Box, apartment, etc.)
   taxId          String?   // VAT/EIN/tax identification
+  website        String?   // Company website URL
   currency       String?   // Preferred currency (ISO 4217), fallback to company default
   notes          String?   // Internal notes
   vatValidated   Boolean   @default(false)

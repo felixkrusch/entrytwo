@@ -70,7 +70,7 @@ export async function GET(request: Request) {
 
     if (requestedEntities.includes('contacts')) {
       const contacts = await prisma.contact.findMany({
-        select: { id: true, name: true, email: true, type: true, phone: true, address: true, taxId: true, currency: true, notes: true, vatValidated: true, vatValidatedAt: true, createdAt: true, updatedAt: true }
+        select: { id: true, name: true, email: true, type: true, phone: true, addressStreet: true, addressCity: true, addressState: true, addressZip: true, addressCountry: true, addressLine2: true, taxId: true, website: true, currency: true, notes: true, vatValidated: true, vatValidatedAt: true, createdAt: true, updatedAt: true }
       })
       data.contacts = serialize(contacts)
     }

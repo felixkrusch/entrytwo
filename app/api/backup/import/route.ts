@@ -25,16 +25,22 @@ interface BackupData {
         contactId?: string
       }>
     }>
-    contacts?: Array<{
-      name: string
-      email?: string
-      type: string
-      phone?: string
-      address?: string
-      taxId?: string
-      currency?: string
-      notes?: string
-    }>
+contacts?: Array<{
+       name: string
+       email?: string
+       type: string
+       phone?: string
+       addressStreet?: string
+       addressCity?: string
+       addressState?: string
+       addressZip?: string
+       addressCountry?: string
+       addressLine2?: string
+       taxId?: string
+       website?: string
+       currency?: string
+       notes?: string
+     }>
     settings?: Array<{ key: string; value: unknown }>
     templates?: Array<{ name: string; description?: string; lines: unknown }>
   }
@@ -83,8 +89,14 @@ export async function POST(request: Request) {
             email: contact.email,
             type: contact.type,
             phone: contact.phone,
-            address: contact.address,
+            addressStreet: contact.addressStreet,
+            addressCity: contact.addressCity,
+            addressState: contact.addressState,
+            addressZip: contact.addressZip,
+            addressCountry: contact.addressCountry,
+            addressLine2: contact.addressLine2,
             taxId: contact.taxId,
+            website: contact.website,
             currency: contact.currency,
             notes: contact.notes,
           },
@@ -96,8 +108,14 @@ export async function POST(request: Request) {
             email: contact.email,
             type: contact.type,
             phone: contact.phone,
-            address: contact.address,
+            addressStreet: contact.addressStreet,
+            addressCity: contact.addressCity,
+            addressState: contact.addressState,
+            addressZip: contact.addressZip,
+            addressCountry: contact.addressCountry,
+            addressLine2: contact.addressLine2,
             taxId: contact.taxId,
+            website: contact.website,
             currency: contact.currency,
             notes: contact.notes,
           },

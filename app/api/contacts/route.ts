@@ -8,7 +8,12 @@ const ContactSchema = z.object({
   email: z.string().email().max(200).optional(),
   type: z.enum(['CUSTOMER', 'VENDOR']),
   phone: z.string().max(50).optional(),
-  address: z.string().optional(),
+  addressStreet: z.string().max(200).optional(),
+  addressCity: z.string().max(100).optional(),
+  addressState: z.string().max(100).optional(),
+  addressZip: z.string().max(20).optional(),
+  addressCountry: z.string().length(2).optional(), // ISO 3166-1 alpha-2
+  addressLine2: z.string().max(200).optional(),
   taxId: z.string().optional(),
   currency: z.string().optional(),
   notes: z.string().optional(),
@@ -78,7 +83,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const { name, email, type, phone, address, taxId, currency, notes } = parsed.data
+    const { name, email, type, phone, addressStreet, addressCity, addressState, addressZip, addressCountry, addressLine2, taxId, currency, notes } = parsed.data
 
     const contact = await prisma.contact.create({
       data: {
@@ -86,7 +91,12 @@ export async function POST(request: Request) {
         email,
         type,
         phone,
-        address,
+        addressStreet,
+        addressCity,
+        addressState,
+        addressZip,
+        addressCountry,
+        addressLine2,
         taxId,
         currency,
         notes,

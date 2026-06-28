@@ -210,14 +210,28 @@ interface ContactItem {
   email?: string
   type: 'CUSTOMER' | 'VENDOR'
   phone?: string
-  address?: string
+  addressStreet?: string
+  addressCity?: string
+  addressState?: string
+  addressZip?: string
+  addressCountry?: string
+  addressLine2?: string
   taxId?: string
+  website?: string
   currency?: string
   notes?: string
   entryCount: number
   vatValidated?: boolean
   vatValid?: boolean
 }
+
+const COUNTRY_CODES = [
+  'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FR', 'GB', 'GR',
+  'HU', 'IE', 'IT', 'LT', 'LU', 'LV', 'MT', 'NL', 'PL', 'PT', 'RO', 'SE', 'SI', 'SK',
+  'US', 'CA', 'CH', 'NO', 'AU', 'NZ', 'JP', 'KR', 'CN', 'IN', 'BR', 'MX',
+] as const
+
+type CountryCode = typeof COUNTRY_CODES[number]
 
 function ContactsContent() {
   const t = useTranslations('app.panels')
@@ -228,12 +242,20 @@ function ContactsContent() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [editingContact, setEditingContact] = useState<ContactItem | null>(null)
   
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
   const [newType, setNewType] = useState<'CUSTOMER' | 'VENDOR'>('CUSTOMER')
   const [newPhone, setNewPhone] = useState('')
+  const [newAddressStreet, setNewAddressStreet] = useState('')
+  const [newAddressCity, setNewAddressCity] = useState('')
+  const [newAddressState, setNewAddressState] = useState('')
+  const [newAddressZip, setNewAddressZip] = useState('')
+  const [newAddressCountry, setNewAddressCountry] = useState<CountryCode>('DE')
+  const [newAddressLine2, setNewAddressLine2] = useState('')
   const [newTaxId, setNewTaxId] = useState('')
+  const [newWebsite, setNewWebsite] = useState('')
 
   const fetchContacts = useCallback(async () => {
     setLoading(true)
@@ -262,25 +284,81 @@ function ContactsContent() {
     void fetchContacts()
   }, [fetchContacts])
 
-  const createContact = async () => {
-    if (!newName.trim()) return
-    await fetch('/api/contacts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: newName,
-        email: newEmail || undefined,
-        type: newType,
-        phone: newPhone || undefined,
-        taxId: newTaxId || undefined,
-      }),
-    })
+  const resetForm = () => {
     setNewName('')
     setNewEmail('')
     setNewPhone('')
+    setNewAddressStreet('')
+    setNewAddressCity('')
+    setNewAddressState('')
+    setNewAddressZip('')
+    setNewAddressCountry('DE')
+    setNewAddressLine2('')
     setNewTaxId('')
+    setNewWebsite('')
+    setEditingContact(null)
+  }
+
+  const populateForm = (contact: ContactItem) => {
+    setNewName(contact.name)
+    setNewEmail(contact.email || '')
+    setNewPhone(contact.phone || '')
+    setNewAddressStreet(contact.addressStreet || '')
+    setNewAddressCity(contact.addressCity || '')
+    setNewAddressState(contact.addressState || '')
+    setNewAddressZip(contact.addressZip || '')
+    setNewAddressCountry((contact.addressCountry as CountryCode) || 'DE')
+    setNewAddressLine2(contact.addressLine2 || '')
+    setNewTaxId(contact.taxId || '')
+    setNewWebsite(contact.website || '')
+    setEditingContact(contact)
+    setShowAddModal(true)
+  }
+
+  const saveContact = async () => {
+    if (!newName.trim()) return
+    const payload = {
+      name: newName,
+      email: newEmail || undefined,
+      type: editingContact?.type ?? newType,
+      phone: newPhone || undefined,
+      addressStreet: newAddressStreet || undefined,
+      addressCity: newAddressCity || undefined,
+      addressState: newAddressState || undefined,
+      addressZip: newAddressZip || undefined,
+      addressCountry: newAddressCountry || undefined,
+      addressLine2: newAddressLine2 || undefined,
+      taxId: newTaxId || undefined,
+      website: newWebsite || undefined,
+    }
+
+    if (editingContact) {
+      await fetch(`/api/contacts/${editingContact.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+    } else {
+      await fetch('/api/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+    }
+    resetForm()
     setShowAddModal(false)
     void fetchContacts()
+  }
+
+  const formatAddress = (contact: ContactItem) => {
+    const parts = [
+      contact.addressStreet,
+      contact.addressLine2,
+      [contact.addressZip, contact.addressCity].filter(Boolean).join(' '),
+      contact.addressState,
+      contact.addressCountry,
+    ].filter(Boolean)
+    return parts.length > 0 ? parts.join(', ') : null
   }
 
   const filteredContacts = useMemo(() => {
@@ -339,7 +417,8 @@ function ContactsContent() {
           {filteredContacts.map(contact => (
             <div
               key={contact.id}
-              className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 hover:border-zinc-700 transition-colors"
+              className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 hover:border-zinc-700 transition-colors cursor-pointer"
+              onClick={() => populateForm(contact)}
             >
               <div className="flex items-start justify-between">
                 <div>
@@ -357,12 +436,17 @@ function ContactsContent() {
                     )}
                   </div>
                   {contact.email && (
-                    <a href={`mailto:${contact.email}`} className="text-xs text-blue-400 hover:underline mt-1 block">
+                    <a href={`mailto:${contact.email}`} className="text-xs text-blue-400 hover:underline mt-1 block" onClick={e => e.stopPropagation()}>
                       {contact.email}
                     </a>
                   )}
                   {contact.phone && (
                     <span className="text-xs text-zinc-400 mt-1 block">{contact.phone}</span>
+                  )}
+                  {formatAddress(contact) && (
+                    <span className="text-xs text-zinc-500 mt-1 block" onClick={e => e.stopPropagation()}>
+                      {formatAddress(contact)}
+                    </span>
                   )}
                   {contact.taxId && (
                     <span className="text-xs text-zinc-400 mt-1 block">Tax: {contact.taxId}</span>
@@ -370,7 +454,7 @@ function ContactsContent() {
                 </div>
                 <div className="flex items-center gap-2">
                   {contact.vatValidated !== undefined && (
-                    <span className={`text-xs ${contact.vatValid ? 'text-emerald-400' : 'text-rose-400'}`} title={contact.vatValid ? 'VAT valid' : 'VAT invalid'}>
+                    <span className={`text-xs ${contact.vatValid ? 'text-emerald-400' : 'text-rose-400'}`} title={contact.vatValid ? 'VAT valid' : 'VAT invalid'} onClick={e => e.stopPropagation()}>
                       {contact.vatValid ? '✓' : '✗'}
                     </span>
                   )}
@@ -403,18 +487,21 @@ function ContactsContent() {
         </div>
       )}
 
-      {showAddModal && (
+      {(showAddModal || editingContact) && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-lg font-semibold mb-4">Add Contact</h2>
+          <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <h2 className="text-lg font-semibold mb-4">
+              {editingContact ? 'Edit Contact' : 'Add Contact'}
+            </h2>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-zinc-400 block mb-1">Name</label>
+                <label className="text-xs text-zinc-400 block mb-1">Name *</label>
                 <input
                   type="text"
                   value={newName}
                   onChange={e => setNewName(e.target.value)}
                   className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                  required
                 />
               </div>
               <div>
@@ -426,19 +513,21 @@ function ContactsContent() {
                   className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
                 />
               </div>
+              {!editingContact && (
+                <div>
+                  <label className="text-xs text-zinc-400 block mb-1">Type</label>
+                  <select
+                    value={newType}
+                    onChange={e => setNewType(e.target.value as 'CUSTOMER' | 'VENDOR')}
+                    className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                  >
+                    <option value="CUSTOMER">Customer</option>
+                    <option value="VENDOR">Vendor</option>
+                  </select>
+                </div>
+              )}
               <div>
-                <label className="text-xs text-zinc-400 block mb-1">Type</label>
-                <select
-                  value={newType}
-                  onChange={e => setNewType(e.target.value as 'CUSTOMER' | 'VENDOR')}
-                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
-                >
-                  <option value="CUSTOMER">Customer</option>
-                  <option value="VENDOR">Vendor</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-zinc-400 block mb-1">Phone</label>
+                <label className="text-xs text-zinc-400 block mb-1">Phone (Intl format)</label>
                 <input
                   type="text"
                   value={newPhone}
@@ -448,7 +537,68 @@ function ContactsContent() {
                 />
               </div>
               <div>
-                <label className="text-xs text-zinc-400 block mb-1">Tax ID</label>
+                <label className="text-xs text-zinc-400 block mb-1">Address Line 1</label>
+                <input
+                  type="text"
+                  value={newAddressStreet}
+                  onChange={e => setNewAddressStreet(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                  placeholder="Street address"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1">Address Line 2</label>
+                <input
+                  type="text"
+                  value={newAddressLine2}
+                  onChange={e => setNewAddressLine2(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                  placeholder="Apartment, suite, etc."
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-zinc-400 block mb-1">City</label>
+                  <input
+                    type="text"
+                    value={newAddressCity}
+                    onChange={e => setNewAddressCity(e.target.value)}
+                    className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-zinc-400 block mb-1">State/Province</label>
+                  <input
+                    type="text"
+                    value={newAddressState}
+                    onChange={e => setNewAddressState(e.target.value)}
+                    className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-zinc-400 block mb-1">ZIP/Postal Code</label>
+                  <input
+                    type="text"
+                    value={newAddressZip}
+                    onChange={e => setNewAddressZip(e.target.value)}
+                    className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-zinc-400 block mb-1">Country (ISO 3166-1)</label>
+                  <select
+                    value={newAddressCountry}
+                    onChange={e => setNewAddressCountry(e.target.value as CountryCode)}
+                    className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                  >
+                    {COUNTRY_CODES.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1">Tax ID (VAT/EIN)</label>
                 <input
                   type="text"
                   value={newTaxId}
@@ -457,16 +607,26 @@ function ContactsContent() {
                   placeholder="DE276452187"
                 />
               </div>
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1">Website</label>
+                <input
+                  type="url"
+                  value={newWebsite}
+                  onChange={e => setNewWebsite(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                  placeholder="https://example.com"
+                />
+              </div>
             </div>
             <div className="flex gap-2 mt-6">
               <button
-                onClick={createContact}
+                onClick={saveContact}
                 className="flex-1 px-4 py-2 rounded bg-emerald-500 text-black font-medium"
               >
-                Add Contact
+                {editingContact ? 'Save Contact' : 'Add Contact'}
               </button>
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={() => { setShowAddModal(false); resetForm() }}
                 className="px-4 py-2 rounded bg-zinc-800 text-zinc-300"
               >
                 Cancel
