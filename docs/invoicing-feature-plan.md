@@ -257,6 +257,77 @@ AI: "ACME GmbH hasn't paid. Historical late payment rate 23% (vs 3% industry avg
 
 ---
 
+## Branding Personalization (Selling Feature)
+
+### Why Keep Invoicing in EntryTwo (Not Just Stripe/PayPal)
+
+**Stripe/PayPal Limitations for Professional Businesses:**
+- Basic templates - not brand-customizable
+- No company letterhead or professional formatting
+- Limited multi-language support
+- No PO references or custom fields
+- Customers see "Powered by Stripe/PayPal" branding
+- Reports split across multiple systems
+
+**EntryTwo Advantages (Selling Points):**
+- Full white-label control - your brand, not ours
+- Professional PDF generation with custom layouts
+- Multi-currency with proper FX tracking
+- Integrated accounting (everything in one place)
+- Custom fields and PO tracking
+- EU VAT compliance with validation
+- QR codes for local payment methods (EPC, Interac, Swiss)
+- Offline PDF creation for clients avoiding online payments
+
+### Brand Kit Implementation
+
+#### Logo Management
+- **SVG Upload**: Preferred for crisp printing quality
+- **PNG Fallback**: Auto-scaled for different invoice sizes
+- **Storage**: Encrypted in database with versioning
+- **Preview**: Real-time logo position/color contrast checker
+
+#### Font Selection
+- **Primary Fonts**: Inter, Lato, Roboto (clean, modern, excellent readability)
+- **Secondary Fonts**: Georgia, Merriweather (classic serif option)
+- **Font Pairing**: One for headers, one for body (automatically suggested)
+- **PDF Embedding**: Fonts embedded for consistent rendering
+
+#### Layout Options
+- **Modern Minimal**: Clean typography, lots of whitespace
+- **Classic Business**: Traditional invoice layout with formal spacing
+- **Creative Studio**: Color-accented headers, bold totals section
+- **Two-Column**: From address small, focus on line items/totals
+- **Custom CSS**: Advanced users can apply CSS tweaks per template
+
+#### Color Themes
+- **Primary Color**: Your brand color (auto-contrast for accessibility)
+- **Accent Colors**: For totals section and call-to-action buttons
+- **Dark Mode PDF**: Inverted colors for dark background preference
+
+#### Template Custom Fields
+- Reference fields (PO number, project code, contract ID)
+- Custom footer text (payment terms, cancellation policy)
+- Header additions (registration numbers, website, social links)
+
+---
+
+## QR Codes: A Competitive Advantage
+
+### Why QR Codes Matter
+- **SEPA Region**: EPC QR now accepted by 90%+ of European banks
+- **Switzerland**: Swiss QR Bill mandatory for many businesses
+- **Canada**: Interac e-Transfer QR for instant transfers
+- **Adoption**: 40% of EU B2B invoices now include QR codes
+
+### Implementation Benefits
+- No Stripe/PayPal branding on invoice
+- Direct bank transfer (lower fees, 1-2 business day settlement)
+- Works offline - customer scans from PDF/email
+- Copy-paste alternative for digital workflows
+
+---
+
 ## Success Metrics
 - Time to create invoice: < 30 seconds for repeat customers (manual)
 - AI adoption: > 50% of invoices created via natural language
@@ -264,6 +335,36 @@ AI: "ACME GmbH hasn't paid. Historical late payment rate 23% (vs 3% industry avg
 - Customer satisfaction: > 4.5/5 on invoice clarity
 - Automation rate: > 70% of invoices require zero manual edits
 - QR code payment adoption: > 30% in EU markets
+
+---
+
+## Hybrid Payment Architecture
+
+### Best of Both Worlds
+Keep invoices in EntryTwo, use Stripe/PayPal as payment processors:
+
+```
+EntryTwo Invoice (your brand)              Stripe/PayPal Invoice (limited branding)
+┌──────────────────────────┐               ┌──────────────────────────┐
+│ ACME Consulting          │               │ ACME Consulting          │
+│ Billing: DE44 3704...    │               │ Powered by Stripe          │
+│                          │               │                          │
+│ Invoice #2026-0042       │               │ Invoice #2026-0042       │
+│ Due: 14 days             │               │ Due: 14 days             │
+│                          │               │                          │
+│ ┌─────────────────────┐  │               │ ┌─────────────────────┐  │
+│ │ EPC QR Code         │  │               │ │ Pay with Card       │  │
+│ │ Amount: €5,000       │  │               │ │ Pay with PayPal     │  │
+│ │ IBAN: DE44...       │  │               │ │                     │  │
+│ └─────────────────────┘  │               │ └─────────────────────┘  │
+└──────────────────────────┘               └──────────────────────────┘
+```
+
+### Payment Flow Options
+1. **EntryTwo PDF + QR**: Customer scans QR → Bank transfer
+2. **EntryTwo PDF + Payment Link**: Stripe checkout (your brand)
+3. **EntryTwo PDF + PayPal Button**: PayPal hosted checkout
+4. **EntryTwo PDF + All Methods**: Customer chooses preferred
 
 ---
 
