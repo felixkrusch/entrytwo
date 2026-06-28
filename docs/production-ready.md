@@ -70,6 +70,13 @@ Add comprehensive test suites.
 - Contacts page UI with search + pagination
 - Auto-contact creation from PDF uploads
 - Contact linking to journal entries
+- **ISO-standard address fields**: street, city, state/province (ISO 3166-2), ZIP, country (ISO 3166-1 alpha-2)
+- **VAT validation**: EU VAT ID verification via VIES API
+
+#### VAT Validation Implementation
+The `validate-vat` API endpoint uses the EU's VAT Information Exchange System (VIES) REST API to validate European VAT numbers.
+
+**Production note**: VIES has rate limiting and is not designed for high-volume automated use. For production, implement a caching proxy or use a commercial VAT validation service.
 
 ### 7. Backup System Improvements ✅ DONE
 - Selective export/import to `/admin/backup` with entity checkboxes
@@ -91,7 +98,18 @@ Production-ready script for PM2/systemd to handle `.restart` signal.
 
 ---
 
-## Deployment Checklist
+## VAT Validation Considerations
+
+**VIES API Limitations:**
+- Rate limiting: VIES throttles excessive requests (not intended for bulk validation)
+- EU-only: Only validates VAT IDs for EU member states
+- Reliability: Occasional network timeouts and service outages
+
+**Recommended Production Approach:**
+- Cache validation results (24-48 hour TTL)
+- Queue validations to respect rate limits
+- Consider commercial services (VATsense, Sovos, Taxamo) for high-volume needs
+- Fallback to manual validation when VIES unavailable
 
 - [ ] Set up process manager (PM2 or systemd)
 - [ ] Configure HTTPS termination
