@@ -179,9 +179,9 @@ export default function ReportsPage() {
                 </span>
               </div>
               
-              {profitLoss.taxSummary && (
-                <div className="border-t border-zinc-700 pt-2">
-                  <div className="text-zinc-400 text-xs mb-1">Tax Summary</div>
+{profitLoss.taxSummary && (
+                 <div className="border-t border-zinc-700 pt-2">
+                   <div className="text-zinc-400 text-xs mb-1">{t('profitLoss.taxSummary')}</div>
                   <div className="flex justify-between text-xs">
                     <span>{t('profitLoss.inputTax')}</span>
                     <span className="text-emerald-400">{formatCurrency(profitLoss.taxSummary.input)}</span>

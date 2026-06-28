@@ -62,7 +62,7 @@ export default function AdminOverview() {
         </Link>
 
         <Link
-          href="/admin/reports"
+          href="/reports"
           className="block border border-zinc-800 rounded-lg p-5 hover:border-zinc-700 transition-colors bg-zinc-950"
         >
           <div className="font-medium mb-1">Reports</div>

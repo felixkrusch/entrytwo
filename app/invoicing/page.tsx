@@ -1,0 +1,22 @@
+'use client'
+
+import { useTranslations } from 'next-intl'
+
+export default function InvoicingPage() {
+  const t = useTranslations('app.panels')
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="text-xl font-semibold">{t('invoicing?.title') || 'Invoicing'}</h1>
+        <p className="text-xs text-zinc-500 mt-1">
+          Create and manage invoices.
+        </p>
+      </div>
+
+      <div className="text-zinc-500">
+        Invoicing module coming soon.
+      </div>
+    </div>
+  )
+}

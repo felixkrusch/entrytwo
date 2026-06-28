@@ -102,6 +102,7 @@
         "loading": "Loading...",
         "noData": "No data",
         "tax": "Tax",
+        "taxSummary": "Tax Summary",
         "inputTax": "Input",
         "outputTax": "Output",
         "netTax": "Net Tax",
