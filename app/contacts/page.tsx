@@ -8,7 +8,7 @@ export default function ContactsPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-xl font-semibold">{t('contacts?.title') || 'Contacts'}</h1>
+        <h1 className="text-xl font-semibold">Contacts</h1>
         <p className="text-xs text-zinc-500 mt-1">
           Manage customers and vendors.
         </p>

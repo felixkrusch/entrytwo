@@ -8,7 +8,7 @@ export default function InvoicingPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-xl font-semibold">{t('invoicing?.title') || 'Invoicing'}</h1>
+        <h1 className="text-xl font-semibold">Invoicing</h1>
         <p className="text-xs text-zinc-500 mt-1">
           Create and manage invoices.
         </p>

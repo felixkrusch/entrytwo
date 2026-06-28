@@ -4,10 +4,21 @@ import { useEffect, useState, useCallback } from 'react'
 import { useTranslations } from 'next-intl'
 import { formatCurrency } from '@/lib/utils'
 
+interface AccountBalance {
+  code: string
+  name: string
+  type: string
+  balance: number
+  currency?: string
+  nativeBalance?: number
+}
+
 type BalanceSheet = {
-  assets: { code: string; name: string; balance: number; currency: string }[]
-  liabilities: { code: string; name: string; balance: number; currency: string }[]
-  equity: { code: string; name: string; balance: number; currency: string }[]
+  accounts: AccountBalance[]
+  byCurrency?: Record<string, { native: number; base: number }>
+  assets: AccountBalance[]
+  liabilities: AccountBalance[]
+  equity: AccountBalance[]
   assetsTotal: number
   liabilitiesTotal: number
   equityTotal: number
@@ -33,18 +44,38 @@ export default function ReportsPage() {
     setLoading(true)
     try {
       const [bsRes, plRes] = await Promise.all([
-        fetch('/api/reports/balance-sheet'),
+        fetch(dateFrom && dateTo ? `/api/reports/balance-sheet?from=${dateFrom}&to=${dateTo}` : '/api/reports/balance-sheet'),
         fetch(dateFrom && dateTo ? `/api/reports/profit-loss?from=${dateFrom}&to=${dateTo}` : '/api/reports/profit-loss'),
       ])
       
       if (bsRes.ok) {
         const bs = await bsRes.json()
-        setBalanceSheet(bs)
+        // Transform accounts array into grouped structure
+        const accounts = bs.accounts || []
+        setBalanceSheet({
+          ...bs,
+          assets: accounts.filter((a: AccountBalance) => a.type === 'ASSET'),
+          liabilities: accounts.filter((a: AccountBalance) => a.type === 'LIABILITY'),
+          equity: accounts.filter((a: AccountBalance) => a.type === 'EQUITY'),
+          assetsTotal: accounts.filter((a: AccountBalance) => a.type === 'ASSET').reduce((sum: number, a: AccountBalance) => sum + a.balance, 0),
+          liabilitiesTotal: accounts.filter((a: AccountBalance) => a.type === 'LIABILITY').reduce((sum: number, a: AccountBalance) => sum + a.balance, 0),
+          equityTotal: accounts.filter((a: AccountBalance) => a.type === 'EQUITY').reduce((sum: number, a: AccountBalance) => sum + a.balance, 0),
+        })
       }
       
       if (plRes.ok) {
         const pl = await plRes.json()
-        setProfitLoss(pl)
+        setProfitLoss({
+          revenue: pl.revenue?.total ?? 0,
+          expenses: pl.expenses?.total ?? 0,
+          netIncome: pl.netIncome ?? 0,
+          taxSummary: pl.taxSummary ? {
+            input: pl.taxSummary.inputTax ?? 0,
+            output: pl.taxSummary.outputTax ?? 0,
+            net: pl.taxSummary.netTax ?? 0,
+          } : undefined,
+          byCurrency: pl.byCurrency as ProfitLoss['byCurrency'],
+        })
       }
     } catch {
       // ignore
@@ -54,13 +85,13 @@ export default function ReportsPage() {
   }, [dateFrom, dateTo])
 
   useEffect(() => {
-     void fetchReports()
-   }, [fetchReports])
+    void fetchReports()
+  }, [fetchReports])
 
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-xl font-semibold">Reports</h1>
+        <h1 className="text-xl font-semibold">{t('reports.title')}</h1>
         <p className="text-xs text-zinc-500 mt-1">
           Balance Sheet and Profit & Loss statements.
         </p>
@@ -102,7 +133,7 @@ export default function ReportsPage() {
               <div>
                 <div className="text-zinc-400 font-medium mb-2">Assets</div>
                 <div className="space-y-1">
-                  {balanceSheet.assets.map(a => (
+                  {balanceSheet.assets?.map(a => (
                     <div key={a.code} className="flex justify-between">
                       <span>{a.code} - {a.name}</span>
                       <span>{formatCurrency(a.balance, a.currency)}</span>
@@ -110,7 +141,7 @@ export default function ReportsPage() {
                   ))}
                   <div className="border-t border-zinc-700 pt-1 font-medium flex justify-between">
                     <span>Total</span>
-                    <span>{formatCurrency(balanceSheet.assetsTotal)}</span>
+                    <span>{formatCurrency(balanceSheet.assetsTotal ?? 0)}</span>
                   </div>
                 </div>
               </div>
@@ -118,7 +149,7 @@ export default function ReportsPage() {
               <div>
                 <div className="text-zinc-400 font-medium mb-2">Liabilities</div>
                 <div className="space-y-1">
-                  {balanceSheet.liabilities.map(a => (
+                  {balanceSheet.liabilities?.map(a => (
                     <div key={a.code} className="flex justify-between">
                       <span>{a.code} - {a.name}</span>
                       <span>{formatCurrency(a.balance, a.currency)}</span>
@@ -126,7 +157,7 @@ export default function ReportsPage() {
                   ))}
                   <div className="border-t border-zinc-700 pt-1 font-medium flex justify-between">
                     <span>Total</span>
-                    <span>{formatCurrency(balanceSheet.liabilitiesTotal)}</span>
+                    <span>{formatCurrency(balanceSheet.liabilitiesTotal ?? 0)}</span>
                   </div>
                 </div>
               </div>
@@ -134,7 +165,7 @@ export default function ReportsPage() {
               <div>
                 <div className="text-zinc-400 font-medium mb-2">Equity</div>
                 <div className="space-y-1">
-                  {balanceSheet.equity.map(a => (
+                  {balanceSheet.equity?.map(a => (
                     <div key={a.code} className="flex justify-between">
                       <span>{a.code} - {a.name}</span>
                       <span>{formatCurrency(a.balance, a.currency)}</span>
@@ -142,7 +173,7 @@ export default function ReportsPage() {
                   ))}
                   <div className="border-t border-zinc-700 pt-1 font-medium flex justify-between">
                     <span>Total</span>
-                    <span>{formatCurrency(balanceSheet.equityTotal)}</span>
+                    <span>{formatCurrency(balanceSheet.equityTotal ?? 0)}</span>
                   </div>
                 </div>
               </div>
@@ -179,9 +210,9 @@ export default function ReportsPage() {
                 </span>
               </div>
               
-{profitLoss.taxSummary && (
-                 <div className="border-t border-zinc-700 pt-2">
-                   <div className="text-zinc-400 text-xs mb-1">{t('profitLoss.taxSummary')}</div>
+              {profitLoss.taxSummary && (
+                <div className="border-t border-zinc-700 pt-2">
+                  <div className="text-zinc-400 text-xs mb-1">{t('profitLoss.taxSummary')}</div>
                   <div className="flex justify-between text-xs">
                     <span>{t('profitLoss.inputTax')}</span>
                     <span className="text-emerald-400">{formatCurrency(profitLoss.taxSummary.input)}</span>
