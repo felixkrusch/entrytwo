@@ -42,8 +42,8 @@ contacts?: Array<{
        notes?: string
      }>
     settings?: Array<{ key: string; value: unknown }>
-    templates?: Array<{ name: string; description?: string; lines: unknown }>
-  }
+templates?: Array<{ name: string; description?: string; content?: string; isInvoiceTemplate?: boolean }>
+   }
 }
 
 const asJson = (v: unknown): Prisma.InputJsonValue => v as Prisma.InputJsonValue
@@ -157,15 +157,16 @@ export async function POST(request: Request) {
       })
     }
 
-    for (const template of data.templates || []) {
-      await prisma.template.create({
-        data: {
-          name: template.name,
-          description: template.description || '',
-          lines: asJson(template.lines),
-        },
-      })
-    }
+for (const template of data.templates || []) {
+       await prisma.template.create({
+         data: {
+           name: template.name,
+           description: template.description || '',
+           content: typeof template.content === 'string' ? template.content : JSON.stringify(template.content || {}),
+           isInvoiceTemplate: template.isInvoiceTemplate || false,
+         },
+       })
+     }
 
     return NextResponse.json({ ok: true, imported: {
       accounts: data.accounts?.length || 0,

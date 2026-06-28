@@ -19,6 +19,9 @@ enum EventType {
   JOURNAL_ENTRY_REVERSED
   ACCOUNT_CREATED
   CONTACT_CREATED
+  INVOICE_CREATED
+  INVOICE_SENT
+  INVOICE_PAID
   AI_ACTION_EXECUTED
   MANUAL_ADJUSTMENT
   SYSTEM
@@ -78,6 +81,7 @@ model Contact {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   journalLines   JournalLine[]
+  invoices       Invoice[]
 }
 
 model JournalEntry {
@@ -124,6 +128,7 @@ model TaxRate {
   updatedAt     DateTime      @updatedAt
 
   journalLines  JournalLine[]   // back-relation for tax on lines
+  invoiceLines  InvoiceLine[]   // back-relation for invoice tax
 
   // Optional: link to dedicated tax accounts in the future
   // inputTaxAccountId  String?
@@ -162,9 +167,49 @@ model Template {
   id          String   @id @default(uuid())
   name        String
   description String?
-  lines       Json     // Array of {accountCode, debit, credit, taxRateId}
+  content     String?  // Template definition (JSON structure)
+  isInvoiceTemplate Boolean @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model Invoice {
+  id              String    @id @default(uuid())
+  invoiceNumber   String    @unique // INV-2026-0042 format
+  contactId       String
+  status          String    // DRAFT, SENT, PAID, OVERDUE, CANCELLED
+  currency        String    @default("EUR") // ISO 4217
+  subtotal        Decimal
+  taxAmount       Decimal
+  total           Decimal
+  issueDate       DateTime
+  dueDate         DateTime
+  paidDate        DateTime?
+  notes           String?
+  terms           String?
+  templateData    Json?     // Layout customization (colors, fonts, logo position)
+  paymentLink     String?   // Stripe checkout or payment link
+  stripeInvoiceId String?    // If synced to Stripe
+  paypalInvoiceId String?    // If synced to PayPal
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  contact Contact @relation(fields: [contactId], references: [id])
+  lines   InvoiceLine[]
+}
+
+model InvoiceLine {
+  id          String    @id @default(uuid())
+  invoiceId   String
+  description String
+  quantity    Decimal   @default(1)
+  unitPrice   Decimal
+  taxRateId   String?
+  lineTotal   Decimal   // quantity * unitPrice
+  taxAmount   Decimal   @default(0)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  taxRate TaxRate? @relation(fields: [taxRateId], references: [id])
 }
 
 // Bank feed connections - links chart of accounts to external providers

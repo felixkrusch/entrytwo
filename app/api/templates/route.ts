@@ -9,7 +9,8 @@ export async function GET() {
         id: true,
         name: true,
         description: true,
-        lines: true,
+        content: true,
+        isInvoiceTemplate: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -24,21 +25,21 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { name, description, lines } = body as {
+    const { name, description, content } = body as {
       name: string
       description?: string
-      lines: Array<{ accountCode: string; debit?: number; credit?: number; taxRateId?: string }>
+      content?: unknown
     }
 
-    if (!name || !lines?.length) {
-      return NextResponse.json({ error: 'Name and lines required' }, { status: 400 })
+    if (!name) {
+      return NextResponse.json({ error: 'Name required' }, { status: 400 })
     }
 
     const template = await prisma.template.create({
       data: {
         name,
         description: description || '',
-        lines: JSON.stringify(lines),
+        content: typeof content === 'string' ? content : JSON.stringify(content || {}),
       },
     })
 

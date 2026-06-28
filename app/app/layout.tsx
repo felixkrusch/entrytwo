@@ -180,12 +180,9 @@ function AppContent({ children }: { children: ReactNode }) {
               <ContactsContent />
             )}
 
-            {view === 'invoicing' && (
-              <div>
-                <h1 className="text-xl font-semibold mb-4">Invoicing</h1>
-                <div className="text-zinc-500">Invoicing view - coming soon.</div>
-              </div>
-            )}
+{view === 'invoicing' && (
+               <InvoicingContent />
+             )}
 
             {view === 'reports' && (
               <ReportsContent />
@@ -966,6 +963,190 @@ function ReportsContent() {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+interface Invoice {
+  id: string
+  invoiceNumber: string
+  status: string
+  currency: string
+  total: number
+  subtotal: number
+  taxAmount: number
+  issueDate: string
+  dueDate: string
+  paidDate?: string
+  contact: { name: string }
+  lines: { description: string; quantity: number; unitPrice: number; lineTotal: number }[]
+}
+
+function InvoicingContent() {
+  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'SENT' | 'PAID' | 'OVERDUE' | 'CANCELLED'>('ALL')
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [contacts, setContacts] = useState<{ id: string; name: string; email?: string }[]>([])
+
+  const fetchInvoices = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/invoices?status=${statusFilter === 'ALL' ? '' : statusFilter}`)
+      const data = await res.json()
+      setInvoices(data.invoices || [])
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false)
+    }
+  }, [statusFilter])
+
+  const fetchContacts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/contacts')
+      const data = await res.json()
+      setContacts(data.contacts || [])
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  useEffect(() => {
+    void fetchInvoices()
+    void fetchContacts()
+  }, [fetchInvoices, fetchContacts])
+
+  const createInvoice = async (contactId: string, description: string, amount: number) => {
+    await fetch('/api/invoices/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description }),
+    })
+    void fetchInvoices()
+    setShowCreateModal(false)
+  }
+
+  const statusColor = (status: string) => {
+    switch (status) {
+      case 'PAID': return 'bg-emerald-950 text-emerald-400'
+      case 'OVERDUE': return 'bg-rose-950 text-rose-400'
+      case 'SENT': return 'bg-blue-950 text-blue-400'
+      case 'DRAFT': return 'bg-zinc-800 text-zinc-400'
+      default: return 'bg-zinc-800 text-zinc-400'
+    }
+  }
+
+  return (
+    <div className="p-6">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold">Invoicing</h1>
+          <p className="text-xs text-zinc-500 mt-1">Create and manage invoices with full branding control.</p>
+        </div>
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-500 text-black font-medium text-sm hover:bg-emerald-400"
+        >
+          <Plus className="w-4 h-4" />
+          New Invoice
+        </button>
+      </div>
+
+      <div className="flex items-center gap-3 mb-4">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+          <input
+            type="text"
+            placeholder="Search invoices..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full pl-8 pr-3 py-1.5 rounded bg-zinc-900 border border-zinc-700 text-sm"
+          />
+        </div>
+        <select
+          value={statusFilter}
+          onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
+          className="px-2 py-1.5 rounded bg-zinc-900 border border-zinc-700 text-sm"
+        >
+          <option value="ALL">All Status</option>
+          <option value="DRAFT">Draft</option>
+          <option value="SENT">Sent</option>
+          <option value="PAID">Paid</option>
+          <option value="OVERDUE">Overdue</option>
+          <option value="CANCELLED">Cancelled</option>
+        </select>
+      </div>
+
+      {loading ? (
+        <div className="text-zinc-500">Loading...</div>
+      ) : invoices.length === 0 ? (
+        <div className="text-zinc-500">No invoices yet. Create your first invoice!</div>
+      ) : (
+        <div className="space-y-2">
+          {invoices.map(invoice => (
+            <div
+              key={invoice.id}
+              className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 hover:border-zinc-700 transition-colors"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">{invoice.invoiceNumber}</div>
+                  <div className="text-xs text-zinc-400">{invoice.contact.name}</div>
+                  <div className="text-xs text-zinc-500 mt-1">
+                    {new Date(invoice.issueDate).toLocaleDateString()} → {new Date(invoice.dueDate).toLocaleDateString()}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className={`px-2 py-0.5 rounded text-xs ${statusColor(invoice.status)}`}>
+                    {invoice.status}
+                  </span>
+                  <span className="font-medium">{formatCurrency(invoice.total, invoice.currency)}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <h2 className="text-lg font-semibold mb-4">Create New Invoice</h2>
+            <p className="text-sm text-zinc-400 mb-4">
+              AI-powered invoice creation coming soon. Manual creation via API is available.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1">Contact</label>
+                <select className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700">
+                  <option>Select a contact...</option>
+                  {contacts.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1">Description</label>
+                <input
+                  type="text"
+                  placeholder="e.g., 'Website design for Sarah'"
+                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="px-4 py-2 rounded bg-zinc-800 text-zinc-300"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

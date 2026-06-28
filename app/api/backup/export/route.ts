@@ -75,13 +75,13 @@ export async function GET(request: Request) {
       data.contacts = serialize(contacts)
     }
 
-    if (requestedEntities.includes('templates')) {
-      const templates = await prisma.template.findMany({
-        select: { id: true, name: true, description: true, lines: true, createdAt: true, updatedAt: true },
-        orderBy: { createdAt: 'desc' }
-      })
-      data.templates = serialize(templates)
-    }
+if (requestedEntities.includes('templates')) {
+       const templates = await prisma.template.findMany({
+         select: { id: true, name: true, description: true, content: true, isInvoiceTemplate: true, createdAt: true, updatedAt: true },
+         orderBy: { createdAt: 'desc' }
+       })
+       data.templates = serialize(templates)
+     }
 
     if (requestedEntities.includes('settings')) {
       const settings = await prisma.setting.findMany({
