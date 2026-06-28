@@ -989,6 +989,7 @@ function InvoicingContent() {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'SENT' | 'PAID' | 'OVERDUE' | 'CANCELLED'>('ALL')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [contacts, setContacts] = useState<{ id: string; name: string; email?: string }[]>([])
+  const [processingPayment, setProcessingPayment] = useState<string | null>(null)
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true)
@@ -1012,6 +1013,26 @@ function InvoicingContent() {
       // ignore
     }
   }, [])
+
+  const createPaymentLink = async (invoiceId: string) => {
+    setProcessingPayment(invoiceId)
+    try {
+      const res = await fetch('/api/payments/stripe/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceId }),
+      })
+      const data = await res.json()
+      if (data.clientSecret) {
+        window.open(`https://pay.stripe.com/${data.id}`, '_blank')
+      }
+      void fetchInvoices()
+    } catch {
+      // ignore
+    } finally {
+      setProcessingPayment(null)
+    }
+  }
 
   useEffect(() => {
     void fetchInvoices()
@@ -1090,21 +1111,31 @@ function InvoicingContent() {
               key={invoice.id}
               className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 hover:border-zinc-700 transition-colors"
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-medium">{invoice.invoiceNumber}</div>
-                  <div className="text-xs text-zinc-400">{invoice.contact.name}</div>
-                  <div className="text-xs text-zinc-500 mt-1">
-                    {new Date(invoice.issueDate).toLocaleDateString()} → {new Date(invoice.dueDate).toLocaleDateString()}
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className={`px-2 py-0.5 rounded text-xs ${statusColor(invoice.status)}`}>
-                    {invoice.status}
-                  </span>
-                  <span className="font-medium">{formatCurrency(invoice.total, invoice.currency)}</span>
-                </div>
-              </div>
+<div className="flex items-center justify-between">
+                 <div>
+                   <div className="font-medium">{invoice.invoiceNumber}</div>
+                   <div className="text-xs text-zinc-400">{invoice.contact.name}</div>
+                   <div className="text-xs text-zinc-500 mt-1">
+                     {new Date(invoice.issueDate).toLocaleDateString()} → {new Date(invoice.dueDate).toLocaleDateString()}
+                   </div>
+                 </div>
+                 <div className="flex items-center gap-2">
+                   <span className={`px-2 py-0.5 rounded text-xs ${statusColor(invoice.status)}`}>
+                     {invoice.status}
+                   </span>
+                   <span className="font-medium">{formatCurrency(invoice.total, invoice.currency)}</span>
+                   {invoice.status === 'DRAFT' && (
+                     <button
+                       onClick={() => void createPaymentLink(invoice.id)}
+                       disabled={processingPayment === invoice.id}
+                       className="p-1 rounded text-zinc-400 hover:text-emerald-400 disabled:opacity-50"
+                       title="Send Invoice"
+                     >
+                       {processingPayment === invoice.id ? '...' : 'Send'}
+                     </button>
+                   )}
+                 </div>
+               </div>
             </div>
           ))}
         </div>
