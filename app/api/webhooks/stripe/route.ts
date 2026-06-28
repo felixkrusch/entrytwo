@@ -1,6 +1,18 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyStripeSignature } from '@/lib/webhook'
+import type { Prisma } from '@prisma/client'
+
+interface StripeObject {
+  id: string
+  created?: number
+  amount?: number
+  amount_total?: number
+  currency?: string
+  description?: string
+  statement_descriptor?: string
+  billing_details?: { name?: string | null }
+}
 
 export async function POST(request: Request) {
   const signature = request.headers.get('stripe-signature')
@@ -24,8 +36,8 @@ export async function POST(request: Request) {
 }
 
 async function handleStripeEvent(data: Record<string, unknown>) {
-  const eventType = (data as any).type as string | undefined
-  const eventData = (data as any).data?.object as Record<string, unknown> | undefined
+  const eventType = (data as { type?: string }).type
+  const eventData = (data as { data?: { object?: StripeObject } }).data?.object
 
   if (!eventType || !eventData) return
 
@@ -48,18 +60,18 @@ async function handleStripeEvent(data: Record<string, unknown>) {
     amount = eventData.amount_total
   }
 
-  currency = (eventData.currency as string) || 'usd'
+  currency = eventData.currency || 'usd'
 
   await prisma.feedTransaction.create({
     data: {
       connectionId: connection.id,
-      externalId: (eventData.id as string) || '',
-      date: new Date(((eventData.created as number) || Date.now()) * 1000),
-      description: (eventData.description as string) || (eventData as any).statement_descriptor || eventType,
-      merchant: (eventData as any).billing_details?.name || (eventData as any).description || eventType,
+      externalId: eventData.id || '',
+      date: new Date(((eventData.created) || Date.now()) * 1000),
+      description: eventData.description || eventData.statement_descriptor || eventType,
+      merchant: eventData.billing_details?.name || eventData.description || eventType,
       amount: amount / 100,
-      currency: currency,
-      rawData: { type: eventType, ...(eventData as any) } as any,
+      currency,
+      rawData: { type: eventType, ...eventData } as Prisma.InputJsonValue,
       status: 'pending',
     },
   })

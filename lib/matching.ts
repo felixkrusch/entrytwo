@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import type { FeedTransaction } from '@prisma/client'
+import type { Prisma } from '@prisma/client'
 
 interface MatchResult {
   confidence: number
@@ -13,6 +14,13 @@ interface MatchResult {
 
 interface FeedTxWithConnection extends FeedTransaction {
   connection: { accountId: string } | null
+  lines?: unknown[]
+}
+
+interface MerchantPref {
+  accountId: string
+  taxRateId?: string | null
+  [key: string]: unknown
 }
 
 // Learn merchant patterns from user corrections
@@ -21,24 +29,24 @@ export async function learnMerchant(merchant: string, accountId: string, taxRate
     where: { key: `merchant:${merchant.toLowerCase()}` },
     create: {
       key: `merchant:${merchant.toLowerCase()}`,
-      value: { accountId, taxRateId } as any,
+      value: { accountId, taxRateId } as unknown as Prisma.InputJsonValue,
     },
     update: {
-      value: { accountId, taxRateId } as any,
+      value: { accountId, taxRateId } as unknown as Prisma.InputJsonValue,
     },
   })
   return setting
 }
 
 // Get learned merchant preferences
-export async function getMerchantPreference(merchant: string): Promise<{ accountId?: string; taxRateId?: string } | null> {
+export async function getMerchantPreference(merchant: string): Promise<MerchantPref | null> {
   if (!merchant) return null
 
   const setting = await prisma.setting.findUnique({
     where: { key: `merchant:${merchant.toLowerCase()}` },
   })
 
-  return setting?.value as { accountId?: string; taxRateId?: string } | null
+  return setting?.value as MerchantPref | null
 }
 
 export async function findMatch(tx: FeedTxWithConnection): Promise<MatchResult | null> {

@@ -1,11 +1,11 @@
 'use client'
 
-import { useSession, SessionProvider } from 'next-auth/react'
+import { useSession } from 'next-auth/react'
 import { ReactNode, useEffect } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 
 export default function AuthGuard({ children }: { children: ReactNode }) {
-  const { data: session, status } = useSession()
+  const { status } = useSession()
   const pathname = usePathname()
   const router = useRouter()
 

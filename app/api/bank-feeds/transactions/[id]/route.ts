@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { findMatch } from '@/lib/matching'
+import type { FeedTransaction } from '@prisma/client'
+
+interface FeedTxWithConn extends FeedTransaction {
+  connection: { accountId: string; provider: string | null } | null
+  lines?: unknown[]
+}
 
 export async function GET(
   request: Request,
@@ -17,11 +23,12 @@ export async function GET(
     return NextResponse.json({ error: 'Transaction not found' }, { status: 404 })
   }
 
-  const match = await findMatch({
+  const feedTx: FeedTxWithConn = {
     ...transaction,
     date: transaction.date,
     lines: [],
-  } as any)
+  }
+  const match = await findMatch(feedTx)
 
   return NextResponse.json({ ...transaction, match: match || null })
 }

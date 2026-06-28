@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { encryptCredentials, decryptCredentials } from '@/lib/encryption'
+import { encryptCredentials } from '@/lib/encryption'
 
 // Plaid OAuth flow: Step 1 - Get link token
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { action, code } = body
+    const { action } = body
 
     if (action === 'link_token') {
       // In production, call Plaid API to get link token

@@ -1,6 +1,25 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { decryptCredentials } from '@/lib/encryption'
+import type { Prisma } from '@prisma/client'
+
+interface StripeCharge {
+  id: string
+  created: number
+  description?: string | null
+  statement_descriptor?: string | null
+  billing_details?: { name?: string | null }
+  amount: number
+  currency: string
+}
+
+interface PayPalTransaction {
+  id: string
+  transaction_date?: string
+  transaction_note?: string
+  payer?: { name?: { given_name?: string | null } }
+  amount?: { value?: string; currency_code?: string }
+}
 
 async function syncStripe(connection: { id: string; credentials: string | null }) {
   if (!connection.credentials) {
@@ -29,7 +48,7 @@ async function syncStripe(connection: { id: string; credentials: string | null }
   const data = await response.json()
   let imported = 0
 
-  for (const charge of data.data || []) {
+  for (const charge of (data.data || []) as StripeCharge[]) {
     const exists = await prisma.feedTransaction.findUnique({
       where: { connectionId_externalId: { connectionId: connection.id, externalId: charge.id } },
     })
@@ -40,11 +59,11 @@ async function syncStripe(connection: { id: string; credentials: string | null }
         connectionId: connection.id,
         externalId: charge.id,
         date: new Date(charge.created * 1000),
-        description: charge.description || charge.statement_descriptor,
-        merchant: charge.billing_details?.name || charge.description,
+        description: charge.description || charge.statement_descriptor || 'Stripe charge',
+        merchant: charge.billing_details?.name || charge.description || null,
         amount: charge.amount / 100,
         currency: charge.currency,
-        rawData: { charge } as any,
+        rawData: { charge: { ...charge } } as Prisma.InputJsonValue,
         status: 'pending',
       },
     })
@@ -78,24 +97,24 @@ async function syncPayPal(connection: { id: string; credentials: string | null }
   const data = await response.json()
   let imported = 0
 
-  for (const transaction of data.transactions || []) {
+  for (const transaction of (data.transactions || []) as PayPalTransaction[]) {
     const exists = await prisma.feedTransaction.findUnique({
       where: { connectionId_externalId: { connectionId: connection.id, externalId: transaction.id } },
     })
     if (exists) continue
 
-    const amount = Math.abs(parseFloat(transaction.amount?.value || 0))
+    const amount = Math.abs(parseFloat(transaction.amount?.value || '0'))
 
     await prisma.feedTransaction.create({
       data: {
         connectionId: connection.id,
-        externalId: transaction.id,
+        externalId: transaction.id || '',
         date: new Date(transaction.transaction_date || Date.now()),
-        description: transaction.transaction_note,
-        merchant: transaction.payer?.name?.given_name || transaction.transaction_note,
+        description: transaction.transaction_note || 'PayPal transaction',
+        merchant: transaction.payer?.name?.given_name || transaction.transaction_note || null,
         amount,
         currency: transaction.amount?.currency_code || 'USD',
-        rawData: { transaction } as any,
+        rawData: { transaction: { ...transaction } } as Prisma.InputJsonValue,
         status: 'pending',
       },
     })

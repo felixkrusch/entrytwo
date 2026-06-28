@@ -83,14 +83,15 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode }: 
 
   useEffect(() => {
     let mounted = true
-    const run = () => { if (mounted) loadPL() }
-    run()
+    const run = () => { if (mounted) void loadPL() }
+    void run()
     const handler = () => run()
     window.addEventListener('journal-updated', handler)
     return () => {
       mounted = false
       window.removeEventListener('journal-updated', handler)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   if (loading) {

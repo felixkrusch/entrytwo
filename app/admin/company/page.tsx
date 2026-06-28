@@ -7,17 +7,10 @@ type SettingsValue = { value?: string } | Record<string, unknown>
 
 interface Address {
   country?: string
-  region?: string // full ISO 3166-2 e.g. "CA-ON"
-}
-
-interface Setting {
-  id: string
-  key: string
-  value: SettingsValue
+  region?: string
 }
 
 export default function CompanySettingsPage() {
-  const [settings, setSettings] = useState<Setting[]>([])
   const [loading, setLoading] = useState(true)
 
   const [companyName, setCompanyName] = useState('')
@@ -31,19 +24,18 @@ export default function CompanySettingsPage() {
       const s = await res.json()
       if (!Array.isArray(s)) return
 
-      // Keeping settings state in sync (used by other hooks/effects)
-      setSettings(s)
+      const getSettingValue = (key: string): string => {
+        const setting = s.find((x: { key: string; value: { value?: string } | Record<string, unknown> }) => x.key === key)
+        return ((setting?.value as { value?: string })?.value) || ''
+      }
 
-      const name = ((s.find((x: Setting) => x.key === 'company.name')?.value as SettingsValue)?.value as string) || ''
-      const addrRaw = s.find((x: Setting) => x.key === 'company.address')?.value as SettingsValue
+      const addrRaw = s.find((x: { key: string; value: SettingsValue }) => x.key === 'company.address')?.value as SettingsValue
       const addr: Address = (addrRaw && typeof addrRaw === 'object' && !Array.isArray(addrRaw)) ? addrRaw as Address : {}
-      const bc = ((s.find((x: Setting) => x.key === 'baseCurrency')?.value as SettingsValue)?.value as string) || 'EUR'
-      const jur = ((s.find((x: Setting) => x.key === 'defaultTaxJurisdiction')?.value as SettingsValue)?.value as string) || ''
 
-      setCompanyName(name)
+      setCompanyName(getSettingValue('company.name'))
       setAddress(addr)
-      setBaseCurrency(bc)
-      setDefaultTaxJurisdiction(jur)
+      setBaseCurrency(getSettingValue('baseCurrency') || 'EUR')
+      setDefaultTaxJurisdiction(getSettingValue('defaultTaxJurisdiction'))
     } catch {
       // ignore
     } finally {
@@ -78,13 +70,12 @@ export default function CompanySettingsPage() {
   const handleCountryChange = (country: string) => {
     const newAddr: Address = { country }
     const suggestedCurrency = getSuggestedCurrency(country)
-    const suggestedJur = country // start with country; region will refine it
+    const suggestedJur = country
 
     setAddress(newAddr)
     setBaseCurrency(suggestedCurrency)
     setDefaultTaxJurisdiction(suggestedJur)
 
-    // persist all three
     void saveAddress(newAddr)
     void save('baseCurrency', suggestedCurrency)
     void save('defaultTaxJurisdiction', suggestedJur)
@@ -92,7 +83,6 @@ export default function CompanySettingsPage() {
 
   const handleRegionChange = (region: string) => {
     const newAddr: Address = { ...address, region }
-    // jurisdiction becomes the full region code when a region is chosen
     const newJur = region
 
     setAddress(newAddr)

@@ -97,7 +97,7 @@ async function createBackup(): Promise<{ path: string; success: boolean }> {
 
 export async function POST(request: Request) {
   const body = await request.json()
-  const { action, createBackup = true } = body
+  const { action } = body
 
   if (action === 'backup-only') {
     const { path, success } = await createBackup()
@@ -123,14 +123,12 @@ export async function POST(request: Request) {
     }))
 
     let backupPath = ''
-    if (createBackup) {
-      const backup = await createBackup()
-      if (!backup.success) {
-        await releaseLock()
-        return NextResponse.json({ error: 'Backup failed - update aborted for safety' }, { status: 500 })
-      }
-      backupPath = backup.path
+    const backup = await createBackup()
+    if (!backup.success) {
+      await releaseLock()
+      return NextResponse.json({ error: 'Backup failed - update aborted for safety' }, { status: 500 })
     }
+    backupPath = backup.path
 
     await writeFile(LOCK_FILE, JSON.stringify({ 
       pid: process.pid, 

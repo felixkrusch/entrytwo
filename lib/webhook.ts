@@ -20,9 +20,8 @@ export function verifyStripeSignature(body: string, signature: string | null, se
   }
 }
 
-export function verifyPaypalSignature(body: string, headers: Record<string, string | null>, webhookId: string): boolean {
+export function verifyPaypalSignature(body: string, headers: Record<string, string | null>): boolean {
   const certUrl = headers['paypal-cert-url']
-  const authAlgo = headers['paypal-auth-algo']
   const transmissionId = headers['paypal-transmission-id']
   const transmissionTime = headers['paypal-transmission-time']
   const transmissionSig = headers['paypal-transmission-sig']

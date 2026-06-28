@@ -1,6 +1,4 @@
-'use client'
-
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useTranslations } from 'next-intl'
 import { useNewEntry, type NewEntrySuggestion } from './NewEntryContext'
 
@@ -25,7 +23,7 @@ export default function TemplatesPanel() {
   const [showAdd, setShowAdd] = useState(false)
   const [newName, setNewName] = useState('')
 
-  const fetchTemplates = async () => {
+  const fetchTemplates = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -38,16 +36,16 @@ export default function TemplatesPanel() {
     } finally {
       setLoading(false)
     }
-  }
-
-  useEffect(() => {
-    fetchTemplates()
-    const handler = () => fetchTemplates()
-    window.addEventListener('journal-updated', handler)
-    return () => window.removeEventListener('journal-updated', handler)
   }, [])
 
-  const useTemplate = (tpl: Template) => {
+  useEffect(() => {
+    void fetchTemplates()
+    const handler = () => void fetchTemplates()
+    window.addEventListener('journal-updated', handler)
+    return () => window.removeEventListener('journal-updated', handler)
+  }, [fetchTemplates])
+
+  const handleUseTemplate = (tpl: Template) => {
     const suggestion: NewEntrySuggestion = {
       description: tpl.description,
       lines: tpl.lines.map(l => ({
@@ -113,12 +111,12 @@ export default function TemplatesPanel() {
                 <div className="text-xs text-zinc-500">{tpl.description || tpl.lines.length + ' line(s)'}</div>
               </div>
               <div className="flex gap-1">
-                <button
-                  onClick={() => useTemplate(tpl)}
-                  className="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 hover:bg-emerald-900"
-                >
-                  Use
-                </button>
+<button
+                   onClick={() => handleUseTemplate(tpl)}
+                   className="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 hover:bg-emerald-900"
+                 >
+                   Use
+                 </button>
                 <button
                   onClick={() => deleteTemplate(tpl.id)}
                   className="text-xs px-2 py-0.5 rounded bg-rose-950 text-rose-400 hover:bg-rose-900"

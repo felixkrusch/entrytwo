@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { findMatch, learnMerchant } from '@/lib/matching'
+import type { FeedTransaction } from '@prisma/client'
+
+interface FeedTxWithConn extends FeedTransaction {
+  connection: { accountId: string; provider: string | null } | null
+  lines?: unknown[]
+}
 
 export async function POST(request: Request) {
   try {
@@ -25,11 +31,12 @@ export async function POST(request: Request) {
     }
 
     if (action === 'match') {
-      const match = await findMatch({
+      const feedTx: FeedTxWithConn = {
         ...tx,
         date: new Date(tx.date),
         lines: [],
-      } as any)
+      }
+      const match = await findMatch(feedTx)
 
       if (match?.suggestedEntry) {
         const entry = await prisma.journalEntry.create({

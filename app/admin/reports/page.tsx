@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useTranslations } from 'next-intl'
 import { formatCurrency } from '@/lib/utils'
 
@@ -29,7 +29,7 @@ export default function ReportsPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
 
-  const fetchReports = async () => {
+  const fetchReports = useCallback(async () => {
     setLoading(true)
     try {
       const [bsRes, plRes] = await Promise.all([
@@ -51,11 +51,11 @@ export default function ReportsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [dateFrom, dateTo])
 
   useEffect(() => {
-    void fetchReports()
-  }, [])
+     void fetchReports()
+   }, [fetchReports])
 
   return (
     <div>

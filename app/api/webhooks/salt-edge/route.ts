@@ -6,7 +6,7 @@ import { encryptCredentials } from '@/lib/encryption'
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { action, code } = body
+    const { action } = body
 
     if (action === 'connect') {
       const appId = process.env.SALTEDGE_APP_ID

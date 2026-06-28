@@ -2,12 +2,6 @@
 
 import { useEffect, useState } from 'react'
 
-interface Setting {
-  id: string
-  key: string
-  value: { value?: string } | Record<string, unknown>
-}
-
 interface TaxRateInput {
   name: string
   rate: number
@@ -22,7 +16,6 @@ interface TaxRateRow {
 }
 
 export default function TaxSettingsPage() {
-  const [settings, setSettings] = useState<Setting[]>([])
   const [rates, setRates] = useState<TaxRateRow[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -60,13 +53,10 @@ export default function TaxSettingsPage() {
 
   const fetchData = async () => {
     try {
-      const [sRes, tRes] = await Promise.all([
-        fetch('/api/settings'),
+      const [tRes] = await Promise.all([
         fetch('/api/tax-rates'),
       ])
-      const s = await sRes.json()
       const t = await tRes.json()
-      if (Array.isArray(s)) setSettings(s)
       if (Array.isArray(t)) setRates(t)
     } catch {
       // ignore

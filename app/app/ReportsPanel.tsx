@@ -66,10 +66,8 @@ export default function ReportsPanel({ onFilterAccount, currentFilterCode }: Rep
 
   useEffect(() => {
     let mounted = true
-    const doFetch = () => {
-      if (mounted) fetchBalances()
-    }
-    doFetch()
+    const doFetch = () => { if (mounted) void fetchBalances() }
+    void doFetch()
 
     const handler = () => doFetch()
     window.addEventListener('journal-updated', handler)
@@ -77,6 +75,7 @@ export default function ReportsPanel({ onFilterAccount, currentFilterCode }: Rep
       mounted = false
       window.removeEventListener('journal-updated', handler)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const balances = data?.accounts || []

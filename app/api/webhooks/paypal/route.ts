@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import type { Prisma } from '@prisma/client'
 
+// PayPal webhook endpoint
 export async function POST(request: Request) {
   const body = await request.text()
 
@@ -60,7 +62,7 @@ async function handlePaypalEvent(data: Record<string, unknown>) {
       merchant: (merchantInfo.name as string) || (resource.partner_name as string) || (resource.payer_name as string),
       amount,
       currency,
-      rawData: { type: eventType, ...(resource as any) } as any,
+      rawData: { type: eventType, ...(resource as Record<string, unknown>) } as Prisma.InputJsonValue,
       status: 'pending',
     },
   })
