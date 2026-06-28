@@ -288,7 +288,7 @@ AI: "ACME GmbH hasn't paid. Historical late payment rate 23% (vs 3% industry avg
 - **Preview**: Real-time logo position/color contrast checker
 
 #### Font Selection
-- **Primary Fonts**: Inter, Lato, Roboto (clean, modern, excellent readability)
+- **Primary Fonts**: Geist (system-like, excellent), Inter, Lato, Roboto (clean, modern, excellent readability)
 - **Secondary Fonts**: Georgia, Merriweather (classic serif option)
 - **Font Pairing**: One for headers, one for body (automatically suggested)
 - **PDF Embedding**: Fonts embedded for consistent rendering
@@ -365,6 +365,33 @@ EntryTwo Invoice (your brand)              Stripe/PayPal Invoice (limited brandi
 2. **EntryTwo PDF + Payment Link**: Stripe checkout (your brand)
 3. **EntryTwo PDF + PayPal Button**: PayPal hosted checkout
 4. **EntryTwo PDF + All Methods**: Customer chooses preferred
+
+---
+
+## Environment Configuration (Security)
+
+### API Key Storage
+**Stripe/PayPal API keys stored in `.env` for security:**
+```bash
+# .env.local
+STRIPE_SECRET_KEY=sk_live_...       # Encrypted at rest
+STRIPE_WEBHOOK_SECRET=whsec_...     # For webhook signature verification
+PAYPAL_CLIENT_ID=...                  # If PayPal enabled
+PAYPAL_SECRET=...                     # If PayPal enabled
+```
+
+**Why .env over Admin Settings:**
+- Secret keys should never touch database (even encrypted)
+- Prevents accidental exposure in database backups
+- Auditable access via server logs only
+- Admin UI shows connection status only (connected/disconnected)
+
+### Admin Settings (Connection Only)
+Admin UI shows and tests connection, but secrets stored in environment:
+- Display: Connected/Disconnected status
+- Test: "Verify Connection" button
+- Features enabled/disabled based on key presence
+- Webhook endpoint shown for setup
 
 ---
 
