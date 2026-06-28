@@ -193,6 +193,43 @@ When creating journal entries from chat/PDF:
 - **Priority:** High (Phase 3 core feature)
 - **Estimated effort:** 3-4 hours
 
+## Industry-Leading Features (Beyond MVP)
+
+### AI-Powered Contact Intelligence
+- **Smart matching**: Extract contact info from signatures in emails/PDFs using NLP
+- **Domain auto-detection**: Infer contact type from industry keywords (e.g., "hotel" → VENDOR travel, "agency" → CUSTOMER revenue)
+- **Auto-categorization**: Learn from journal entry patterns to suggest default accounts/tax rates per contact
+- **Payment prediction**: Based on historical data, predict when invoices typically pay
+
+### Advanced Deduplication
+- **Fuzzy company name matching**: "Acme Corp" vs "Acme Corporation" vs "Acme GmbH"
+- **Multi-field scoring**: Combine name, email domain, phone, tax ID scores
+- **Merge suggestions**: Show potential duplicates with similarity percentages
+- **Bulk merge UI**: Select primary + merge multiple duplicates at once
+
+### Contact Portals (Client-Facing)
+- **Self-service invoices**: Contacts can view/pay outstanding invoices
+- **Payment notifications**: Webhooks for payment status updates
+- **Document vault**: Customers vendors upload receipts/invoices directly
+
+### Integration Ecosystem
+- **CRM sync**: Two-way sync with HubSpot, Salesforce, Pipedrive
+- **Email integration**: Click-to-email with template suggestions
+- **Calendar integration**: Payment reminders in Google Calendar/Outlook
+- **Bank transaction linking**: Auto-suggest contacts for unlabeled transactions
+
+### Analytics & Insights
+- **Customer lifetime value**: Track revenue per customer over time
+- **Vendor spend analysis**: Identify top vendors by category
+- **Credit risk scoring**: Based on payment delays, industry patterns
+- **Tax compliance dashboard**: Highlight contacts with missing tax IDs in EU
+
+### Compliance Features
+- **GDPR data export**: One-click export of all contact data
+- **Audit trail**: Every contact change logged with reason
+- **Tax ID validation**: Verify VAT numbers via EU VIES API
+- **Export CSV/VCF**: Standard formats for accounting handover
+
 ## Future (Phase 4+)
 - Full Invoice model with PDF generation
 - Payment matching to bank feeds
