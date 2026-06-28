@@ -22,7 +22,18 @@ interface BackupData {
         fxRateToBase?: number
         fxSource?: string
         fxDate?: string
+        contactId?: string
       }>
+    }>
+    contacts?: Array<{
+      name: string
+      email?: string
+      type: string
+      phone?: string
+      address?: string
+      taxId?: string
+      currency?: string
+      notes?: string
     }>
     settings?: Array<{ key: string; value: unknown }>
     templates?: Array<{ name: string; description?: string; lines: unknown }>
@@ -36,7 +47,6 @@ export async function POST(request: Request) {
     const body = await request.json() as BackupData
     const data = body.data
 
-    // Import in order to respect foreign keys
     for (const account of data.accounts || []) {
       await prisma.account.upsert({
         where: { code: account.code },
@@ -64,6 +74,37 @@ export async function POST(request: Request) {
       })
     }
 
+    for (const contact of data.contacts || []) {
+      const existing = await prisma.contact.findFirst({ where: { name: contact.name } })
+      if (existing) {
+        await prisma.contact.update({
+          where: { id: existing.id },
+          data: {
+            email: contact.email,
+            type: contact.type,
+            phone: contact.phone,
+            address: contact.address,
+            taxId: contact.taxId,
+            currency: contact.currency,
+            notes: contact.notes,
+          },
+        })
+      } else {
+        await prisma.contact.create({
+          data: {
+            name: contact.name,
+            email: contact.email,
+            type: contact.type,
+            phone: contact.phone,
+            address: contact.address,
+            taxId: contact.taxId,
+            currency: contact.currency,
+            notes: contact.notes,
+          },
+        })
+      }
+    }
+
     for (const journal of data.journalEntries || []) {
       await prisma.journalEntry.create({
         data: {
@@ -80,6 +121,7 @@ export async function POST(request: Request) {
               currency: line.currency || 'EUR',
               fxRateToBase: line.fxRateToBase,
               fxSource: line.fxSource,
+              contactId: line.contactId,
             })),
           },
         },
@@ -111,6 +153,7 @@ export async function POST(request: Request) {
       accounts: data.accounts?.length || 0,
       taxRates: data.taxRates?.length || 0,
       journalEntries: data.journalEntries?.length || 0,
+      contacts: data.contacts?.length || 0,
       settings: data.settings?.length || 0,
       templates: data.templates?.length || 0,
     } })

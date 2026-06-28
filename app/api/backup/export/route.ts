@@ -1,34 +1,13 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const [accounts, taxRates, journalEntries, events, settings, templates] = await Promise.all([
-      prisma.account.findMany({ select: { id: true, code: true, name: true, type: true, description: true, createdAt: true, updatedAt: true } }),
-      prisma.taxRate.findMany({ select: { id: true, jurisdiction: true, name: true, rate: true, taxType: true, effectiveFrom: true, effectiveTo: true, createdAt: true } }),
-      prisma.journalEntry.findMany({
-        include: {
-          lines: {
-            select: {
-              accountId: true,
-              debit: true,
-              credit: true,
-              description: true,
-              taxRateId: true,
-              taxIsInput: true,
-              currency: true,
-              fxRateToBase: true,
-              fxSource: true,
-              account: { select: { code: true } },
-              taxRate: { select: { id: true, jurisdiction: true, name: true } },
-            },
-          },
-        },
-      }),
-      prisma.event.findMany({ select: { id: true, eventType: true, entityType: true, entityId: true, payload: true, createdAt: true, createdBy: true } }),
-      prisma.setting.findMany({ select: { id: true, key: true, value: true, createdAt: true, updatedAt: true } }),
-      prisma.template.findMany({ select: { id: true, name: true, description: true, lines: true, createdAt: true, updatedAt: true }, orderBy: { createdAt: 'desc' } }),
-    ])
+    const url = new URL(request.url)
+    const entitiesParam = url.searchParams.get('entities')
+    const requestedEntities = entitiesParam 
+      ? entitiesParam.split(',') as Array<'accounts' | 'taxRates' | 'journalEntries' | 'contacts' | 'templates' | 'settings'>
+      : ['accounts', 'taxRates', 'journalEntries', 'contacts', 'templates', 'settings']
 
     const toPlain = (val: unknown) => {
       if (val && typeof val === 'object' && 'toNumber' in val && typeof (val as { toNumber: () => number }).toNumber === 'function') {
@@ -49,17 +28,72 @@ export async function GET() {
       return toPlain(obj)
     }
 
+    const data: Record<string, unknown> = {}
+
+    if (requestedEntities.includes('accounts')) {
+      const accounts = await prisma.account.findMany({
+        select: { id: true, code: true, name: true, type: true, description: true, createdAt: true, updatedAt: true }
+      })
+      data.accounts = serialize(accounts)
+    }
+
+    if (requestedEntities.includes('taxRates')) {
+      const taxRates = await prisma.taxRate.findMany({
+        select: { id: true, jurisdiction: true, name: true, rate: true, taxType: true, effectiveFrom: true, effectiveTo: true, createdAt: true }
+      })
+      data.taxRates = serialize(taxRates)
+    }
+
+    if (requestedEntities.includes('journalEntries')) {
+      const journalEntries = await prisma.journalEntry.findMany({
+        include: {
+          lines: {
+            select: {
+              accountId: true,
+              debit: true,
+              credit: true,
+              description: true,
+              taxRateId: true,
+              taxIsInput: true,
+              currency: true,
+              fxRateToBase: true,
+              fxSource: true,
+              contactId: true,
+              account: { select: { code: true } },
+              taxRate: { select: { id: true, jurisdiction: true, name: true } },
+            },
+          },
+        },
+      })
+      data.journalEntries = serialize(journalEntries)
+    }
+
+    if (requestedEntities.includes('contacts')) {
+      const contacts = await prisma.contact.findMany({
+        select: { id: true, name: true, email: true, type: true, phone: true, address: true, taxId: true, currency: true, notes: true, vatValidated: true, vatValidatedAt: true, createdAt: true, updatedAt: true }
+      })
+      data.contacts = serialize(contacts)
+    }
+
+    if (requestedEntities.includes('templates')) {
+      const templates = await prisma.template.findMany({
+        select: { id: true, name: true, description: true, lines: true, createdAt: true, updatedAt: true },
+        orderBy: { createdAt: 'desc' }
+      })
+      data.templates = serialize(templates)
+    }
+
+    if (requestedEntities.includes('settings')) {
+      const settings = await prisma.setting.findMany({
+        select: { id: true, key: true, value: true, createdAt: true, updatedAt: true }
+      })
+      data.settings = serialize(settings)
+    }
+
     const exportData = {
       version: '1.0',
       exportedAt: new Date().toISOString(),
-      data: {
-        accounts: serialize(accounts),
-        taxRates: serialize(taxRates),
-        journalEntries: serialize(journalEntries),
-        events: serialize(events),
-        settings: serialize(settings),
-        templates: serialize(templates),
-      },
+      data,
     }
 
     return NextResponse.json(exportData)
