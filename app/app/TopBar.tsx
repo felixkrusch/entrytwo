@@ -32,12 +32,12 @@ export default function TopBar({ showSettings = false }: TopBarProps) {
 
   return (
     <div className="h-11 border-b border-zinc-800 bg-zinc-950 flex items-center px-4 justify-between shrink-0">
-      <div className="flex items-center gap-4">
-        <Link href="/app" className="flex items-baseline gap-2 hover:opacity-80 transition-opacity">
-          <span className="font-semibold tracking-tight">entrytwo</span>
-          <span className="text-xs text-zinc-500">AI Accountant • Phase 0/1</span>
-        </Link>
-        
+      <Link href="/app" className="flex items-baseline gap-2 hover:opacity-80 transition-opacity">
+        <span className="font-semibold tracking-tight">entrytwo</span>
+        <span className="text-xs text-zinc-500">AI Accountant • Phase 0/1</span>
+      </Link>
+
+      <div className="flex items-center gap-2">
         <nav className="flex items-center gap-1">
           {navItems.map((item) => {
             const Icon = item.icon
@@ -58,17 +58,17 @@ export default function TopBar({ showSettings = false }: TopBarProps) {
             )
           })}
         </nav>
-      </div>
 
-      {showSettings && isAdmin && (
-        <Link
-          href="/admin"
-          className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
-          title="Admin & Settings"
-        >
-          <Settings className="w-4 h-4" />
-        </Link>
-      )}
+        {showSettings && isAdmin && (
+          <Link
+            href="/admin"
+            className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
+            title="Admin & Settings"
+          >
+            <Settings className="w-4 h-4" />
+          </Link>
+        )}
+      </div>
     </div>
   )
 }
