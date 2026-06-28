@@ -97,6 +97,26 @@ interface ContactForm {
 - Names: Full UTF-8 support for international characters
 - Addresses: Multi-line text area, no specific format
 
+### 5.5 VAT ID Validation Implementation
+For EU customers/vendors, validate VAT IDs via the official VIES web service:
+
+**Endpoint**: `GET /api/contacts/validate-vat?vatId=DE276452187&countryCode=DE`
+
+**Process**:
+1. Extract country code from VAT ID (first 2 chars) or use `countryCode` param
+2. Call EU VIES SOAP service (or use a proxy like `viesapi.eu` for reliability)
+3. Cache validation result for 30 days (VAT status rarely changes)
+4. Store validation result on contact:
+   - `vatValidated: boolean`
+   - `vatValidatedAt: DateTime`
+   - `vatValid: boolean` (from VIES)
+
+**UI flow**:
+- When user enters VAT ID, auto-validate on blur
+- Show green checkmark (valid), red X (invalid), or gray question (unknown country)
+- "Validate now" button if auto-check skipped
+- Warning when creating invoice for contact with invalid/missing VAT (EU cross-border)
+
 ### 6. AI Chat Integration for Invoices
 
 #### 6.1 Auto-Contact Creation from PDF (existing `/api/invoices/process`)
@@ -154,6 +174,7 @@ When creating journal entries from chat/PDF:
 - `app/api/contacts/route.ts` - List + create
 - `app/api/contacts/[id]/route.ts` - Update + delete
 - `app/api/contacts/lookup-or-create/route.ts` - Find or create helper
+- `app/api/contacts/validate-vat/route.ts` - VAT validation
 - `app/contacts/page.tsx` - Main page UI
 - `app/contacts/layout.tsx` - Layout with TopBar (exists)
 - `messages/en.json` - Add `contacts` translations
@@ -184,7 +205,11 @@ When creating journal entries from chat/PDF:
   "deleteBlocked": "Cannot delete: contact has journal entries",
   "viewEntries": "View entries",
   "contactCreated": "Contact created from invoice",
-  "invoiceCreated": "Invoice draft created"
+  "invoiceCreated": "Invoice draft created",
+  "vatValid": "VAT valid",
+  "vatInvalid": "VAT invalid",
+  "vatUnknown": "VAT unknown",
+  "validateVat": "Validate VAT"
 }
 ```
 
@@ -210,7 +235,7 @@ When creating journal entries from chat/PDF:
 ### Contact Portals (Client-Facing)
 - **Self-service invoices**: Contacts can view/pay outstanding invoices
 - **Payment notifications**: Webhooks for payment status updates
-- **Document vault**: Customers vendors upload receipts/invoices directly
+- **Document vault**: Customers vendors upload receipts/inoices directly
 
 ### Integration Ecosystem
 - **CRM sync**: Two-way sync with HubSpot, Salesforce, Pipedrive
@@ -222,12 +247,12 @@ When creating journal entries from chat/PDF:
 - **Customer lifetime value**: Track revenue per customer over time
 - **Vendor spend analysis**: Identify top vendors by category
 - **Credit risk scoring**: Based on payment delays, industry patterns
-- **Tax compliance dashboard**: Highlight contacts with missing tax IDs in EU
+- **Tax compliance dashboard**: Highlight contacts with missing/invalid tax IDs in EU
 
 ### Compliance Features
 - **GDPR data export**: One-click export of all contact data
 - **Audit trail**: Every contact change logged with reason
-- **Tax ID validation**: Verify VAT numbers via EU VIES API
+- **VAT ID validation**: Verify VAT numbers via EU VIES API
 - **Export CSV/VCF**: Standard formats for accounting handover
 
 ## Future (Phase 4+)
