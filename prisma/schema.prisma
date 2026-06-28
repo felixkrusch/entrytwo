@@ -72,6 +72,7 @@ model Contact {
   website        String?   // Company website URL
   currency       String?   // Preferred currency (ISO 4217), fallback to company default
   notes          String?   // Internal notes
+  vatValid       Boolean?  // Whether VAT validation passed
   vatValidated   Boolean   @default(false)
   vatValidatedAt DateTime?
   createdAt      DateTime  @default(now())

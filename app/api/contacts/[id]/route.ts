@@ -16,6 +16,7 @@ const ContactUpdateSchema = z.object({
   taxId: z.string().optional().nullable(),
   currency: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  website: z.string().url().optional().nullable(),
 })
 
 export async function PUT(

@@ -54,20 +54,30 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  try {
-    const body = await request.json()
-    const { contactId, vatValid } = body
+  const body = await request.json()
+  const { contactId, vatValid, vatId, address } = body
 
-    if (!contactId || typeof vatValid !== 'boolean') {
-      return NextResponse.json({ error: 'contactId and vatValid required' }, { status: 400 })
+  if (!contactId || typeof vatValid !== 'boolean') {
+    return NextResponse.json({ error: 'contactId and vatValid required' }, { status: 400 })
+  }
+
+  try {
+    const updateData: Record<string, unknown> = {
+      vatValidated: true,
+      vatValid,
+      vatValidatedAt: new Date(),
     }
+
+    // Auto-fill contact data from VIES response
+    if (vatId) updateData.taxId = vatId
+    if (address?.street) updateData.addressStreet = address.street
+    if (address?.city) updateData.addressCity = address.city
+    if (address?.postalCode) updateData.addressZip = address.postalCode
+    if (address?.countryCode) updateData.addressCountry = address.countryCode
 
     const contact = await prisma.contact.update({
       where: { id: contactId },
-      data: {
-        vatValidated: true,
-        vatValidatedAt: new Date(),
-      },
+      data: updateData,
     })
 
     return NextResponse.json({ contact, updated: true })

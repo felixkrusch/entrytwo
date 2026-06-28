@@ -234,7 +234,6 @@ const COUNTRY_CODES = [
 type CountryCode = typeof COUNTRY_CODES[number]
 
 function ContactsContent() {
-  const t = useTranslations('app.panels')
   const [contacts, setContacts] = useState<ContactItem[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -361,6 +360,36 @@ function ContactsContent() {
     return parts.length > 0 ? parts.join(', ') : null
   }
 
+  const validateVat = async (vatId: string) => {
+    try {
+      const res = await fetch(`/api/contacts/validate-vat?vatId=${encodeURIComponent(vatId)}`)
+      const data = await res.json()
+      if (data.valid === true) {
+        // Find contact with this taxId
+        const contact = contacts.find(c => c.taxId === vatId)
+        if (contact) {
+          await fetch(`/api/contacts/validate-vat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contactId: contact.id, vatValid: true, vatId: data.vatId, address: data.address }),
+          })
+        }
+      }
+      void fetchContacts()
+    } catch {
+      // ignore
+    }
+  }
+
+  const deleteContact = async (contactId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    if (!confirm('Delete this contact? This cannot be undone if they have related entries.')) return
+    await fetch(`/api/contacts/${contactId}`, { method: 'DELETE' })
+    setShowAddModal(false)
+    resetForm()
+    void fetchContacts()
+  }
+
   const filteredContacts = useMemo(() => {
     return contacts.filter(c => {
       if (typeFilter !== 'ALL' && c.type !== typeFilter) return false
@@ -448,11 +477,25 @@ function ContactsContent() {
                       {formatAddress(contact)}
                     </span>
                   )}
+                  {contact.website && (
+                    <a href={contact.website} className="text-xs text-blue-400 hover:underline mt-1 block" onClick={e => e.stopPropagation()} target="_blank" rel="noopener noreferrer">
+                      {contact.website}
+                    </a>
+                  )}
                   {contact.taxId && (
                     <span className="text-xs text-zinc-400 mt-1 block">Tax: {contact.taxId}</span>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col items-end gap-1">
+                  {contact.taxId && (
+                    <button
+                      onClick={e => { e.stopPropagation(); void validateVat(contact.taxId!) }}
+                      className="text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                      title="Validate VAT"
+                    >
+                      Verify VAT
+                    </button>
+                  )}
                   {contact.vatValidated !== undefined && (
                     <span className={`text-xs ${contact.vatValid ? 'text-emerald-400' : 'text-rose-400'}`} title={contact.vatValid ? 'VAT valid' : 'VAT invalid'} onClick={e => e.stopPropagation()}>
                       {contact.vatValid ? '✓' : '✗'}
@@ -618,20 +661,28 @@ function ContactsContent() {
                 />
               </div>
             </div>
-            <div className="flex gap-2 mt-6">
-              <button
-                onClick={saveContact}
-                className="flex-1 px-4 py-2 rounded bg-emerald-500 text-black font-medium"
-              >
-                {editingContact ? 'Save Contact' : 'Add Contact'}
-              </button>
-              <button
-                onClick={() => { setShowAddModal(false); resetForm() }}
-                className="px-4 py-2 rounded bg-zinc-800 text-zinc-300"
-              >
-                Cancel
-              </button>
-            </div>
+<div className="flex gap-2 mt-6">
+               {editingContact && (
+                 <button
+                   onClick={e => void deleteContact(editingContact.id, e)}
+                   className="px-3 py-2 rounded bg-rose-900/50 text-rose-400 hover:bg-rose-900/70"
+                 >
+                   Delete
+                 </button>
+               )}
+               <button
+                 onClick={saveContact}
+                 className="flex-1 px-4 py-2 rounded bg-emerald-500 text-black font-medium"
+               >
+                 {editingContact ? 'Save Contact' : 'Add Contact'}
+               </button>
+               <button
+                 onClick={() => { setShowAddModal(false); resetForm() }}
+                 className="px-4 py-2 rounded bg-zinc-800 text-zinc-300"
+               >
+                 Cancel
+               </button>
+             </div>
           </div>
         </div>
       )}

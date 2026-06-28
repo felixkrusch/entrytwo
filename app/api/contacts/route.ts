@@ -12,11 +12,12 @@ const ContactSchema = z.object({
   addressCity: z.string().max(100).optional(),
   addressState: z.string().max(100).optional(),
   addressZip: z.string().max(20).optional(),
-  addressCountry: z.string().length(2).optional(), // ISO 3166-1 alpha-2
+  addressCountry: z.string().length(2).optional(),
   addressLine2: z.string().max(200).optional(),
   taxId: z.string().optional(),
   currency: z.string().optional(),
   notes: z.string().optional(),
+  website: z.string().url().optional(),
 })
 
 export async function GET(request: Request) {
@@ -42,29 +43,29 @@ export async function GET(request: Request) {
       where.type = type
     }
 
-    const [contacts, total] = await Promise.all([
-      prisma.contact.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { name: 'asc' },
-      }),
-      prisma.contact.count({ where }),
-    ])
+const [contacts, total] = await Promise.all([
+       prisma.contact.findMany({
+         where,
+         skip,
+         take: limit,
+         orderBy: { name: 'asc' },
+       }),
+       prisma.contact.count({ where }),
+     ])
 
-    const contactsWithEntryCount = await Promise.all(
-      contacts.map(async c => ({
-        ...c,
-        entryCount: await prisma.journalLine.count({ where: { contactId: c.id } }),
-      }))
-    )
+     const contactsWithEntryCount = await Promise.all(
+       contacts.map(async c => ({
+         ...c,
+         entryCount: await prisma.journalLine.count({ where: { contactId: c.id } }),
+       }))
+     )
 
-    return NextResponse.json({
-      contacts: contactsWithEntryCount,
-      total,
-      page,
-      pages: Math.ceil(total / limit),
-    })
+     return NextResponse.json({
+       contacts: contactsWithEntryCount,
+       total,
+       page,
+       pages: Math.ceil(total / limit),
+     })
   } catch (error) {
     console.error('Error fetching contacts:', error)
     return NextResponse.json({ error: 'Failed to fetch contacts' }, { status: 500 })
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const { name, email, type, phone, addressStreet, addressCity, addressState, addressZip, addressCountry, addressLine2, taxId, currency, notes } = parsed.data
+    const { name, email, type, phone, addressStreet, addressCity, addressState, addressZip, addressCountry, addressLine2, taxId, currency, notes, website } = parsed.data
 
     const contact = await prisma.contact.create({
       data: {
@@ -100,6 +101,7 @@ export async function POST(request: Request) {
         taxId,
         currency,
         notes,
+        website,
       },
     })
 
