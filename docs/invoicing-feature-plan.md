@@ -2,27 +2,32 @@
 
 ## Vision: AI-First Invoicing That Works Like Magic
 
-Invoicing reimagined for the AI era - where creating, sending, and tracking invoices happens through natural conversation with proactive assistance.
+Invoicing reimagined for the AI era - where creating, sending, and tracking invoices happens through natural conversation OR manual creation that feels effortless, with proactive assistance at every step.
+
+---
 
 ## Core Principles
 
-### 1. AI-First Interaction
-- **Natural Language Creation**: "Invoice ACME Corp for $5,000 consulting work completed last week"
+### 1. Dual Creation Modes (Outstanding UX)
+- **AI-First Natural Language**: "Invoice ACME Corp for $5,000 consulting work completed last week"
+- **Manual Creation Deluxe**: Drag-and-drop interface with smart defaults, one-click templates, instant preview
 - **Smart Extraction**: Paste email/PDF receipt → AI creates invoice with line items
-- **Context Awareness**: AI knows your templates, tax rates, customer history, and preferences
-- **Predictive Suggestions**: Based on customer history and typical patterns
+- **Voice Input**: "New invoice for the Johnson project" (mobile-friendly)
+- **Bulk Creation**: CSV import or spreadsheet copy-paste
 
 ### 2. Intelligent Automation
 - **Auto-Categorization**: Line items automatically assigned to accounts/tax rates
 - **Payment Prediction**: AI forecasts when each customer typically pays
 - **Follow-up Automation**: Automatic reminders based on payment history and customer preferences
 - **Revenue Recognition**: Auto-suggest deferral for long-term contracts
+- **Smart Defaults**: Remember last used template, customer preferences, common line items
 
 ### 3. Template Intelligence
 - **Dynamic Templates**: Merge fields, conditional sections, language variants
-- **Industry-Specific**: Pre-built templates for consulting, e-commerce, SaaS, trades
+- **Industry-Specific**: Pre-built templates for consulting, e-commerce, SaaS, trades, agencies
 - **Brand Personalization**: Logo, colors, custom fields stored per customer
 - **Reusable Line Items**: AI suggests frequent items first
+- **Template Analytics**: Which templates get paid fastest, which customers prefer which format
 
 ### 4. Compliance Automation
 - **Tax Validation**: VAT numbers verified automatically for EU customers
@@ -35,90 +40,172 @@ Invoicing reimagined for the AI era - where creating, sending, and tracking invo
 ## Outstanding Features
 
 ### Smart Duplicate Detection
-- Prevent duplicate invoices by comparing amounts, dates, customer, description
+- Fuzzy match on amounts, dates, customer, description within 72 hours
 - Suggest "send reminder" for unpaid invoices before creating new ones
+- Show invoice history overlay when starting new invoice for existing customer
 
-### Payment Intelligence
-- **One-Click Payment Links**: Stripe/PayPal embedded in PDF/email
-- **Payment Matching**: Bank feeds automatically mark invoices as paid
-- **Partial Payment Support**: Track deposits, progress payments
-- **Payment Plans**: Customer can split invoices into scheduled payments
+### Payment Methods (Comprehensive)
+
+#### Stripe Integration (Primary)
+- **Embedded Checkout**: Payment links with quantity adjustments
+- **Dynamic Tax**: Stripe Tax API integration for US sales tax
+- **ACH Payments**: Bank transfers for US customers
+- **Subscriptions**: Built-in recurring billing
+- **Instant Payout**: For faster money movement
+- **Connect**: For marketplace/team scenarios
+- **Stripe Invoicing API**: Full webhook integration (payment_intent.succeeded, invoice.paid, etc.)
+
+#### PayPal Integration (Secondary - EU/International)
+- **Smart Payment Buttons**: PayPal's API for buttons
+- **PayPal Invoicing API**: Create and send PayPal invoices
+- **Currency Flexibility**: Better for certain international markets
+- **Venmo/Zettle**: For US point-of-sale integration
+
+#### Local Payment Methods (EU Focus)
+- **SEPA Direct Debit**: For EU customers with IBAN
+- **QR Code Payments**: 
+  - EPC QR (European Payments Council) for SEPA
+  - Swiss QR Bill
+  - Canadian Interac e-Transfer QR codes
+- **Bank Transfer Display**: Clean IBAN/BIC formatting with copy buttons
 
 ### Communication Flow
 - **Multi-Channel Delivery**: Email, SMS, customer portal, postal (via provider)
 - **Translation Engine**: Invoice auto-translated to customer's language
 - **Personal Notes**: Custom message per customer added automatically
 - **Read Receipts**: Track opens, clicks on payment links
+- **Delivery Confirmation**: Track email delivery status
 
-### Recurring & Subscription
+### Recurring & Subscription Intelligence
 - **Recurring Templates**: Weekly/monthly/yearly with optional modifications
 - **Tiered Pricing**: Different prices for different customer segments
 - **Usage-Based**: Pull data from project/time tracking or subscriptions
 - **Cancellation Management**: Track cancellations, refunds, prorated changes
+- **Proration Preview**: Show next invoice amount before billing cycle change
 
 ### AI-Powered Insights
 - **Cash Flow Forecasting**: Based on historical pay patterns
-- **Late Payment Risk**: Flag customers likely to pay late
+- **Late Payment Risk**: Flag customers likely to pay late (color-coded urgency)
 - **Optimization Suggestions**: "Invoice ABC Corp typically pays in 30 days - send reminder in 5 days"
 - **Tax Deduction Suggestions**: "Consider requesting 50% upfront for this €10k project"
+- **Pricing Insights**: "Your rate for web design is 15% below your typical markup"
+
+---
+
+## Manual Creation Deluxe (Outstanding Experience)
+
+### Lightning-Fast Interface
+- **Typeahead Everything**: Customer search, line item descriptions, tax rates
+- **Smart Keyboard Navigation**: Tab through fields, Enter to add line item
+- **Inline Calculations**: See totals update as you type
+- **One-Click Templates**: Apply with single click, customize after
+
+### Visual Excellence
+- **Real-time PDF Preview**: Side-by-side or overlay
+- **Template Gallery**: Visual preview of all invoice designs
+- **Brand Kit Integration**: Upload once, use everywhere
+- **Dark Mode Preview**: See how PDF looks on dark backgrounds too
+
+### Power Tools
+- **Line Item Snippets**: Save frequently used combinations
+- **Quantity/Time Calculator**: "20 hours at €125/hr" auto-calculates
+- **Tax Override**: Single line item can have different tax rate
+- **Discount Types**: Percentage, fixed, or tiered
 
 ---
 
 ## Technical Integration Points
 
-### Stripe Invoicing (Existing)
-- Templates with line item library
-- Language selector (English, German, French supported)
-- Tax ID display and verification
-- Tax rate support (reverse charge, exempt, standard rates)
-- PDF preview with download
-
-### Enhanced Integrations
-- **Bank Feeds**: Auto-match incoming payments
-- **Contacts**: Pull billing address, preferred language, payment method
+### Full Stack Integration
+- **Bank Feeds**: Auto-match incoming payments, handle partial payments
+- **Contacts**: Pull billing address, preferred language, payment method, VAT status
 - **Journal Entries**: Full accounting integration with proper tax tracking
-- **Reports**: Real-time revenue, outstanding invoices, aging report
+- **Reports**: Real-time revenue, outstanding invoices, aging report, tax obligations
+
+### QR Code Implementation
+```
+EPC QR (Most European Banks):
+- Amount, IBAN, creditor name, purpose code
+- Automatically generated for EU invoices
+- Tested against major banking apps
+
+Swiss QR Bill:
+- Swiss compliance format
+- Available when currency = CHF and recipient in Switzerland
+
+Interac (Canada):
+- Email money transfer friendly
+- QR code includes amount and recipient email
+```
+
+### Stripe Integration Depth
+```
+Features to Implement:
+1. Invoice creation via Stripe API (sync to local DB)
+2. Payment link generation with smart defaults
+3. Stripe Tax calculation for US sales tax
+4. Webhook handling:
+   - invoice.created → create local Invoice
+   - invoice.finalized → enable payment methods
+   - payment_intent.succeeded → mark invoice.paid
+   - payment_intent.payment_failed → mark invoice.failed
+   - charge.refunded → handle partial/full refunds
+5. Customer portal link for existing customers
+6. Subscription sync for recurring invoices
+```
+
+### PayPal Integration (Lean)
+```
+Features to Implement:
+1. PayPal Invoicing API for EU/international customers
+2. QR code generation for PayPal.me links
+3. Webhook handling for payment confirmations
+4. Currency conversion display
+```
 
 ---
 
-## MVP Phase (Phase 4)
-
-### Must-Have
-- [ ] Invoice creation UI with template selector
-- [ ] Line item management (add, edit, remove, reorder)
-- [ ] Tax rate application (including reverse charge for EU)
-- [ ] PDF generation with preview
-- [ ] Email delivery with tracking
-- [ ] Payment status tracking
-- [ ] Basic recurring invoices
-
-### AI Enhancement (Phase 4+)
-- [ ] `/api/invoices/generate` - AI creates invoice from natural language
-- [ ] `/api/invoices/extract` - Parse email/PDF to create invoice
-- [ ] `/api/invoices/remind` - AI suggests optimal reminder timing
-- [ ] `/api/invoices/forecast` - Cash flow predictions
-
----
-
-## API Endpoints (Planned)
+## API Endpoints (Comprehensive)
 
 ```
-GET    /api/invoices                  - List invoices (filter by status, customer, date)
+# Core CRUD
+GET    /api/invoices                  - List with filters (status, customer, date, overdue)
 POST   /api/invoices                  - Create invoice
-GET    /api/invoices/[id]             - Get single invoice
-PUT    /api/invoices/[id]             - Update invoice
-DELETE /api/invoices/[id]             - Cancel invoice
+GET    /api/invoices/[id]             - Get single invoice + payment status
+PUT    /api/invoices/[id]             - Update invoice (drafts only)
+DELETE /api/invoices/[id]             - Cancel/conclude invoice
 
-GET    /api/invoices/templates        - Available templates
+# Templates
+GET    /api/invoices/templates        - List templates with preview images
 POST   /api/invoices/templates        - Create template
+PUT    /api/invoices/templates/[id]   - Update template
+DELETE /api/invoices/templates/[id]   - Delete template
 
-POST   /api/invoices/generate         - AI: Create from natural language
-POST   /api/invoices/extract          - AI: Parse document/email to invoice
+# AI Endpoints
+POST   /api/invoices/generate         - AI creates from natural language
+POST   /api/invoices/extract          - Parse document/email to invoice structure
+POST   /api/invoices/suggest-items    - AI suggests line items based on description
+POST   /api/invoices/analyze-payment  - Customer payment behavior analysis
+
+# Actions
 POST   /api/invoices/send             - Send via email/payment link
-POST   /api/invoices/remind           - Auto-send reminders
-POST   /api/invoices/mark-paid        - Mark invoice as paid (with bank match)
+POST   /api/invoices/remind           - Send reminder (manual or scheduled)
+POST   /api/invoices/mark-paid        - Mark invoice as paid manually
+POST   /api/invoices/cancel           - Cancel invoice with reason
 
+# Payments
+POST   /api/payments/stripe/create    - Create payment intent
+POST   /api/payments/stripe/webhook   - Handle Stripe webhooks
+POST   /api/payments/paypal/create    - Create PayPal invoice
+POST   /api/payments/paypal/webhook   - Handle PayPal webhooks
+
+# QR Codes
+GET    /api/invoices/[id]/qr          - Generate EPC QR / payment QR
+
+# Analytics
 GET    /api/invoices/stats            - Outstanding, overdue, forecast
+GET    /api/invoices/aging            - 30/60/90 day aging report
+GET    /api/invoices/tax-obligations  - Tax report by jurisdiction
 ```
 
 ---
@@ -130,13 +217,31 @@ GET    /api/invoices/stats            - Outstanding, overdue, forecast
 User: "Invoice John for the website work we discussed"
 AI: "I'll create an invoice for $3,500 using your 'Web Design' template. 
      Added your standard 30-day terms. Would you like me to send it now?"
+
+User: "And the mobile app work from last month"
+AI: "Found $2,800 in unbilled time entries for John. Added to invoice.
+     Total: $6,300. Preview updated."
+
+User: "Send it"
+AI: "Invoice sent. Expected payment: July 15-22 (historical average: 18 days).
+     I'll notify you when it clears."
 ```
 
-### Smart Customer Recognition
+### Smart Voice Input
 ```
-User: "Send invoice to ACME GmbH"
-AI: "Found ACME GmbH (DE276452187), VAT verified on 2024-06-15.
-     Their preferred billing language is German. Using 'Consulting' template."
+User (voice): "New invoice for Sarah"
+AI: "Creating invoice for Sarah Chen (Customer). 
+     Previous invoice was for $1,200 on May 15. 
+     What would you like to bill for today?"
+```
+
+### QR Code Magic
+```
+Invoice PDF includes:
+- EPC QR code for SEPA transfer
+- PayPal.me link as backup
+- Copy-paste friendly IBAN: DE44 3704 0044 0532 0130 00
+- Payment reference: REF-2026-0042
 ```
 
 ### Payment Intelligence
@@ -144,12 +249,45 @@ AI: "Found ACME GmbH (DE276452187), VAT verified on 2024-06-15.
 AI: "ACME GmbH typically pays in 12 days. Setting reminder for next week.
      Payment link: https://pay.stripe.com/... 
      I'll notify you when payment clears."
+
+[Two weeks later after no payment]
+AI: "ACME GmbH hasn't paid. Historical late payment rate 23% (vs 3% industry avg).
+     Recommend: Send polite reminder + offer 2% discount for early payment."
 ```
 
 ---
 
 ## Success Metrics
-- Time to create invoice: < 30 seconds for repeat customers
+- Time to create invoice: < 30 seconds for repeat customers (manual)
+- AI adoption: > 50% of invoices created via natural language
 - Payment collection rate: > 95% within agreed terms
 - Customer satisfaction: > 4.5/5 on invoice clarity
 - Automation rate: > 70% of invoices require zero manual edits
+- QR code payment adoption: > 30% in EU markets
+
+---
+
+## Implementation Priority
+
+### Phase 4a: Foundation
+1. Manual invoice creation UI (deluxe experience)
+2. Stripe integration (full webhook handling)
+3. PDF generation with preview
+4. Basic recurring
+
+### Phase 4b: Intelligence
+1. AI generation endpoints
+2. Smart duplicate detection
+3. Payment matching from bank feeds
+4. QR codes (EPC + Interac)
+
+### Phase 4c: Automation
+1. Follow-up automation
+2. Cash flow forecasting
+3. Tax obligation reporting
+4. Subscription sync
+
+### Phase 4d: Global Payments
+1. PayPal integration (for EU markets where preferred)
+2. SEPA direct debit
+3. Multi-language full invoice translation
