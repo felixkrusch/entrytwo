@@ -374,10 +374,10 @@ EntryTwo Invoice (your brand)              Stripe/PayPal Invoice (limited brandi
 **Stripe/PayPal API keys stored in `.env` for security:**
 ```bash
 # .env.local
-STRIPE_SECRET_KEY=sk_live_...       # Encrypted at rest
+STRIPE_SECRET_KEY=sk_live_...       # Secret key never touches database
 STRIPE_WEBHOOK_SECRET=whsec_...     # For webhook signature verification
-PAYPAL_CLIENT_ID=...                  # If PayPal enabled
-PAYPAL_SECRET=...                     # If PayPal enabled
+PAYPAL_CLIENT_ID=...                # Client ID for API calls (not secret)
+PAYPAL_SECRET=...                   # Secret for API calls (server-side only)
 ```
 
 **Why .env over Admin Settings:**
@@ -389,9 +389,16 @@ PAYPAL_SECRET=...                     # If PayPal enabled
 ### Admin Settings (Connection Only)
 Admin UI shows and tests connection, but secrets stored in environment:
 - Display: Connected/Disconnected status
-- Test: "Verify Connection" button
+- Test: "Verify Connection" button (tests API connectivity)
 - Features enabled/disabled based on key presence
-- Webhook endpoint shown for setup
+- Webhook endpoint URL shown for setup in Stripe/PayPal dashboard
+- Tax rates and currencies configured via settings
+
+### Stripe Integration (Deferred)
+Stripe dependency to be added when payment processing is needed:
+- `npm install stripe` for Stripe Payment Intents
+- Webhook endpoint at `/api/webhooks/stripe` already exists for bank feeds
+- Invoice creation via Stripe API optional (keep invoices in EntryTwo)
 
 ---
 
