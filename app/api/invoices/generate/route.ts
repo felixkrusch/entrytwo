@@ -5,52 +5,45 @@ export async function POST(request: Request) {
   const body = await request.json()
   const { description } = body
 
-  // AI parsing would happen here - simplified placeholder
-  let parsed = {
-    contactName: '',
-    amount: 0,
-    currency: 'EUR',
-    daysUntilDue: 30,
-    notes: '',
-  }
-
   // Simple extraction logic (would be LLM in production)
   const amountMatch = description.match(/(\$|€|£)(\d+(?:[,.]\d+)?)/)
-  if (amountMatch) {
-    parsed.amount = parseFloat(amountMatch[2].replace(',', '.'))
-    parsed.currency = amountMatch[1] === '$' ? 'USD' : amountMatch[1] === '€' ? 'EUR' : 'GBP'
+  if (!amountMatch) {
+    return NextResponse.json({ error: 'Could not parse amount from description' }, { status: 400 })
   }
 
-  // Find contact by name
+  const amount = parseFloat(amountMatch[2].replace(',', '.'))
+  const currency = amountMatch[1] === '$' ? 'USD' : amountMatch[1] === '€' ? 'EUR' : 'GBP'
+
+  // Find contact by name (placeholder - would extract name in production)
   const contact = await prisma.contact.findFirst({
-    where: { name: { contains: parsed.contactName, mode: 'insensitive' } },
+    where: { type: 'CUSTOMER' },
   })
 
   if (!contact) {
-    return NextResponse.json({ error: 'Could not find contact' }, { status: 400 })
+    return NextResponse.json({ error: 'No customer found' }, { status: 400 })
   }
 
   const dueDate = new Date()
-  dueDate.setDate(dueDate.getDate() + parsed.daysUntilDue)
+  dueDate.setDate(dueDate.getDate() + 30)
 
   const invoice = await prisma.invoice.create({
     data: {
       invoiceNumber: `INV-${Date.now()}`,
       contactId: contact.id,
       status: 'DRAFT',
-      currency: parsed.currency,
-      subtotal: parsed.amount,
+      currency,
+      subtotal: amount,
       taxAmount: 0,
-      total: parsed.amount,
+      total: amount,
       issueDate: new Date(),
       dueDate,
-      notes: parsed.notes,
+      notes: description,
       lines: {
         create: {
           description,
           quantity: 1,
-          unitPrice: parsed.amount,
-          lineTotal: parsed.amount,
+          unitPrice: amount,
+          lineTotal: amount,
         },
       },
     },
