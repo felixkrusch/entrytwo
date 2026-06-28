@@ -30,6 +30,8 @@ type ProfitLoss = {
   netIncome: number
   taxSummary?: { input: number; output: number; net: number }
   byCurrency?: Record<string, { revenue: number; expenses: number }>
+  revenueItems?: { code: string; name: string; amount: number; currency: string }[]
+  expenseItems?: { code: string; name: string; amount: number; currency: string }[]
 }
 
 export default function ReportsPage() {
@@ -50,7 +52,6 @@ export default function ReportsPage() {
       
       if (bsRes.ok) {
         const bs = await bsRes.json()
-        // Transform accounts array into grouped structure
         const accounts = bs.accounts || []
         setBalanceSheet({
           ...bs,
@@ -75,6 +76,8 @@ export default function ReportsPage() {
             net: pl.taxSummary.netTax ?? 0,
           } : undefined,
           byCurrency: pl.byCurrency as ProfitLoss['byCurrency'],
+          revenueItems: pl.revenue?.items ?? [],
+          expenseItems: pl.expenses?.items ?? [],
         })
       }
     } catch {
@@ -133,12 +136,16 @@ export default function ReportsPage() {
               <div>
                 <div className="text-zinc-400 font-medium mb-2">Assets</div>
                 <div className="space-y-1">
-                  {balanceSheet.assets?.map(a => (
-                    <div key={a.code} className="flex justify-between">
-                      <span>{a.code} - {a.name}</span>
-                      <span>{formatCurrency(a.balance, a.currency)}</span>
-                    </div>
-                  ))}
+                  {balanceSheet.assets && balanceSheet.assets.length > 0 ? (
+                    balanceSheet.assets.map(a => (
+                      <div key={a.code} className="flex justify-between">
+                        <span>{a.code} - {a.name}</span>
+                        <span>{formatCurrency(a.balance, a.currency)}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-zinc-500 pl-2">{t('reports.noAssets')}</div>
+                  )}
                   <div className="border-t border-zinc-700 pt-1 font-medium flex justify-between">
                     <span>Total</span>
                     <span>{formatCurrency(balanceSheet.assetsTotal ?? 0)}</span>
@@ -149,12 +156,16 @@ export default function ReportsPage() {
               <div>
                 <div className="text-zinc-400 font-medium mb-2">Liabilities</div>
                 <div className="space-y-1">
-                  {balanceSheet.liabilities?.map(a => (
-                    <div key={a.code} className="flex justify-between">
-                      <span>{a.code} - {a.name}</span>
-                      <span>{formatCurrency(a.balance, a.currency)}</span>
-                    </div>
-                  ))}
+                  {balanceSheet.liabilities && balanceSheet.liabilities.length > 0 ? (
+                    balanceSheet.liabilities.map(a => (
+                      <div key={a.code} className="flex justify-between">
+                        <span>{a.code} - {a.name}</span>
+                        <span>{formatCurrency(a.balance, a.currency)}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-zinc-500 pl-2">{t('reports.noLiabilities')}</div>
+                  )}
                   <div className="border-t border-zinc-700 pt-1 font-medium flex justify-between">
                     <span>Total</span>
                     <span>{formatCurrency(balanceSheet.liabilitiesTotal ?? 0)}</span>
@@ -165,12 +176,16 @@ export default function ReportsPage() {
               <div>
                 <div className="text-zinc-400 font-medium mb-2">Equity</div>
                 <div className="space-y-1">
-                  {balanceSheet.equity?.map(a => (
-                    <div key={a.code} className="flex justify-between">
-                      <span>{a.code} - {a.name}</span>
-                      <span>{formatCurrency(a.balance, a.currency)}</span>
-                    </div>
-                  ))}
+                  {balanceSheet.equity && balanceSheet.equity.length > 0 ? (
+                    balanceSheet.equity.map(a => (
+                      <div key={a.code} className="flex justify-between">
+                        <span>{a.code} - {a.name}</span>
+                        <span>{formatCurrency(a.balance, a.currency)}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-zinc-500 pl-2">{t('reports.noEquity')}</div>
+                  )}
                   <div className="border-t border-zinc-700 pt-1 font-medium flex justify-between">
                     <span>Total</span>
                     <span>{formatCurrency(balanceSheet.equityTotal ?? 0)}</span>
@@ -195,14 +210,46 @@ export default function ReportsPage() {
           <h2 className="font-medium mb-3">{t('profitLoss.title')}</h2>
           {profitLoss ? (
             <div className="space-y-4 text-sm">
-              <div className="flex justify-between">
-                <span>{t('profitLoss.revenue')}</span>
-                <span className="text-emerald-400">{formatCurrency(profitLoss.revenue)}</span>
+              <div>
+                <div className="text-emerald-400 font-medium mb-1">{t('profitLoss.revenue')}</div>
+                <div className="space-y-1 pl-2">
+                  {profitLoss.revenueItems && profitLoss.revenueItems.length > 0 ? (
+                    profitLoss.revenueItems.map((item) => (
+                      <div key={item.code} className="flex justify-between text-xs">
+                        <span>{item.code} - {item.name}</span>
+                        <span>{formatCurrency(item.amount, item.currency)}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-zinc-500 text-xs">{t('profitLoss.noRevenue')}</div>
+                  )}
+                </div>
+                <div className="border-t border-zinc-700 pt-1 mt-1 font-medium flex justify-between">
+                  <span>Total</span>
+                  <span className="text-emerald-400">{formatCurrency(profitLoss.revenue)}</span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span>{t('profitLoss.expenses')}</span>
-                <span className="text-rose-400">{formatCurrency(profitLoss.expenses)}</span>
+              
+              <div>
+                <div className="text-rose-400 font-medium mb-1">{t('profitLoss.expenses')}</div>
+                <div className="space-y-1 pl-2">
+                  {profitLoss.expenseItems && profitLoss.expenseItems.length > 0 ? (
+                    profitLoss.expenseItems.map((item) => (
+                      <div key={item.code} className="flex justify-between text-xs">
+                        <span>{item.code} - {item.name}</span>
+                        <span>{formatCurrency(item.amount, item.currency)}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-zinc-500 text-xs">{t('profitLoss.noExpenses')}</div>
+                  )}
+                </div>
+                <div className="border-t border-zinc-700 pt-1 mt-1 font-medium flex justify-between">
+                  <span>Total</span>
+                  <span className="text-rose-400">{formatCurrency(profitLoss.expenses)}</span>
+                </div>
               </div>
+              
               <div className="border-t border-zinc-700 pt-2 flex justify-between font-medium">
                 <span>{t('profitLoss.netIncome')}</span>
                 <span className={profitLoss.netIncome >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
