@@ -15,6 +15,7 @@ import TopBar from './TopBar'
 import AdminPanel from './AdminPanel'
 import { NewEntryProvider, useNewEntry } from './NewEntryContext'
 import { useTranslations } from 'next-intl'
+import { ErrorBoundary } from '../components/ErrorBoundary'
 
 interface Account {
   id: string
@@ -29,7 +30,6 @@ function AppContent({ children }: { children: ReactNode }) {
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
   const [needsBootstrap, setNeedsBootstrap] = useState<boolean | null>(null)
 
-  // Phase 2: allow reports / P&L / journal lines to filter by account code (interactivity)
   const handleFilterAccountByCode = (code: string) => {
     setSelectedAccount(prev => {
       if (prev && prev.code === code) return prev
@@ -37,7 +37,6 @@ function AppContent({ children }: { children: ReactNode }) {
     })
   }
 
-  // Support clicking account codes inside the journal list
   useEffect(() => {
     const handler = (e: Event & { detail?: { code?: string } }) => {
       const code = e?.detail?.code
@@ -53,12 +52,11 @@ function AppContent({ children }: { children: ReactNode }) {
       const data = await res.json()
       setNeedsBootstrap(!!data?.needsBootstrap)
     } catch {
-      setNeedsBootstrap(false) // fail open in dev
+      setNeedsBootstrap(false)
     }
   }
 
   useEffect(() => {
-    // Defer to avoid "setState synchronously in effect" lint rule
     const id = setTimeout(() => { void checkBootstrap() }, 0)
     return () => clearTimeout(id)
   }, [])
@@ -77,14 +75,12 @@ function AppContent({ children }: { children: ReactNode }) {
     })
   }
 
-  // Support "Clear filter" button from JournalEntriesPanel
   useEffect(() => {
     const handler = () => setSelectedAccount(null)
     window.addEventListener('clear-account-filter', handler)
     return () => window.removeEventListener('clear-account-filter', handler)
   }, [])
 
-  // First-admin bootstrap gate: block the entire right panel until an ADMIN exists.
   if (needsBootstrap === null) {
     return (
       <div className="flex h-screen items-center justify-center bg-zinc-950 text-zinc-400">
@@ -122,12 +118,10 @@ function AppContent({ children }: { children: ReactNode }) {
       <TopBar showSettings={true} />
 
       <div className="flex flex-1 min-h-0">
-        {/* Left: Chat (primary interface) */}
         <div className="w-2/5 border-r border-zinc-800 flex flex-col">
           {children}
         </div>
 
-        {/* Right: Dynamic Context Panel */}
         <div className="flex-1 p-6 overflow-auto bg-zinc-900">
           <div className="max-w-5xl mx-auto space-y-8">
             <div className="flex items-center justify-between">
@@ -156,7 +150,6 @@ function AppContent({ children }: { children: ReactNode }) {
               </div>
             </div>
 
-            {/* Phase 2: visible active filter indicator for the right panel (reports/dashboard interactivity) */}
             {selectedAccount && (
               <div className="flex items-center gap-2 -mt-4 mb-2">
                 <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-emerald-400 border border-zinc-700">
@@ -172,18 +165,18 @@ function AppContent({ children }: { children: ReactNode }) {
             )}
 
             <SummaryBar />
-            <AccountsPanel
+            <ErrorBoundary><AccountsPanel
               onSelectAccount={setSelectedAccount}
               selectedAccountId={selectedAccount?.id}
               selectedAccountCode={selectedAccount?.code}
-            />
-            <JournalEntriesPanel filterAccountId={selectedAccount?.code} />
-            <ReportsPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} />
-            <ProfitLossPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} />
-            <AuditLogPanel />
-            <TemplatesPanel />
-            <QuickFeedImport />
-            <RecentFeedRates />
+            /></ErrorBoundary>
+            <ErrorBoundary><JournalEntriesPanel filterAccountId={selectedAccount?.code} /></ErrorBoundary>
+            <ErrorBoundary><ReportsPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} /></ErrorBoundary>
+            <ErrorBoundary><ProfitLossPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} /></ErrorBoundary>
+            <ErrorBoundary><AuditLogPanel /></ErrorBoundary>
+            <ErrorBoundary><TemplatesPanel /></ErrorBoundary>
+            <ErrorBoundary><QuickFeedImport /></ErrorBoundary>
+            <ErrorBoundary><RecentFeedRates /></ErrorBoundary>
           </div>
         </div>
       </div>

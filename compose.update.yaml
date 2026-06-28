@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:password@db:5432/entrytwo
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+    volumes:
+      - ./backups:/app/entrytwo/backups
+      - ./logs:/app/entrytwo/logs
+      - ./.restart:/app/entrytwo/.restart
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=entrytwo
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
