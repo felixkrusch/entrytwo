@@ -50,6 +50,19 @@ model Contact {
 - `DELETE /api/contacts/[id]` - Delete contact (only if no journal lines)
 - `POST /api/contacts/lookup-or-create` - Find or create contact (for AI chat)
 
+### 2.5 Duplicate Detection (Confidence-Based)
+Similar to merchant matching in Phase 1, use fuzzy matching to prevent duplicates:
+- `GET /api/contacts/lookup-or-create` - Search with confidence scores:
+  - Query params: `name`, `type`, `minConfidence` (default 0.8)
+  - Compare against existing contacts using:
+    - Exact name match → 1.0 confidence
+    - Normalized name match (case, punctuation) → 0.9
+    - Partial name match (contains) → 0.7
+    - Levenshtein distance < 3 → 0.6
+    - Email domain match → 0.5
+  - Return all matches above threshold with scores
+  - If no matches, create new contact
+
 ### 3. Contact Form Fields
 ```typescript
 interface ContactForm {

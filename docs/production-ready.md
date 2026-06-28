@@ -63,6 +63,21 @@ Add comprehensive test suites.
 - API routes - Request validation and response format
 - Report calculations - P&L and balance sheet totals
 
+### 5b. Contacts Feature (In Progress)
+See `docs/contacts-page-plan.md` for detailed implementation plan.  
+**Next steps:**
+- Implement `/api/contacts` routes with duplicate detection
+- Build contacts page UI with search + pagination
+- Integrate auto-contact creation from PDF uploads
+- Add contact linking to journal entries
+
+### 5c. Backup System Improvements (Planned)
+See `docs/backup-improvement-plan.md` for detailed plan.  
+**Next steps:**
+- Add selective export/import to `/admin/backup`
+- Support entity type filters and date ranges
+- Add backup-before-update hook in update system
+
 ### 6. Docker Compose for Updates
 Add `compose.update.yaml` for containerized deployments.  
 **Features:**
