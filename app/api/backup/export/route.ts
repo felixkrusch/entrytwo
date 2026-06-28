@@ -6,8 +6,8 @@ export async function GET(request: Request) {
     const url = new URL(request.url)
     const entitiesParam = url.searchParams.get('entities')
     const requestedEntities = entitiesParam 
-      ? entitiesParam.split(',') as Array<'accounts' | 'taxRates' | 'journalEntries' | 'contacts' | 'templates' | 'settings'>
-      : ['accounts', 'taxRates', 'journalEntries', 'contacts', 'templates', 'settings']
+      ? entitiesParam.split(',') as Array<'accounts' | 'taxRates' | 'journalEntries' | 'contacts' | 'templates' | 'settings' | 'invoices'>
+      : ['accounts', 'taxRates', 'journalEntries', 'contacts', 'templates', 'settings', 'invoices']
 
     const toPlain = (val: unknown) => {
       if (val && typeof val === 'object' && 'toNumber' in val && typeof (val as { toNumber: () => number }).toNumber === 'function') {
@@ -76,12 +76,19 @@ export async function GET(request: Request) {
     }
 
 if (requestedEntities.includes('templates')) {
-       const templates = await prisma.template.findMany({
-         select: { id: true, name: true, description: true, content: true, isInvoiceTemplate: true, createdAt: true, updatedAt: true },
-         orderBy: { createdAt: 'desc' }
-       })
-       data.templates = serialize(templates)
-     }
+      const templates = await prisma.template.findMany({
+        select: { id: true, name: true, description: true, content: true, isInvoiceTemplate: true, createdAt: true, updatedAt: true },
+        orderBy: { createdAt: 'desc' }
+      })
+      data.templates = serialize(templates)
+    }
+
+    if (requestedEntities.includes('invoices')) {
+      const invoices = await prisma.invoice.findMany({
+        select: { id: true, invoiceNumber: true, status: true, currency: true, subtotal: true, taxAmount: true, total: true, issueDate: true, dueDate: true, paidDate: true, notes: true, terms: true, contactId: true, createdAt: true, updatedAt: true }
+      })
+      data.invoices = serialize(invoices)
+    }
 
     if (requestedEntities.includes('settings')) {
       const settings = await prisma.setting.findMany({

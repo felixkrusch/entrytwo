@@ -43,7 +43,21 @@ contacts?: Array<{
      }>
     settings?: Array<{ key: string; value: unknown }>
 templates?: Array<{ name: string; description?: string; content?: string; isInvoiceTemplate?: boolean }>
-   }
+    invoices?: Array<{
+      invoiceNumber: string
+      contactId: string
+      status: string
+      currency: string
+      subtotal: number
+      taxAmount: number
+      total: number
+      issueDate: string
+      dueDate: string
+      paidDate?: string
+      notes?: string
+      terms?: string
+    }>
+    }
 }
 
 const asJson = (v: unknown): Prisma.InputJsonValue => v as Prisma.InputJsonValue
@@ -168,6 +182,25 @@ for (const template of data.templates || []) {
        })
      }
 
+    for (const invoice of data.invoices || []) {
+       await prisma.invoice.create({
+         data: {
+           invoiceNumber: invoice.invoiceNumber,
+           contactId: invoice.contactId,
+           status: invoice.status as 'DRAFT' | 'SENT' | 'PAID' | 'OVERDUE' | 'CANCELLED',
+           currency: invoice.currency,
+           subtotal: invoice.subtotal,
+           taxAmount: invoice.taxAmount,
+           total: invoice.total,
+           issueDate: new Date(invoice.issueDate),
+           dueDate: new Date(invoice.dueDate),
+           paidDate: invoice.paidDate ? new Date(invoice.paidDate) : undefined,
+           notes: invoice.notes,
+           terms: invoice.terms,
+         },
+       })
+     }
+
     return NextResponse.json({ ok: true, imported: {
       accounts: data.accounts?.length || 0,
       taxRates: data.taxRates?.length || 0,
@@ -175,6 +208,7 @@ for (const template of data.templates || []) {
       contacts: data.contacts?.length || 0,
       settings: data.settings?.length || 0,
       templates: data.templates?.length || 0,
+      invoices: data.invoices?.length || 0,
     } })
   } catch (error) {
     console.error('Import error:', error)
