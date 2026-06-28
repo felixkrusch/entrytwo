@@ -1034,6 +1034,26 @@ function InvoicingContent() {
     }
   }
 
+  const sendPayPalInvoice = async (invoiceId: string) => {
+    setProcessingPayment(invoiceId)
+    try {
+      const res = await fetch('/api/payments/paypal/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceId }),
+      })
+      const data = await res.json()
+      if (data.link) {
+        window.open(data.link, '_blank')
+      }
+      void fetchInvoices()
+    } catch {
+      // ignore
+    } finally {
+      setProcessingPayment(null)
+    }
+  }
+
   useEffect(() => {
     void fetchInvoices()
     void fetchContacts()
@@ -1125,14 +1145,24 @@ function InvoicingContent() {
                    </span>
                    <span className="font-medium">{formatCurrency(invoice.total, invoice.currency)}</span>
                    {invoice.status === 'DRAFT' && (
-                     <button
-                       onClick={() => void createPaymentLink(invoice.id)}
-                       disabled={processingPayment === invoice.id}
-                       className="p-1 rounded text-zinc-400 hover:text-emerald-400 disabled:opacity-50"
-                       title="Send Invoice"
-                     >
-                       {processingPayment === invoice.id ? '...' : 'Send'}
-                     </button>
+                     <>
+                       <button
+                         onClick={() => void createPaymentLink(invoice.id)}
+                         disabled={processingPayment === invoice.id}
+                         className="p-1 rounded text-zinc-400 hover:text-emerald-400 disabled:opacity-50"
+                         title="Send via Stripe"
+                       >
+                         Stripe
+                       </button>
+                       <button
+                         onClick={() => void sendPayPalInvoice(invoice.id)}
+                         disabled={processingPayment === invoice.id}
+                         className="p-1 rounded text-zinc-400 hover:text-blue-400 disabled:opacity-50"
+                         title="Send via PayPal"
+                       >
+                         PayPal
+                       </button>
+                     </>
                    )}
                  </div>
                </div>

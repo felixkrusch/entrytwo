@@ -15,6 +15,7 @@
     "@auth/core": "^0.41.2",
     "@auth/pg-adapter": "^1.11.2",
     "@auth/prisma-adapter": "^2.11.2",
+    "@paypal/checkout-server-sdk": "^1.0.3",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@types/pdf-parse": "^1.1.5",

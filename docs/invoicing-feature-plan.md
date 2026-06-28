@@ -423,6 +423,6 @@ Stripe dependency to be added when payment processing is needed:
 - [ ] Subscription sync
 
 ### Phase 4d: Global Payments
-- [ ] PayPal integration (for EU markets where preferred)
+- [x] PayPal integration (for EU markets where preferred)
 - [ ] SEPA direct debit
 - [ ] Multi-language full invoice translation

@@ -35,6 +35,26 @@ async function handlePaypalEvent(data: Record<string, unknown>) {
 
   if (!eventType) return
 
+  // Handle invoice payment events
+  if (eventType === 'PAYMENT.CAPTURE.COMPLETED' || eventType === 'PAYMENT.SALE.COMPLETED') {
+    const invoiceId = (resource.custom_id as string) || (resource.invoice_number as string)
+    if (invoiceId) {
+      const invoice = await prisma.invoice.findFirst({
+        where: { invoiceNumber: invoiceId },
+      })
+      if (invoice) {
+        await prisma.invoice.update({
+          where: { id: invoice.id },
+          data: {
+            status: 'PAID',
+            paidDate: new Date((resource.create_time as string) || Date.now()),
+          },
+        })
+      }
+    }
+    return
+  }
+
   const connection = await prisma.bankConnection.findFirst({
     where: { provider: 'paypal' },
   })
