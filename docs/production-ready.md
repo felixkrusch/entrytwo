@@ -66,12 +66,18 @@ Add comprehensive test suites.
 - Report calculations - P&L and balance sheet totals
 
 ### 6. Contacts Feature ✅ DONE
-- `/api/contacts` routes with fuzzy match duplicate detection
-- Contacts page UI with search + pagination
-- Auto-contact creation from PDF uploads
-- Contact linking to journal entries
+- Built-in Invoicing page with status filtering
+- AI-first invoice generation endpoint
+- Full CRUD for invoices
+- QR code generation for European payments (EPC)
+- Backup integration for invoices
 - **ISO-standard address fields**: street, city, state/province (ISO 3166-2), ZIP, country (ISO 3166-1 alpha-2)
 - **VAT validation**: EU VAT ID verification via VIES API
+
+#### VAT Validation Implementation
+The `validate-vat` API endpoint uses the EU's VAT Information Exchange System (VIES) REST API to validate European VAT numbers.
+
+**Production note**: VIES has rate limiting and is not designed for high-volume automated use. For production, implement a caching proxy or use a commercial VAT validation service.
 
 #### VAT Validation Implementation
 The `validate-vat` API endpoint uses the EU's VAT Information Exchange System (VIES) REST API to validate European VAT numbers.
@@ -111,7 +117,9 @@ Production-ready script for PM2/systemd to handle `.restart` signal.
 - Consider commercial services (VATsense, Sovos, Taxamo) for high-volume needs
 - Fallback to manual validation when VIES unavailable
 
-- [ ] Set up process manager (PM2 or systemd)
+---
+
+## Deployment Checklist
 - [ ] Configure HTTPS termination
 - [ ] Set up automated backups (daily + pre-update)
 - [ ] Configure log rotation
