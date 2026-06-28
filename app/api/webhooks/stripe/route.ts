@@ -45,6 +45,36 @@ async function handleStripeEvent(data: Record<string, unknown>) {
     where: { provider: 'stripe' },
   })
 
+  // Handle invoice payments
+  if (eventType === 'payment_intent.succeeded') {
+    const invoiceId = (eventData as { metadata?: Record<string, string> }).metadata?.invoiceId
+    if (invoiceId) {
+      await prisma.invoice.update({
+        where: { id: invoiceId },
+        data: {
+          status: 'PAID',
+          paidDate: new Date(),
+          stripeInvoiceId: eventData.id,
+        },
+      })
+
+      // Create journal entry for the payment
+      await createPaymentJournalEntry(invoiceId, Number(eventData.amount) / 100, eventData.currency || 'eur')
+    }
+    return
+  }
+
+  if (eventType === 'payment_intent.payment_failed') {
+    const invoiceId = (eventData as { metadata?: Record<string, string> }).metadata?.invoiceId
+    if (invoiceId) {
+      await prisma.invoice.update({
+        where: { id: invoiceId },
+        data: { status: 'OVERDUE' },
+      })
+    }
+    return
+  }
+
   if (!connection) {
     console.warn('No Stripe connection found')
     return
@@ -75,4 +105,62 @@ async function handleStripeEvent(data: Record<string, unknown>) {
       status: 'pending',
     },
   })
+}
+
+async function createPaymentJournalEntry(invoiceId: string, amount: number, currency: string) {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: { contact: true },
+  })
+
+  if (!invoice) return
+
+  // Find or create a default bank/cash account
+  const cashAccount = await prisma.account.upsert({
+    where: { code: 'CASH' },
+    update: {},
+    create: {
+      code: 'CASH',
+      name: 'Bank/Cash',
+      type: 'ASSET',
+    },
+  })
+
+  const arAccount = await getDefaultARAccountId()
+
+  // Create journal entry for payment received
+  await prisma.journalEntry.create({
+    data: {
+      date: new Date(),
+      description: `Payment for ${invoice.invoiceNumber}`,
+      lines: {
+        create: [
+          {
+            accountId: cashAccount.id,
+            debit: amount,
+            currency: currency.toUpperCase(),
+          },
+          {
+            accountId: arAccount,
+            credit: amount,
+            contactId: invoice.contactId,
+            currency: currency.toUpperCase(),
+          },
+        ],
+      },
+    },
+  })
+}
+
+async function getDefaultARAccountId(): Promise<string> {
+  const arAccount = await prisma.account.upsert({
+    where: { code: 'AR' },
+    update: {},
+    create: {
+      code: 'AR',
+      name: 'Accounts Receivable',
+      type: 'ASSET',
+    },
+  })
+  return arAccount.id
 }
