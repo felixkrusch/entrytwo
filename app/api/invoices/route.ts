@@ -14,8 +14,8 @@ const InvoiceSchema = z.object({
   contactId: z.string(),
   status: z.enum(['DRAFT', 'SENT', 'PAID', 'OVERDUE', 'CANCELLED']).default('DRAFT'),
   currency: z.string().length(3).default('EUR'),
-  issueDate: z.string().datetime(),
-  dueDate: z.string().datetime(),
+  issueDate: z.string().datetime().optional(),
+  dueDate: z.string().datetime().optional(),
   notes: z.string().optional(),
   terms: z.string().optional(),
   lines: z.array(InvoiceLineSchema).min(1),
@@ -84,6 +84,11 @@ export async function POST(request: Request) {
 
     const { contactId, status, currency, issueDate, dueDate, notes, terms, lines } = parsed.data
 
+    const now = new Date()
+    const dueDays = 30
+    const finalIssueDate = issueDate ? new Date(issueDate) : now
+    const finalDueDate = dueDate ? new Date(dueDate) : new Date(now.getTime() + dueDays * 24 * 60 * 60 * 1000)
+
     const subtotal = lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
     const taxAmount = 0 // Simplified - would calculate per tax rate
 
@@ -96,8 +101,8 @@ export async function POST(request: Request) {
         subtotal,
         taxAmount,
         total: subtotal + taxAmount,
-        issueDate: new Date(issueDate),
-        dueDate: new Date(dueDate),
+        issueDate: finalIssueDate,
+        dueDate: finalDueDate,
         notes,
         terms,
         lines: {

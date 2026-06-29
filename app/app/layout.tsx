@@ -16,7 +16,7 @@ import { NewEntryProvider, useNewEntry } from './NewEntryContext'
 import { useTranslations } from 'next-intl'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { Search, Plus } from 'lucide-react'
+import { Search } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
 interface Account {
@@ -426,9 +426,9 @@ function ContactsContent() {
         </select>
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-500 text-black font-medium text-sm hover:bg-emerald-400"
+          className="flex items-center px-3 py-1.5 rounded bg-emerald-500 text-black font-medium text-sm hover:bg-emerald-400"
         >
-          <Plus className="w-4 h-4" />
+          
           Add Contact
         </button>
       </div>
@@ -966,6 +966,7 @@ function ReportsContent() {
   )
 }
 
+
 interface Invoice {
   id: string
   invoiceNumber: string
@@ -977,11 +978,19 @@ interface Invoice {
   issueDate: string
   dueDate: string
   paidDate?: string
-  contact: { name: string }
+  contact: { name: string; addressCountry?: string }
   lines: { description: string; quantity: number; unitPrice: number; lineTotal: number }[]
 }
 
 interface InvoiceLineForm {
+  description: string
+  quantity: number
+  unitPrice: number
+}
+
+interface SavedSnippet {
+  id: string
+  name: string
   description: string
   quantity: number
   unitPrice: number
@@ -992,10 +1001,13 @@ function InvoicingContent() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'SENT' | 'PAID' | 'OVERDUE' | 'CANCELLED'>('ALL')
-  const [showCreateModal, setShowCreateModal] = useState(false)
+  
   const [contacts, setContacts] = useState<ContactItem[]>([])
+  const [snippets, setSnippets] = useState<SavedSnippet[]>([])
   const [processingPayment, setProcessingPayment] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
+  const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null)
   
   const [newContactId, setNewContactId] = useState('')
   const [newLines, setNewLines] = useState<InvoiceLineForm[]>([{ description: '', quantity: 1, unitPrice: 0 }])
@@ -1023,10 +1035,21 @@ function InvoicingContent() {
     }
   }, [])
 
+  const fetchSnippets = useCallback(async () => {
+    try {
+      const res = await fetch('/api/invoices/snippets')
+      const data = await res.json()
+      setSnippets(data.snippets || [])
+    } catch {
+      // ignore
+    }
+  }, [])
+
   useEffect(() => {
     void fetchInvoices()
     void fetchContacts()
-  }, [fetchInvoices, fetchContacts])
+    void fetchSnippets()
+  }, [fetchInvoices, fetchContacts, fetchSnippets])
 
   const createPaymentLink = async (invoiceId: string) => {
     setProcessingPayment(invoiceId)
@@ -1082,6 +1105,14 @@ function InvoicingContent() {
     ))
   }
 
+  const applySnippet = (snippet: SavedSnippet) => {
+    setNewLines([...newLines, { 
+      description: snippet.description, 
+      quantity: snippet.quantity, 
+      unitPrice: snippet.unitPrice 
+    }])
+  }
+
   const subtotal = useMemo(() => {
     return newLines.reduce((sum, line) => sum + (line.quantity * line.unitPrice), 0)
   }, [newLines])
@@ -1107,9 +1138,10 @@ function InvoicingContent() {
       })
       
       if (res.ok) {
+        const invoice = await res.json()
         setNewContactId('')
         setNewLines([{ description: '', quantity: 1, unitPrice: 0 }])
-        setShowCreateModal(false)
+        setPreviewInvoice(invoice)
         void fetchInvoices()
       }
     } finally {
@@ -1129,18 +1161,11 @@ function InvoicingContent() {
 
   return (
     <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Invoicing</h1>
-          <p className="text-xs text-zinc-500 mt-1">Create and manage invoices with full branding control.</p>
-        </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-500 text-black font-medium text-sm hover:bg-emerald-400"
-        >
-          <Plus className="w-4 h-4" />
-          New Invoice
-        </button>
+      <div className="mb-6">
+        <h1 className="text-xl font-semibold">Invoicing</h1>
+        <p className="text-xs text-zinc-500 mt-1">
+          Create invoices manually or via AI. All invoices are white-label with your branding.
+        </p>
       </div>
 
       <div className="flex items-center gap-3 mb-4">
@@ -1168,76 +1193,80 @@ function InvoicingContent() {
         </select>
       </div>
 
-      {loading ? (
-        <div className="text-zinc-500">Loading...</div>
-      ) : invoices.length === 0 ? (
-        <div className="text-zinc-500">No invoices yet. Create your first invoice!</div>
-      ) : (
-        <div className="space-y-2">
-          {invoices.map(invoice => (
-            <div
-              key={invoice.id}
-              className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 hover:border-zinc-700 transition-colors"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-medium">{invoice.invoiceNumber}</div>
-                  <div className="text-xs text-zinc-400">{invoice.contact.name}</div>
-                  <div className="text-xs text-zinc-500 mt-1">
-                    {new Date(invoice.issueDate).toLocaleDateString()} → {new Date(invoice.dueDate).toLocaleDateString()}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2">
+          {loading ? (
+            <div className="text-zinc-500">Loading...</div>
+          ) : (
+            <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+              {invoices.length === 0 && (
+                <div className="text-zinc-500 p-4">No invoices yet. Create your first invoice on the right.</div>
+              )}
+              {invoices.map(invoice => (
+                <div
+                  key={invoice.id}
+                  className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 hover:border-zinc-700 transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium">{invoice.invoiceNumber}</div>
+                      <div className="text-xs text-zinc-400">{invoice.contact.name}</div>
+                      <div className="text-xs text-zinc-500 mt-1">
+                        {new Date(invoice.issueDate).toLocaleDateString()} → {new Date(invoice.dueDate).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded text-xs ${statusColor(invoice.status)}`}>
+                        {invoice.status}
+                      </span>
+                      <span className="font-medium">{formatCurrency(invoice.total, invoice.currency)}</span>
+                      {invoice.status === 'DRAFT' && (
+                        <>
+                          <button
+                            onClick={() => void createPaymentLink(invoice.id)}
+                            disabled={processingPayment === invoice.id}
+                            className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-emerald-400 disabled:opacity-50"
+                            title="Send via Stripe"
+                          >
+                            Stripe
+                          </button>
+                          <button
+                            onClick={() => void sendPayPalInvoice(invoice.id)}
+                            disabled={processingPayment === invoice.id}
+                            className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-blue-400 disabled:opacity-50"
+                            title="Send via PayPal"
+                          >
+                            PayPal
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className={`px-2 py-0.5 rounded text-xs ${statusColor(invoice.status)}`}>
-                    {invoice.status}
-                  </span>
-                  <span className="font-medium">{formatCurrency(invoice.total, invoice.currency)}</span>
-                  {invoice.status === 'DRAFT' && (
-                    <>
-                      <button
-                        onClick={() => void createPaymentLink(invoice.id)}
-                        disabled={processingPayment === invoice.id}
-                        className="p-1 rounded text-zinc-400 hover:text-emerald-400 disabled:opacity-50"
-                        title="Send via Stripe"
-                      >
-                        Stripe
-                      </button>
-                      <button
-                        onClick={() => void sendPayPalInvoice(invoice.id)}
-                        disabled={processingPayment === invoice.id}
-                        className="p-1 rounded text-zinc-400 hover:text-blue-400 disabled:opacity-50"
-                        title="Send via PayPal"
-                      >
-                        PayPal
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
-      )}
 
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-semibold mb-4">Create New Invoice</h2>
+        <div className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 h-fit space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold mb-3">Create Invoice</h2>
+            
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-zinc-400 block mb-1">Contact *</label>
+                <label className="text-xs text-zinc-400 block mb-1">Customer *</label>
                 <select
                   value={newContactId}
                   onChange={e => setNewContactId(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
-                  required
+                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700 text-sm"
                 >
-                  <option value="">Select a contact...</option>
+                  <option value="">Select a customer...</option>
                   {contacts.map(c => (
                     <option key={c.id} value={c.id}>{c.name}{c.email ? ` (${c.email})` : ''}</option>
                   ))}
                 </select>
               </div>
+
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-xs text-zinc-400">Line Items</label>
@@ -1249,7 +1278,8 @@ function InvoicingContent() {
                     + Add Line
                   </button>
                 </div>
-                <div className="space-y-2">
+                
+                <div className="space-y-2 max-h-60 overflow-y-auto">
                   {newLines.map((line, index) => (
                     <div key={index} className="flex gap-2">
                       <input
@@ -1288,26 +1318,147 @@ function InvoicingContent() {
                   ))}
                 </div>
               </div>
-              <div className="border-t border-zinc-700 pt-3 text-right">
-                <span className="text-sm text-zinc-400">Subtotal: </span>
-                <span className="font-medium">{formatCurrency(subtotal)}</span>
+
+              {snippets.length > 0 && (
+                <div>
+                  <label className="text-xs text-zinc-400 block mb-2">Saved Snippets</label>
+                  <div className="flex flex-wrap gap-1">
+                    {snippets.map(s => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => applySnippet(s)}
+                        className="px-2 py-1 rounded bg-zinc-800 text-xs text-zinc-300 hover:bg-zinc-700"
+                        title={s.description}
+                      >
+                        {s.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="border-t border-zinc-700 pt-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-zinc-400">Subtotal</span>
+                  <span>{formatCurrency(subtotal)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-medium mt-1">
+                  <span>Total</span>
+                  <span>{formatCurrency(subtotal)}</span>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => { setNewContactId(''); setNewLines([{ description: '', quantity: 1, unitPrice: 0 }]) }}
+                  className="px-3 py-1.5 rounded bg-zinc-800 text-zinc-300 text-sm"
+                  disabled={saving}
+                >
+                  Clear
+                </button>
+                <button
+                  onClick={() => void saveInvoice()}
+                  disabled={saving || !newContactId || newLines.every(l => !l.description.trim())}
+                  className="flex-1 px-3 py-1.5 rounded bg-emerald-500 text-black font-medium text-sm disabled:opacity-50"
+                >
+                  {saving ? 'Saving...' : 'Create Invoice'}
+                </button>
               </div>
             </div>
-            <div className="flex gap-2 mt-6">
-              <button
-                onClick={() => { setShowCreateModal(false); setNewContactId(''); setNewLines([{ description: '', quantity: 1, unitPrice: 0 }]) }}
-                className="px-4 py-2 rounded bg-zinc-800 text-zinc-300"
-                disabled={saving}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void saveInvoice()}
-                disabled={saving || !newContactId || newLines.every(l => !l.description.trim())}
-                className="flex-1 px-4 py-2 rounded bg-emerald-500 text-black font-medium disabled:opacity-50"
-              >
-                {saving ? 'Saving...' : 'Create Invoice'}
-              </button>
+          </div>
+
+{previewInvoice && (
+            <div className="border-t border-zinc-700 pt-4 mt-4">
+              <h3 className="text-sm font-medium mb-2">Payment Options</h3>
+              <div className="space-y-2">
+                <button
+                  onClick={() => void createPaymentLink(previewInvoice.id)}
+                  className="w-full px-3 py-2 rounded bg-emerald-500 text-black font-medium text-sm"
+                >
+                  Send via Stripe
+                </button>
+                <button
+                  onClick={() => void sendPayPalInvoice(previewInvoice.id)}
+                  className="w-full px-3 py-2 rounded bg-blue-500 text-white font-medium text-sm"
+                >
+                  Send via PayPal
+                </button>
+                <button
+                  onClick={() => setShowPreview(true)}
+                  className="w-full px-3 py-2 rounded bg-zinc-800 text-zinc-300 text-sm"
+                >
+                  View Preview
+                </button>
+                {previewInvoice.contact?.addressCountry && previewInvoice.contact.addressCountry !== 'US' && (
+                  <button
+                    onClick={async () => {
+                      const res = await fetch(`/api/invoices/${previewInvoice.id}/qr`)
+                      const data = await res.json()
+                      if (data.svg) {
+                        const w = window.open('', '_blank')
+                        if (w) w.document.write(data.svg)
+                      }
+                    }}
+                    className="w-full px-3 py-2 rounded bg-purple-900 text-purple-300 text-sm"
+                  >
+                    Generate QR Code
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {showPreview && previewInvoice && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-zinc-950 border border-zinc-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                <div className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-semibold">Invoice Preview</h2>
+                    <button
+                      onClick={() => setShowPreview(false)}
+                      className="px-2 py-1 rounded bg-zinc-800 text-zinc-300"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <div className="border border-zinc-700 rounded p-4 bg-zinc-900 mb-4">
+                    <div className="text-center text-zinc-400 mb-4">
+                      Invoice PDF preview would render here<br />
+                      {previewInvoice.invoiceNumber}
+                    </div>
+                    <div className="text-sm text-zinc-500 space-y-1">
+                      <div>To: {previewInvoice.contact.name}</div>
+                      <div>Amount: {formatCurrency(previewInvoice.total, previewInvoice.currency)}</div>
+                      <div>Due: {new Date(previewInvoice.dueDate).toLocaleDateString()}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {showPreview && previewInvoice && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold">Invoice Preview</h2>
+                <button
+                  onClick={() => setShowPreview(false)}
+                  className="px-2 py-1 rounded bg-zinc-800 text-zinc-300"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="border border-zinc-700 rounded p-4 bg-zinc-900">
+                <div className="text-center text-zinc-400">
+                  Invoice PDF preview would render here<br />
+                  {previewInvoice.invoiceNumber}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1315,7 +1466,6 @@ function InvoicingContent() {
     </div>
   )
 }
-
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <NewEntryProvider>
