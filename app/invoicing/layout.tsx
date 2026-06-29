@@ -1,12 +1,17 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 
-export default function InvoicingRedirectLayout({ children }: { children: React.ReactNode }) {
+export default function InvoicingLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
+  const pathname = usePathname()
+  
   useEffect(() => {
-    router.replace('/app?view=invoicing')
-  }, [router])
-  return null
+    if (pathname === '/invoicing') {
+      router.replace('/app?view=invoicing')
+    }
+  }, [pathname, router])
+
+  return <>{children}</>
 }

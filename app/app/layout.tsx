@@ -982,35 +982,11 @@ interface Invoice {
   lines: { description: string; quantity: number; unitPrice: number; lineTotal: number }[]
 }
 
-interface InvoiceLineForm {
-  description: string
-  quantity: number
-  unitPrice: number
-}
-
-interface SavedSnippet {
-  id: string
-  name: string
-  description: string
-  quantity: number
-  unitPrice: number
-}
-
 function InvoicingContent() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'SENT' | 'PAID' | 'OVERDUE' | 'CANCELLED'>('ALL')
-  
-  const [contacts, setContacts] = useState<ContactItem[]>([])
-  const [snippets, setSnippets] = useState<SavedSnippet[]>([])
   const [processingPayment, setProcessingPayment] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [showPreview, setShowPreview] = useState(false)
-  const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null)
-  
-  const [newContactId, setNewContactId] = useState('')
-  const [newLines, setNewLines] = useState<InvoiceLineForm[]>([{ description: '', quantity: 1, unitPrice: 0 }])
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true)
@@ -1018,38 +994,14 @@ function InvoicingContent() {
       const res = await fetch(`/api/invoices${statusFilter === 'ALL' ? '' : `?status=${statusFilter}`}`)
       const data = await res.json()
       setInvoices(data.invoices || [])
-    } catch {
-      // ignore
-    } finally {
+    } catch {} finally {
       setLoading(false)
     }
   }, [statusFilter])
 
-  const fetchContacts = useCallback(async () => {
-    try {
-      const res = await fetch('/api/contacts?type=CUSTOMER')
-      const data = await res.json()
-      setContacts(data.contacts || [])
-    } catch {
-      // ignore
-    }
-  }, [])
-
-  const fetchSnippets = useCallback(async () => {
-    try {
-      const res = await fetch('/api/invoices/snippets')
-      const data = await res.json()
-      setSnippets(data.snippets || [])
-    } catch {
-      // ignore
-    }
-  }, [])
-
   useEffect(() => {
     void fetchInvoices()
-    void fetchContacts()
-    void fetchSnippets()
-  }, [fetchInvoices, fetchContacts, fetchSnippets])
+  }, [fetchInvoices])
 
   const createPaymentLink = async (invoiceId: string) => {
     setProcessingPayment(invoiceId)
@@ -1064,9 +1016,7 @@ function InvoicingContent() {
         window.open(`https://pay.stripe.com/${data.id}`, '_blank')
       }
       void fetchInvoices()
-    } catch {
-      // ignore
-    } finally {
+    } catch {} finally {
       setProcessingPayment(null)
     }
   }
@@ -1084,68 +1034,8 @@ function InvoicingContent() {
         window.open(data.link, '_blank')
       }
       void fetchInvoices()
-    } catch {
-      // ignore
-    } finally {
+    } catch {} finally {
       setProcessingPayment(null)
-    }
-  }
-
-  const addLine = () => {
-    setNewLines([...newLines, { description: '', quantity: 1, unitPrice: 0 }])
-  }
-
-  const removeLine = (index: number) => {
-    setNewLines(newLines.filter((_, i) => i !== index))
-  }
-
-  const updateLine = (index: number, field: keyof InvoiceLineForm, value: string | number) => {
-    setNewLines(newLines.map((line, i) => 
-      i === index ? { ...line, [field]: field === 'quantity' || field === 'unitPrice' ? Number(value) || 0 : value } : line
-    ))
-  }
-
-  const applySnippet = (snippet: SavedSnippet) => {
-    setNewLines([...newLines, { 
-      description: snippet.description, 
-      quantity: snippet.quantity, 
-      unitPrice: snippet.unitPrice 
-    }])
-  }
-
-  const subtotal = useMemo(() => {
-    return newLines.reduce((sum, line) => sum + (line.quantity * line.unitPrice), 0)
-  }, [newLines])
-
-  const saveInvoice = async () => {
-    if (!newContactId || newLines.every(l => !l.description.trim())) return
-    
-    setSaving(true)
-    try {
-      const validLines = newLines.filter(l => l.description.trim())
-      
-      const res = await fetch('/api/invoices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contactId: newContactId,
-          lines: validLines.map(l => ({
-            description: l.description,
-            quantity: l.quantity,
-            unitPrice: l.unitPrice
-          }))
-        })
-      })
-      
-      if (res.ok) {
-        const invoice = await res.json()
-        setNewContactId('')
-        setNewLines([{ description: '', quantity: 1, unitPrice: 0 }])
-        setPreviewInvoice(invoice)
-        void fetchInvoices()
-      }
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -1161,24 +1051,19 @@ function InvoicingContent() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold">Invoicing</h1>
-        <p className="text-xs text-zinc-500 mt-1">
-          Create invoices manually or via AI. All invoices are white-label with your branding.
-        </p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold">Invoicing</h1>
+          <p className="text-xs text-zinc-500 mt-1">
+            Create invoices manually or via AI. All invoices are white-label with your branding.
+          </p>
+        </div>
+        <a href="/invoicing/create" className="px-3 py-1.5 rounded bg-emerald-500 text-black font-medium text-sm hover:bg-emerald-400">
+          New Invoice
+        </a>
       </div>
 
       <div className="flex items-center gap-3 mb-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-          <input
-            type="text"
-            placeholder="Search invoices..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 rounded bg-zinc-900 border border-zinc-700 text-sm"
-          />
-        </div>
         <select
           value={statusFilter}
           onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
@@ -1193,279 +1078,60 @@ function InvoicingContent() {
         </select>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          {loading ? (
-            <div className="text-zinc-500">Loading...</div>
-          ) : (
-            <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-              {invoices.length === 0 && (
-                <div className="text-zinc-500 p-4">No invoices yet. Create your first invoice on the right.</div>
-              )}
-              {invoices.map(invoice => (
-                <div
-                  key={invoice.id}
-                  className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 hover:border-zinc-700 transition-colors"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium">{invoice.invoiceNumber}</div>
-                      <div className="text-xs text-zinc-400">{invoice.contact.name}</div>
-                      <div className="text-xs text-zinc-500 mt-1">
-                        {new Date(invoice.issueDate).toLocaleDateString()} → {new Date(invoice.dueDate).toLocaleDateString()}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`px-2 py-0.5 rounded text-xs ${statusColor(invoice.status)}`}>
-                        {invoice.status}
-                      </span>
-                      <span className="font-medium">{formatCurrency(invoice.total, invoice.currency)}</span>
-                      {invoice.status === 'DRAFT' && (
-                        <>
-                          <button
-                            onClick={() => void createPaymentLink(invoice.id)}
-                            disabled={processingPayment === invoice.id}
-                            className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-emerald-400 disabled:opacity-50"
-                            title="Send via Stripe"
-                          >
-                            Stripe
-                          </button>
-                          <button
-                            onClick={() => void sendPayPalInvoice(invoice.id)}
-                            disabled={processingPayment === invoice.id}
-                            className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-blue-400 disabled:opacity-50"
-                            title="Send via PayPal"
-                          >
-                            PayPal
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 h-fit space-y-4">
-          <div>
-            <h2 className="text-lg font-semibold mb-3">Create Invoice</h2>
-            
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-zinc-400 block mb-1">Customer *</label>
-                <select
-                  value={newContactId}
-                  onChange={e => setNewContactId(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700 text-sm"
-                >
-                  <option value="">Select a customer...</option>
-                  {contacts.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}{c.email ? ` (${c.email})` : ''}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs text-zinc-400">Line Items</label>
-                  <button
-                    type="button"
-                    onClick={addLine}
-                    className="text-xs text-emerald-400 hover:text-emerald-300"
-                  >
-                    + Add Line
-                  </button>
-                </div>
-                
-                <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {newLines.map((line, index) => (
-                    <div key={index} className="flex gap-2">
-                      <input
-                        type="text"
-                        placeholder="Description"
-                        value={line.description}
-                        onChange={e => updateLine(index, 'description', e.target.value)}
-                        className="flex-1 px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-sm"
-                      />
-                      <input
-                        type="number"
-                        min="1"
-                        value={line.quantity}
-                        onChange={e => updateLine(index, 'quantity', e.target.value)}
-                        className="w-16 px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-sm"
-                      />
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={line.unitPrice}
-                        onChange={e => updateLine(index, 'unitPrice', e.target.value)}
-                        className="w-24 px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-sm"
-                        placeholder="0.00"
-                      />
-                      {newLines.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeLine(index)}
-                          className="px-2 text-rose-400 hover:text-rose-300"
-                        >
-                          ×
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {snippets.length > 0 && (
+      <div className="max-w-4xl space-y-2 max-h-[60vh] overflow-y-auto">
+        {loading ? (
+          <div className="text-zinc-500">Loading...</div>
+        ) : invoices.length === 0 ? (
+          <div className="text-zinc-500 p-4">No invoices yet. Click "New Invoice" to create one.</div>
+        ) : (
+          invoices.map(invoice => (
+            <div
+              key={invoice.id}
+              className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 hover:border-zinc-700 transition-colors"
+            >
+              <div className="flex items-center justify-between">
                 <div>
-                  <label className="text-xs text-zinc-400 block mb-2">Saved Snippets</label>
-                  <div className="flex flex-wrap gap-1">
-                    {snippets.map(s => (
+                  <div className="font-medium">{invoice.invoiceNumber}</div>
+                  <div className="text-xs text-zinc-400">{invoice.contact.name}</div>
+                  <div className="text-xs text-zinc-500 mt-1">
+                    {new Date(invoice.issueDate).toLocaleDateString()} → {new Date(invoice.dueDate).toLocaleDateString()}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-0.5 rounded text-xs ${statusColor(invoice.status)}`}>
+                    {invoice.status}
+                  </span>
+                  <span className="font-medium">{formatCurrency(invoice.total, invoice.currency)}</span>
+                  {invoice.status === 'DRAFT' && (
+                    <>
                       <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => applySnippet(s)}
-                        className="px-2 py-1 rounded bg-zinc-800 text-xs text-zinc-300 hover:bg-zinc-700"
-                        title={s.description}
+                        onClick={() => void createPaymentLink(invoice.id)}
+                        disabled={processingPayment === invoice.id}
+                        className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-emerald-400 disabled:opacity-50"
+                        title="Send via Stripe"
                       >
-                        {s.name}
+                        Stripe
                       </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="border-t border-zinc-700 pt-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-zinc-400">Subtotal</span>
-                  <span>{formatCurrency(subtotal)}</span>
-                </div>
-                <div className="flex justify-between text-sm font-medium mt-1">
-                  <span>Total</span>
-                  <span>{formatCurrency(subtotal)}</span>
-                </div>
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  onClick={() => { setNewContactId(''); setNewLines([{ description: '', quantity: 1, unitPrice: 0 }]) }}
-                  className="px-3 py-1.5 rounded bg-zinc-800 text-zinc-300 text-sm"
-                  disabled={saving}
-                >
-                  Clear
-                </button>
-                <button
-                  onClick={() => void saveInvoice()}
-                  disabled={saving || !newContactId || newLines.every(l => !l.description.trim())}
-                  className="flex-1 px-3 py-1.5 rounded bg-emerald-500 text-black font-medium text-sm disabled:opacity-50"
-                >
-                  {saving ? 'Saving...' : 'Create Invoice'}
-                </button>
-              </div>
-            </div>
-          </div>
-
-{previewInvoice && (
-            <div className="border-t border-zinc-700 pt-4 mt-4">
-              <h3 className="text-sm font-medium mb-2">Payment Options</h3>
-              <div className="space-y-2">
-                <button
-                  onClick={() => void createPaymentLink(previewInvoice.id)}
-                  className="w-full px-3 py-2 rounded bg-emerald-500 text-black font-medium text-sm"
-                >
-                  Send via Stripe
-                </button>
-                <button
-                  onClick={() => void sendPayPalInvoice(previewInvoice.id)}
-                  className="w-full px-3 py-2 rounded bg-blue-500 text-white font-medium text-sm"
-                >
-                  Send via PayPal
-                </button>
-                <button
-                  onClick={() => setShowPreview(true)}
-                  className="w-full px-3 py-2 rounded bg-zinc-800 text-zinc-300 text-sm"
-                >
-                  View Preview
-                </button>
-                {previewInvoice.contact?.addressCountry && previewInvoice.contact.addressCountry !== 'US' && (
-                  <button
-                    onClick={async () => {
-                      const res = await fetch(`/api/invoices/${previewInvoice.id}/qr`)
-                      const data = await res.json()
-                      if (data.svg) {
-                        const w = window.open('', '_blank')
-                        if (w) w.document.write(data.svg)
-                      }
-                    }}
-                    className="w-full px-3 py-2 rounded bg-purple-900 text-purple-300 text-sm"
-                  >
-                    Generate QR Code
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {showPreview && previewInvoice && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-zinc-950 border border-zinc-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-                <div className="p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold">Invoice Preview</h2>
-                    <button
-                      onClick={() => setShowPreview(false)}
-                      className="px-2 py-1 rounded bg-zinc-800 text-zinc-300"
-                    >
-                      Close
-                    </button>
-                  </div>
-                  <div className="border border-zinc-700 rounded p-4 bg-zinc-900 mb-4">
-                    <div className="text-center text-zinc-400 mb-4">
-                      Invoice PDF preview would render here<br />
-                      {previewInvoice.invoiceNumber}
-                    </div>
-                    <div className="text-sm text-zinc-500 space-y-1">
-                      <div>To: {previewInvoice.contact.name}</div>
-                      <div>Amount: {formatCurrency(previewInvoice.total, previewInvoice.currency)}</div>
-                      <div>Due: {new Date(previewInvoice.dueDate).toLocaleDateString()}</div>
-                    </div>
-                  </div>
+                      <button
+                        onClick={() => void sendPayPalInvoice(invoice.id)}
+                        disabled={processingPayment === invoice.id}
+                        className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-blue-400 disabled:opacity-50"
+                        title="Send via PayPal"
+                      >
+                        PayPal
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
-          )}
-        </div>
+          ))
+        )}
       </div>
-
-      {showPreview && previewInvoice && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-zinc-950 border border-zinc-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold">Invoice Preview</h2>
-                <button
-                  onClick={() => setShowPreview(false)}
-                  className="px-2 py-1 rounded bg-zinc-800 text-zinc-300"
-                >
-                  Close
-                </button>
-              </div>
-              <div className="border border-zinc-700 rounded p-4 bg-zinc-900">
-                <div className="text-center text-zinc-400">
-                  Invoice PDF preview would render here<br />
-                  {previewInvoice.invoiceNumber}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
+
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <NewEntryProvider>
