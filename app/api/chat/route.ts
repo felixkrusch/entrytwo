@@ -306,6 +306,22 @@ Tax confidence rule (strict):
 - <  0.70: you are uncertain (different region, weak memory, ambiguous document) → the UI will force user confirmation.
 `
 
+    // AI-first invoice detection (customer / client language)
+    const isCustomerInvoice = /invoice|bill/i.test(lower) && (/(client|customer|acme|corp|gmbh|ltd|inc|john|sarah)/i.test(lower) || !/from\s/i.test(lower))
+    if (isCustomerInvoice) {
+      const amtMatch = lastMessage.match(/(\d+[\.,]?\d*)/)
+      const amt = amtMatch ? parseFloat(amtMatch[1].replace(',', '.')) : undefined
+      const cur = /usd|\$/i.test(lastMessage) ? 'USD' : (/gbp|£/i.test(lastMessage) ? 'GBP' : 'EUR')
+      return Response.json({
+        response: `I'll create a customer invoice${amt ? ` for ${cur} ${amt}` : ''}.`,
+        createInvoice: {
+          amount: amt,
+          description: lastMessage,
+          currency: cur,
+        }
+      })
+    }
+
     const looksLikeTx = lower.match(/bought|paid|received|purchase|expense|revenue|supplies|software|client|services|capital|office|consult|bill|subscription|equipment|laptop|rent|salary|invoice|sale|record|post/)
     if (looksLikeTx) {
       try {
@@ -534,7 +550,27 @@ lines.push({ accountCode: debitCode, debit: taxAmt, description: `Tax ${deRate.n
       description: text || note,
       lines
     }
-  } else if (isRevenue) {
+  } else if (isRevenue || /invoice|bill.*client|bill.*customer|send invoice/i.test(lower)) {
+    // Detect customer invoice language
+    const invoiceMatch = lower.match(/invoice|bill/i)
+    const customerHint = lower.includes('client') || lower.includes('customer') || lower.includes('acme') || lower.includes('corp') || lower.includes('gmbh') || /[A-Z][A-Za-z0-9&]+/.test(text)
+    if (invoiceMatch && customerHint) {
+      // Try to extract a plausible customer name (first capitalized token after "invoice" or "for")
+      const nameMatch = text.match(/(?:invoice|bill|for)\s+([A-Z][A-Za-z0-9&.\- ]{1,30})/i)
+      const contactName = nameMatch ? nameMatch[1].trim() : undefined
+
+      response = `I'll create a customer invoice for ~${amount}.`
+      // Return special createInvoice payload (no journal suggestion)
+      return {
+        response,
+        createInvoice: {
+          amount,
+          description: text,
+          currency,
+          contactName,
+        }
+      }
+    }
     response = `Revenue ~${amount}. Debit ${bank}, credit ${revenue}.`
     suggestion = {
       description: text || 'Revenue',

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useTranslations } from 'next-intl'
 import { signIn } from '@/lib/auth-client'
 
-const CALLBACK_URL = '/'
+const CALLBACK_URL = '/app'
 
 // Detect available OAuth providers at build time
 const hasGoogle = !!process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID

@@ -42,72 +42,74 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   events      Event[]
-  totpSecret  String?   // Encrypted TOTP secret for 2FA
-  totpEnabled Boolean   @default(false)  // Whether TOTP is enabled
-  settings    Json?     // User preferences including 2FA settings
+  totpSecret  String? // Encrypted TOTP secret for 2FA
+  totpEnabled Boolean  @default(false) // Whether TOTP is enabled
+  settings    Json? // User preferences including 2FA settings
 }
 
 model Account {
-  id           String        @id @default(uuid())
-  code         String        @unique
-  name         String
-  type         AccountType
-  description  String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  journalLines JournalLine[]
+  id              String           @id @default(uuid())
+  code            String           @unique
+  name            String
+  type            AccountType
+  description     String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  journalLines    JournalLine[]
   bankConnections BankConnection[]
 }
 
 model Contact {
-  id             String    @id @default(uuid())
-  name           String
-  email          String?
-  type           String    // "CUSTOMER" or "VENDOR"
-  phone          String?   // International format, max 50 chars
-  addressStreet  String?   // Line 1 (street address)
-  addressCity    String?   // City
-  addressState   String?   // State/Province
-  addressZip     String?   // Postal/ZIP code
-  addressCountry String?   // ISO 3166-1 alpha-2 country code (e.g., "DE", "US")
-  addressLine2   String?   // Additional address line (P.O. Box, apartment, etc.)
-  taxId          String?   // VAT/EIN/tax identification
-  website        String?   // Company website URL
-  currency       String?   // Preferred currency (ISO 4217), fallback to company default
-  notes          String?   // Internal notes
-  vatValid       Boolean?  // Whether VAT validation passed
-  vatValidated   Boolean   @default(false)
-  vatValidatedAt DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  journalLines   JournalLine[]
-  invoices       Invoice[]
+  id                String             @id @default(uuid())
+  name              String
+  email             String?
+  type              String // "CUSTOMER" or "VENDOR"
+  phone             String? // International format, max 50 chars
+  addressStreet     String? // Line 1 (street address)
+  addressCity       String? // City
+  addressState      String? // State/Province
+  addressZip        String? // Postal/ZIP code
+  addressCountry    String? // ISO 3166-1 alpha-2 country code (e.g., "DE", "US")
+  addressLine2      String? // Additional address line (P.O. Box, apartment, etc.)
+  taxId             String? // VAT/EIN/tax identification
+  website           String? // Company website URL
+  currency          String? // Preferred currency (ISO 4217), fallback to company default
+  notes             String? // Internal notes
+  vatValid          Boolean? // Whether VAT validation passed
+  vatValidated      Boolean            @default(false)
+  vatValidatedAt    DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  journalLines      JournalLine[]
+  invoices          Invoice[]
+  recurringInvoices RecurringInvoice[]
 }
 
 model JournalEntry {
-  id          String        @id @default(uuid())
-  date        DateTime
-  description String?
-  createdAt   DateTime      @default(now())
-  createdBy   String?
-  lines       JournalLine[]
+  id               String            @id @default(uuid())
+  date             DateTime
+  description      String?
+  createdAt        DateTime          @default(now())
+  createdBy        String?
+  lines            JournalLine[]
   feedTransactions FeedTransaction[]
+  invoices         Invoice[]
 }
 
 model JournalLine {
-  id             String        @id @default(uuid())
+  id             String    @id @default(uuid())
   journalEntryId String
   accountId      String
   contactId      String?
-  debit          Decimal       @default(0)
-  credit         Decimal       @default(0)
+  debit          Decimal   @default(0)
+  credit         Decimal   @default(0)
   description    String?
   taxRateId      String?
-  taxIsInput     Boolean?                       // explicit input/output for this tax application (null = derive)
-  currency       String        @default("EUR")  // ISO 4217 currency code
-  fxRateToBase   Decimal?                         // exchange rate to system base currency at entry time
-  fxSource       String?                          // e.g. "ECB", "manual"
-  fxDate         DateTime?                        // date the fx rate applies to
+  taxIsInput     Boolean? // explicit input/output for this tax application (null = derive)
+  currency       String    @default("EUR") // ISO 4217 currency code
+  fxRateToBase   Decimal? // exchange rate to system base currency at entry time
+  fxSource       String? // e.g. "ECB", "manual"
+  fxDate         DateTime? // date the fx rate applies to
 
   journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id])
   account      Account      @relation(fields: [accountId], references: [id])
@@ -116,19 +118,19 @@ model JournalLine {
 }
 
 model TaxRate {
-  id            String        @id @default(uuid())
-  jurisdiction  String        // e.g. "DE", "US-CA", "EU", "AT"
-  name          String        // e.g. "MwSt 19%", "USt 7%", "Sales Tax 8.25%"
-  rate          Decimal       // e.g. 0.19 for 19%
-  taxType       String        // "STANDARD" | "REDUCED" | "EXEMPT" | "ZERO" | "REVERSE_CHARGE"
+  id            String    @id @default(uuid())
+  jurisdiction  String // e.g. "DE", "US-CA", "EU", "AT"
+  name          String // e.g. "MwSt 19%", "USt 7%", "Sales Tax 8.25%"
+  rate          Decimal // e.g. 0.19 for 19%
+  taxType       String // "STANDARD" | "REDUCED" | "EXEMPT" | "ZERO" | "REVERSE_CHARGE"
   effectiveFrom DateTime?
   effectiveTo   DateTime?
   description   String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  journalLines  JournalLine[]   // back-relation for tax on lines
-  invoiceLines  InvoiceLine[]   // back-relation for invoice tax
+  journalLines JournalLine[] // back-relation for tax on lines
+  invoiceLines InvoiceLine[] // back-relation for invoice tax
 
   // Optional: link to dedicated tax accounts in the future
   // inputTaxAccountId  String?
@@ -156,28 +158,55 @@ model Snapshot {
 // Global settings / company configuration (used by Admin UI)
 model Setting {
   id        String   @id @default(uuid())
-  key       String   @unique     // e.g. "company.name", "baseCurrency", "defaultTaxJurisdiction"
-  value     Json                     // flexible value (string, number, object, etc.)
+  key       String   @unique // e.g. "company.name", "baseCurrency", "defaultTaxJurisdiction"
+  value     Json // flexible value (string, number, object, etc.)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-// Transaction templates for recurring entries
+// Transaction templates for recurring entries + invoice templates
 model Template {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  content     String?  // Template definition (JSON structure)
-  isInvoiceTemplate Boolean @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                String   @id @default(uuid())
+  name              String
+  description       String?
+  content           String? // Template definition (JSON structure)
+  isInvoiceTemplate Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+// Recurring invoice schedules
+// Philosophy (per docs + best practice):
+// - By default: generates DRAFT invoices on schedule.
+// - User reviews/approves/edits and then sends (Stripe/PayPal/Email).
+// - Optional per-schedule: autoSend (still creates draft + attempts send after generation for auditability).
+model RecurringInvoice {
+  id              String    @id @default(uuid())
+  name            String // e.g. "ACME monthly retainer"
+  contactId       String
+  frequency       String // WEEKLY | MONTHLY | QUARTERLY | YEARLY
+  interval        Int       @default(1) // e.g. every 1 month, every 3 months
+  startDate       DateTime
+  endDate         DateTime?
+  nextDueDate     DateTime
+  lastGeneratedAt DateTime?
+  autoSend        Boolean   @default(false) // if true, after generating draft, try to send via default method
+  status          String    @default("ACTIVE") // ACTIVE | PAUSED | CANCELLED
+  notes           String?
+  // Snapshot of what to bill (lines, currency, terms, notes)
+  // Stored as JSON for simplicity and to survive template changes
+  templateData    Json // { currency, lines: [...], notes?, terms?, taxRates? }
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  contact Contact @relation(fields: [contactId], references: [id])
 }
 
 model Invoice {
   id              String    @id @default(uuid())
   invoiceNumber   String    @unique // INV-2026-0042 format
   contactId       String
-  status          String    // DRAFT, SENT, PAID, OVERDUE, CANCELLED
+  status          String // DRAFT, SENT, PAID, OVERDUE, CANCELLED
   currency        String    @default("EUR") // ISO 4217
   subtotal        Decimal
   taxAmount       Decimal
@@ -187,44 +216,46 @@ model Invoice {
   paidDate        DateTime?
   notes           String?
   terms           String?
-  templateData    Json?     // Layout customization (colors, fonts, logo position)
-  paymentLink     String?   // Stripe checkout or payment link
-  stripeInvoiceId String?    // If synced to Stripe
-  paypalInvoiceId String?    // If synced to PayPal
+  templateData    Json? // Layout customization (colors, fonts, logo position)
+  paymentLink     String? // Stripe checkout or payment link
+  stripeInvoiceId String? // If synced to Stripe
+  paypalInvoiceId String? // If synced to PayPal
+  journalEntryId  String? // Links to the revenue recognition journal entry created on invoice
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  contact Contact @relation(fields: [contactId], references: [id])
-  lines   InvoiceLine[]
+  contact      Contact       @relation(fields: [contactId], references: [id])
+  lines        InvoiceLine[]
+  journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id])
 }
 
 model InvoiceLine {
-  id          String    @id @default(uuid())
+  id          String  @id @default(uuid())
   invoiceId   String
   description String
-  quantity    Decimal   @default(1)
+  quantity    Decimal @default(1)
   unitPrice   Decimal
   taxRateId   String?
-  lineTotal   Decimal   // quantity * unitPrice
-  taxAmount   Decimal   @default(0)
+  lineTotal   Decimal // quantity * unitPrice
+  taxAmount   Decimal @default(0)
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  invoice Invoice  @relation(fields: [invoiceId], references: [id])
   taxRate TaxRate? @relation(fields: [taxRateId], references: [id])
 }
 
 // Bank feed connections - links chart of accounts to external providers
 model BankConnection {
-  id           String   @id @default(uuid())
-  accountId    String   // Links to Chart of Accounts
-  provider     String   // 'stripe', 'paypal', 'plaid', 'salt-edge', 'csv'
-  externalId   String   // Provider account/identifier
-  credentials  String?  // Encrypted tokens/secrets (JSON blob encrypted)
-  lastSyncAt   DateTime?
-  syncEnabled  Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id          String    @id @default(uuid())
+  accountId   String // Links to Chart of Accounts
+  provider    String // 'stripe', 'paypal', 'plaid', 'salt-edge', 'csv'
+  externalId  String // Provider account/identifier
+  credentials String? // Encrypted tokens/secrets (JSON blob encrypted)
+  lastSyncAt  DateTime?
+  syncEnabled Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  account Account @relation(fields: [accountId], references: [id])
+  account          Account           @relation(fields: [accountId], references: [id])
   feedTransactions FeedTransaction[]
 
   @@index([provider])
@@ -232,22 +263,22 @@ model BankConnection {
 
 // Raw feed transactions before matching to journal entries
 model FeedTransaction {
-  id            String   @id @default(uuid())
-  connectionId  String   // Links to BankConnection
-  externalId    String   // Provider's transaction ID
-  date          DateTime
-  description   String
-  merchant      String?  // Normalized merchant name
-  amount        Decimal
-  currency      String   @default("EUR")
-  fxRateToBase  Decimal? // Rate at transaction time
-  status        String   @default("pending") // 'pending', 'matched', 'posted', 'ignored'
-  rawData       Json?    // Original provider data for matching
+  id             String   @id @default(uuid())
+  connectionId   String // Links to BankConnection
+  externalId     String // Provider's transaction ID
+  date           DateTime
+  description    String
+  merchant       String? // Normalized merchant name
+  amount         Decimal
+  currency       String   @default("EUR")
+  fxRateToBase   Decimal? // Rate at transaction time
+  status         String   @default("pending") // 'pending', 'matched', 'posted', 'ignored'
+  rawData        Json? // Original provider data for matching
   journalEntryId String? // Links to created journal entry
-  createdAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
 
-  connection BankConnection @relation(fields: [connectionId], references: [id])
-  journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id])
+  connection   BankConnection @relation(fields: [connectionId], references: [id])
+  journalEntry JournalEntry?  @relation(fields: [journalEntryId], references: [id])
 
   @@unique([connectionId, externalId])
   @@index([status])

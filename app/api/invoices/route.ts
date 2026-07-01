@@ -12,7 +12,7 @@ const InvoiceLineSchema = z.object({
 
 const InvoiceSchema = z.object({
   contactId: z.string(),
-  status: z.enum(['DRAFT', 'SENT', 'PAID', 'OVERDUE', 'CANCELLED']).default('DRAFT'),
+  status: z.enum(['DRAFT', 'SENT', 'PAID', 'OVERDUE', 'CANCELLED']).default('SENT'),
   currency: z.string().length(3).default('EUR'),
   issueDate: z.string().datetime().optional(),
   dueDate: z.string().datetime().optional(),
@@ -21,10 +21,25 @@ const InvoiceSchema = z.object({
   lines: z.array(InvoiceLineSchema).min(1),
 })
 
-function generateInvoiceNumber(): string {
+async function generateInvoiceNumber(): Promise<string> {
   const year = new Date().getFullYear()
-  const random = Math.floor(1000 + Math.random() * 9000)
-  return `INV-${year}-${String(random).padStart(4, '0')}`
+  const prefix = `INV-${year}-`
+
+  // Find the highest existing number for this year and increment
+  const latest = await prisma.invoice.findFirst({
+    where: { invoiceNumber: { startsWith: prefix } },
+    orderBy: { invoiceNumber: 'desc' },
+    select: { invoiceNumber: true },
+  })
+
+  let next = 1
+  if (latest?.invoiceNumber) {
+    const numPart = latest.invoiceNumber.replace(prefix, '')
+    const parsed = parseInt(numPart, 10)
+    if (!isNaN(parsed)) next = parsed + 1
+  }
+
+  return `${prefix}${String(next).padStart(4, '0')}`
 }
 
 export async function GET(request: Request) {
@@ -49,7 +64,10 @@ export async function GET(request: Request) {
         where,
         skip,
         take: limit,
-        orderBy: { issueDate: 'desc' },
+        orderBy: [
+          { createdAt: 'desc' },
+          { id: 'desc' }
+        ],
         include: {
           contact: true,
           lines: { include: { taxRate: true } },
@@ -82,49 +100,189 @@ export async function POST(request: Request) {
       )
     }
 
-    const { contactId, status, currency, issueDate, dueDate, notes, terms, lines } = parsed.data
+    const { contactId, status, currency: invCurrency, issueDate, dueDate, notes, terms, lines } = parsed.data
+    const currency = (invCurrency || 'EUR').toUpperCase()
 
     const now = new Date()
     const dueDays = 30
     const finalIssueDate = issueDate ? new Date(issueDate) : now
     const finalDueDate = dueDate ? new Date(dueDate) : new Date(now.getTime() + dueDays * 24 * 60 * 60 * 1000)
 
-    const subtotal = lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
-    const taxAmount = 0 // Simplified - would calculate per tax rate
+    // Load tax rates for the provided ids
+    const taxRateIds = Array.from(new Set(lines.map(l => l.taxRateId).filter((id): id is string => !!id)))
+    const taxRates = taxRateIds.length
+      ? await prisma.taxRate.findMany({ where: { id: { in: taxRateIds } } })
+      : []
+    const rateMap = new Map(taxRates.map(r => [r.id, Number(r.rate)]))
 
-    const invoice = await prisma.invoice.create({
-      data: {
-        invoiceNumber: generateInvoiceNumber(),
-        contactId,
-        status,
-        currency,
-        subtotal,
-        taxAmount,
-        total: subtotal + taxAmount,
-        issueDate: finalIssueDate,
-        dueDate: finalDueDate,
-        notes,
-        terms,
-        lines: {
-          create: lines.map(line => ({
-            description: line.description,
-            quantity: line.quantity,
-            unitPrice: line.unitPrice,
-            taxRateId: line.taxRateId,
-            lineTotal: line.quantity * line.unitPrice,
-          })),
-        },
-      },
-      include: { contact: true, lines: { include: { taxRate: true } } },
+    // Server-side tax calculation (source of truth)
+    let subtotal = 0
+    let taxAmount = 0
+    const enrichedLines = lines.map(line => {
+      const net = line.quantity * line.unitPrice
+      const rate = line.taxRateId ? rateMap.get(line.taxRateId) || 0 : 0
+      const tax = net * rate
+      subtotal += net
+      taxAmount += tax
+      return {
+        ...line,
+        lineTotal: net,
+        taxAmount: tax,
+      }
     })
+    const total = subtotal + taxAmount
 
-    await prisma.event.create({
-      data: {
-        eventType: EventType.INVOICE_CREATED,
-        entityType: 'Invoice',
-        entityId: invoice.id,
-        payload: { invoiceNumber: invoice.invoiceNumber, contactId },
+    // Find AR and Revenue accounts (robust fallbacks)
+    let arAccount = await prisma.account.findFirst({
+      where: {
+        OR: [
+          { code: '1100' },
+          { name: { contains: 'receivable', mode: 'insensitive' } },
+          { name: { contains: 'AR', mode: 'insensitive' } },
+        ],
       },
+    })
+    if (!arAccount) {
+      arAccount = await prisma.account.findFirst({ where: { type: 'ASSET' } })
+    }
+
+    let revenueAccount = await prisma.account.findFirst({
+      where: {
+        OR: [
+          { code: '4000' },
+          { name: { contains: 'revenue', mode: 'insensitive' } },
+          { name: { contains: 'sales', mode: 'insensitive' } },
+        ],
+      },
+    })
+    if (!revenueAccount) {
+      revenueAccount = await prisma.account.findFirst({ where: { type: 'REVENUE' } })
+    }
+
+    // Tax payable (output tax liability) – create if missing so double-entry is correct
+    let taxPayableAccount = await prisma.account.findFirst({
+      where: {
+        OR: [
+          { code: '2100' },
+          { name: { contains: 'tax', mode: 'insensitive' } },
+          { name: { contains: 'vat', mode: 'insensitive' } },
+          { name: { contains: 'payable', mode: 'insensitive' } },
+        ],
+      },
+    })
+    if (!taxPayableAccount) {
+      taxPayableAccount = await prisma.account.create({
+        data: { code: '2100', name: 'Tax Payable (Output VAT/Sales Tax)', type: 'LIABILITY' },
+      })
+    }
+
+    if (!arAccount || !revenueAccount || !taxPayableAccount) {
+      return NextResponse.json({ error: 'Required accounts (AR / Revenue / Tax Payable) not found.' }, { status: 500 })
+    }
+
+    // Create Invoice + JournalEntry atomically
+    const invoice = await prisma.$transaction(async (tx) => {
+      const createdInvoice = await tx.invoice.create({
+        data: {
+          invoiceNumber: await generateInvoiceNumber(),
+          contactId,
+          status,
+          currency,
+          subtotal,
+          taxAmount,
+          total,
+          issueDate: finalIssueDate,
+          dueDate: finalDueDate,
+          notes,
+          terms,
+          lines: {
+            create: enrichedLines.map(line => ({
+              description: line.description,
+              quantity: line.quantity,
+              unitPrice: line.unitPrice,
+              taxRateId: line.taxRateId || null,
+              lineTotal: line.lineTotal,
+              taxAmount: line.taxAmount,
+            })),
+          },
+        },
+        include: { contact: true, lines: { include: { taxRate: true } } },
+      })
+
+      // Build journal lines for proper double-entry (revenue recognition)
+      const journalLineData: Array<{
+        accountId: string
+        debit: number
+        credit: number
+        currency: string
+        contactId?: string
+        description?: string
+        taxRateId?: string | null
+        taxIsInput?: boolean
+      }> = [
+        {
+          accountId: arAccount!.id,
+          debit: total,
+          credit: 0,
+          currency,
+          contactId,
+          description: `Invoice ${createdInvoice.invoiceNumber}`,
+        },
+        {
+          accountId: revenueAccount!.id,
+          debit: 0,
+          credit: subtotal,
+          currency,
+          description: 'Revenue',
+        },
+      ]
+
+      if (taxAmount > 0) {
+        // Credit output tax liability account (not revenue). This is critical for correct double-entry.
+        const primaryTaxRateId = taxRateIds[0] || null
+        journalLineData.push({
+          accountId: taxPayableAccount!.id,
+          debit: 0,
+          credit: taxAmount,
+          currency,
+          description: 'Output tax (VAT/Sales tax)',
+          taxRateId: primaryTaxRateId,
+          taxIsInput: false,
+        })
+      }
+
+      const journalEntry = await tx.journalEntry.create({
+        data: {
+          date: finalIssueDate,
+          description: `Invoice ${createdInvoice.invoiceNumber}`,
+          lines: {
+            create: journalLineData,
+          },
+        },
+      })
+
+      // Link the journal entry back to the invoice for traceability
+      const updatedInvoice = await tx.invoice.update({
+        where: { id: createdInvoice.id },
+        data: { journalEntryId: journalEntry.id },
+        include: { contact: true, lines: { include: { taxRate: true } } },
+      })
+
+      await tx.event.create({
+        data: {
+          eventType: EventType.INVOICE_CREATED,
+          entityType: 'Invoice',
+          entityId: updatedInvoice.id,
+          payload: {
+            invoiceNumber: updatedInvoice.invoiceNumber,
+            contactId,
+            journalEntryId: journalEntry.id,
+            total: Number(total),
+          },
+        },
+      })
+
+      return updatedInvoice
     })
 
     return NextResponse.json(invoice, { status: 201 })

@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import QRCode from 'qrcode'
 
-// EPC QR Code generation (European Payments Council)
-// Format: BCD,00,1,Char,1234,CompanyName,GB,GB1234567890,USD,1234.56,P,Invoice 123,,
+// EPC QR Code (European Payments Council / SEPA Credit Transfer)
+// Spec: https://www.europeanpaymentscouncil.eu/document-library/guidance-documents/quick-response-code-guidelines-enable-data-capture-mobile
+// Version 2.0
 
 export async function GET(
   _request: Request,
@@ -20,39 +22,54 @@ export async function GET(
 
   const contact = invoice.contact
 
-  // Get company settings for creditor info
-  const companyName = await prisma.setting.findUnique({
-    where: { key: 'company.name' },
-  }).then(s => s?.value as string || 'Company')
+  // Company creditor info from settings
+  const companyNameSetting = await prisma.setting.findUnique({ where: { key: 'company.name' } })
+  const ibanSetting = await prisma.setting.findUnique({ where: { key: 'company.iban' } })
 
-  const creditorIBAN = await prisma.setting.findUnique({
-    where: { key: 'company.iban' },
-  }).then(s => s?.value as string || '')
+  const companyName = ((companyNameSetting?.value as Record<string, unknown>)?.value as string) || 'Your Company'
+  const iban = (((ibanSetting?.value as Record<string, unknown>)?.value as string) || '').replace(/\s+/g, '').toUpperCase()
 
-  // Build EPC QR string
-  const qrData = [
-    'BCD',
-    '00',
-    '1',
-    'CHAR',
-    '1234',
-    companyName,
-    creditorIBAN ? creditorIBAN.slice(0, 2) : 'DE',
-    creditorIBAN || '',
-    (invoice.currency || 'EUR').toUpperCase(),
-    invoice.total.toFixed(2).replace('.', ','),
-    'P',
-    invoice.invoiceNumber,
-    '',
-    '',
-    ''
-  ].join(',,,')
+  const amount = Number(invoice.total).toFixed(2).replace('.', ',')
+  const currency = (invoice.currency || 'EUR').toUpperCase()
+  const reference = invoice.invoiceNumber
 
-  // Generate SVG QR code
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 296 296">
-    <rect width="296" height="296" fill="white"/>
-    <text x="148" y="148" font-family="monospace" font-size="12" text-anchor="middle">QR for ${invoice.invoiceNumber}</text>
-  </svg>`
+  // EPC QR payload (Version 002, UTF-8, no BIC for many banks)
+  // Fields: Service Tag, Version, Encoding, BIC (empty), Name, IBAN, Amount, Currency, Purpose, Reference, Text, ...
+  const qrPayload = [
+    'BCD',           // Service Tag
+    '002',           // Version
+    '1',             // Encoding 1 = UTF-8
+    '',              // BIC (optional, many SEPA banks accept without)
+    companyName.substring(0, 70),
+    iban,
+    `${currency}${amount}`,
+    '',              // Purpose code (optional)
+    reference.substring(0, 35),
+    '',              // Unstructured remittance info (can put invoice number here too)
+    '',              // Information (optional)
+  ].join('\n')
 
-  return NextResponse.json({ qrData, svg })
+  // Generate real SVG QR code
+  let svg = ''
+  try {
+    svg = await QRCode.toString(qrPayload, {
+      type: 'svg',
+      margin: 1,
+      width: 300,
+      color: { dark: '#000000', light: '#FFFFFF' },
+    })
+  } catch (e) {
+    // Fallback to a simple placeholder if generation fails
+    svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300"><rect width="300" height="300" fill="white"/><text x="150" y="150" font-family="monospace" font-size="11" text-anchor="middle">QR ${invoice.invoiceNumber}</text></svg>`
+  }
+
+  return NextResponse.json({
+    qrData: qrPayload,
+    svg,
+    iban: iban || null,
+    amount: Number(invoice.total),
+    currency,
+    reference,
+    beneficiary: companyName,
+  })
 }

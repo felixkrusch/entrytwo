@@ -115,20 +115,39 @@ async function createPaymentJournalEntry(invoiceId: string, amount: number, curr
 
   if (!invoice) return
 
-  // Find or create a default bank/cash account
-  const cashAccount = await prisma.account.upsert({
-    where: { code: 'CASH' },
-    update: {},
-    create: {
-      code: 'CASH',
-      name: 'Bank/Cash',
-      type: 'ASSET',
+  // Prefer standard seeded accounts
+  let cashAccount = await prisma.account.findFirst({
+    where: {
+      OR: [
+        { code: '1000' },
+        { code: '1010' },
+        { code: '1100' },
+        { name: { contains: 'cash', mode: 'insensitive' } },
+        { name: { contains: 'bank', mode: 'insensitive' } },
+      ],
     },
   })
+  if (!cashAccount) {
+    cashAccount = await prisma.account.create({
+      data: { code: '1000', name: 'Cash / Bank', type: 'ASSET' },
+    })
+  }
 
-  const arAccount = await getDefaultARAccountId()
+  let arAccount = await prisma.account.findFirst({
+    where: {
+      OR: [
+        { code: '1100' },
+        { name: { contains: 'receivable', mode: 'insensitive' } },
+        { name: { contains: 'AR', mode: 'insensitive' } },
+      ],
+    },
+  })
+  if (!arAccount) {
+    arAccount = await prisma.account.create({
+      data: { code: '1100', name: 'Accounts Receivable', type: 'ASSET' },
+    })
+  }
 
-  // Create journal entry for payment received
   await prisma.journalEntry.create({
     data: {
       date: new Date(),
@@ -139,28 +158,17 @@ async function createPaymentJournalEntry(invoiceId: string, amount: number, curr
             accountId: cashAccount.id,
             debit: amount,
             currency: currency.toUpperCase(),
+            description: `Payment received for ${invoice.invoiceNumber}`,
           },
           {
-            accountId: arAccount,
+            accountId: arAccount.id,
             credit: amount,
             contactId: invoice.contactId,
             currency: currency.toUpperCase(),
+            description: `AR cleared for ${invoice.invoiceNumber}`,
           },
         ],
       },
     },
   })
-}
-
-async function getDefaultARAccountId(): Promise<string> {
-  const arAccount = await prisma.account.upsert({
-    where: { code: 'AR' },
-    update: {},
-    create: {
-      code: 'AR',
-      name: 'Accounts Receivable',
-      type: 'ASSET',
-    },
-  })
-  return arAccount.id
 }

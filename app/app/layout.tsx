@@ -13,6 +13,7 @@ import TemplatesPanel from './TemplatesPanel'
 import NewJournalEntryModal from './NewJournalEntryModal'
 import TopBar from './TopBar'
 import { NewEntryProvider, useNewEntry } from './NewEntryContext'
+import InvoicingPanel from './InvoicingPanel'
 import { useTranslations } from 'next-intl'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
@@ -181,8 +182,8 @@ function AppContent({ children }: { children: ReactNode }) {
               )}
 
               {view === 'invoicing' && (
-                <InvoicingContent />
-              )}
+                 <InvoicingPanel />
+               )}
 
               {view === 'reports' && (
                 <ReportsContent />
@@ -237,8 +238,9 @@ function ContactsContent() {
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'CUSTOMER' | 'VENDOR'>('ALL')
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
-  const [showAddModal, setShowAddModal] = useState(false)
+  const [showForm, setShowForm] = useState(false)
   const [editingContact, setEditingContact] = useState<ContactItem | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
@@ -308,7 +310,7 @@ function ContactsContent() {
     setNewTaxId(contact.taxId || '')
     setNewWebsite(contact.website || '')
     setEditingContact(contact)
-    setShowAddModal(true)
+    setShowForm(true)
   }
 
   const saveContact = async () => {
@@ -342,7 +344,7 @@ function ContactsContent() {
       })
     }
     resetForm()
-    setShowAddModal(false)
+    setShowForm(false)
     void fetchContacts()
   }
 
@@ -381,7 +383,7 @@ function ContactsContent() {
     e?.stopPropagation()
     if (!confirm('Delete this contact? This cannot be undone if they have related entries.')) return
     await fetch(`/api/contacts/${contactId}`, { method: 'DELETE' })
-    setShowAddModal(false)
+    setShowForm(false)
     resetForm()
     void fetchContacts()
   }
@@ -394,6 +396,10 @@ function ContactsContent() {
       return true
     })
   }, [contacts, search, typeFilter])
+
+  const toggleExpand = (id: string) => {
+    setExpandedId(expandedId === id ? null : id)
+  }
 
   return (
     <div>
@@ -425,10 +431,9 @@ function ContactsContent() {
           <option value="VENDOR">Vendors</option>
         </select>
         <button
-          onClick={() => setShowAddModal(true)}
+          onClick={() => { setShowForm(true); resetForm(); setEditingContact(null); }}
           className="flex items-center px-3 py-1.5 rounded bg-emerald-500 text-black font-medium text-sm hover:bg-emerald-400"
         >
-          
           Add Contact
         </button>
       </div>
@@ -439,68 +444,97 @@ function ContactsContent() {
         <div className="text-zinc-500">No contacts yet.</div>
       ) : (
         <div className="space-y-2">
-          {filteredContacts.map(contact => (
-            <div
-              key={contact.id}
-              className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 hover:border-zinc-700 transition-colors cursor-pointer"
-              onClick={() => populateForm(contact)}
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="font-medium">{contact.name}</div>
-                  <div className="flex items-center gap-2 mt-1 text-xs">
-                    <span className={`px-2 py-0.5 rounded ${
-                      contact.type === 'CUSTOMER' 
-                        ? 'bg-emerald-950 text-emerald-400' 
-                        : 'bg-amber-950 text-amber-400'
-                    }`}>
-                      {contact.type === 'CUSTOMER' ? 'Customer' : 'Vendor'}
-                    </span>
-                    {contact.entryCount > 0 && (
-                      <span className="text-zinc-500">{contact.entryCount} entries</span>
-                    )}
-                  </div>
-                  {contact.email && (
-                    <a href={`mailto:${contact.email}`} className="text-xs text-blue-400 hover:underline mt-1 block" onClick={e => e.stopPropagation()}>
-                      {contact.email}
-                    </a>
-                  )}
-                  {contact.phone && (
-                    <span className="text-xs text-zinc-400 mt-1 block">{contact.phone}</span>
-                  )}
-                  {formatAddress(contact) && (
-                    <span className="text-xs text-zinc-500 mt-1 block" onClick={e => e.stopPropagation()}>
-                      {formatAddress(contact)}
-                    </span>
-                  )}
-                  {contact.website && (
-                    <a href={contact.website} className="text-xs text-blue-400 hover:underline mt-1 block" onClick={e => e.stopPropagation()} target="_blank" rel="noopener noreferrer">
-                      {contact.website}
-                    </a>
-                  )}
-                  {contact.taxId && (
-                    <span className="text-xs text-zinc-400 mt-1 block">Tax: {contact.taxId}</span>
-                  )}
-                </div>
-                <div className="flex flex-col items-end gap-1">
-                  {contact.taxId && (
-                    <button
-                      onClick={e => { e.stopPropagation(); void validateVat(contact.taxId!) }}
-                      className="text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                      title="Validate VAT"
-                    >
-                      Verify VAT
-                    </button>
-                  )}
-                  {contact.vatValidated !== undefined && (
-                    <span className={`text-xs ${contact.vatValid ? 'text-emerald-400' : 'text-rose-400'}`} title={contact.vatValid ? 'VAT valid' : 'VAT invalid'} onClick={e => e.stopPropagation()}>
-                      {contact.vatValid ? '✓' : '✗'}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
+           {filteredContacts.map(contact => (
+             <div
+               key={contact.id}
+               className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 hover:border-zinc-700 transition-colors cursor-pointer"
+               onClick={() => toggleExpand(contact.id)}
+             >
+               <div className="flex items-start justify-between">
+                 <div>
+                   <div className="font-medium">{contact.name}</div>
+                   <div className="flex items-center gap-2 mt-1 text-xs">
+                     <span className={`px-2 py-0.5 rounded ${
+                       contact.type === 'CUSTOMER' 
+                         ? 'bg-emerald-950 text-emerald-400' 
+                         : 'bg-amber-950 text-amber-400'
+                     }`}>
+                       {contact.type === 'CUSTOMER' ? 'Customer' : 'Vendor'}
+                     </span>
+                     {contact.entryCount > 0 && (
+                       <span className="text-zinc-500">{contact.entryCount} entries</span>
+                     )}
+                   </div>
+                   {contact.email && (
+                     <a href={`mailto:${contact.email}`} className="text-xs text-blue-400 hover:underline mt-1 block" onClick={e => e.stopPropagation()}>
+                       {contact.email}
+                     </a>
+                   )}
+                   {contact.phone && (
+                     <span className="text-xs text-zinc-400 mt-1 block">{contact.phone}</span>
+                   )}
+                   {formatAddress(contact) && (
+                     <span className="text-xs text-zinc-500 mt-1 block" onClick={e => e.stopPropagation()}>
+                       {formatAddress(contact)}
+                     </span>
+                   )}
+                   {contact.website && (
+                     <a href={contact.website} className="text-xs text-blue-400 hover:underline mt-1 block" onClick={e => e.stopPropagation()} target="_blank" rel="noopener noreferrer">
+                       {contact.website}
+                     </a>
+                   )}
+                   {contact.taxId && (
+                     <span className="text-xs text-zinc-400 mt-1 block">Tax: {contact.taxId}</span>
+                   )}
+                 </div>
+                 <div className="flex flex-col items-end gap-1">
+                   {contact.taxId && (
+                     <button
+                       onClick={e => { e.stopPropagation(); void validateVat(contact.taxId!) }}
+                       className="text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                       title="Validate VAT"
+                     >
+                       Verify VAT
+                     </button>
+                   )}
+                   {contact.vatValidated !== undefined && (
+                     <span className={`text-xs ${contact.vatValid ? 'text-emerald-400' : 'text-rose-400'}`} title={contact.vatValid ? 'VAT valid' : 'VAT invalid'} onClick={e => e.stopPropagation()}>
+                       {contact.vatValid ? '✓' : '✗'}
+                     </span>
+                   )}
+                 </div>
+               </div>
+
+               {/* Inline accordion details (no modal) */}
+               {expandedId === contact.id && (
+                 <div className="mt-4 border-t border-zinc-800 pt-4 text-sm" onClick={e => e.stopPropagation()}>
+                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-xs text-zinc-300">
+                     {contact.email && <div>Email: <a href={`mailto:${contact.email}`} className="text-blue-400 hover:underline">{contact.email}</a></div>}
+                     {contact.phone && <div>Phone: {contact.phone}</div>}
+                     {contact.taxId && <div>Tax ID: {contact.taxId}</div>}
+                     {contact.website && <div>Website: <a href={contact.website} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">{contact.website}</a></div>}
+                     {formatAddress(contact) && <div className="sm:col-span-2">Address: {formatAddress(contact)}</div>}
+                     <div>Entries: {contact.entryCount}</div>
+                     <div>Type: {contact.type}</div>
+                   </div>
+                   <div className="mt-3 flex flex-wrap gap-2">
+                     <button
+                       onClick={() => { populateForm(contact); setShowForm(true); setExpandedId(null) }}
+                       className="px-3 py-1 text-xs rounded bg-emerald-700"
+                     >
+                       Edit Contact
+                     </button>
+                     <button
+                       onClick={(e) => { e.stopPropagation(); void deleteContact(contact.id, e); }}
+                       className="px-3 py-1 text-xs rounded bg-rose-900 text-rose-200"
+                     >
+                       Delete
+                     </button>
+                   </div>
+                 </div>
+               )}
+             </div>
+           ))}
         </div>
       )}
 
@@ -526,159 +560,160 @@ function ContactsContent() {
         </div>
       )}
 
-      {(showAddModal || editingContact) && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-semibold mb-4">
-              {editingContact ? 'Edit Contact' : 'Add Contact'}
-            </h2>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-zinc-400 block mb-1">Name *</label>
-                <input
-                  type="text"
-                  value={newName}
-                  onChange={e => setNewName(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
-                  required
-                />
-              </div>
-              <div>
-                <label className="text-xs text-zinc-400 block mb-1">Email</label>
-                <input
-                  type="email"
-                  value={newEmail}
-                  onChange={e => setNewEmail(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
-                />
-              </div>
-              {!editingContact && (
-                <div>
-                  <label className="text-xs text-zinc-400 block mb-1">Type</label>
-                  <select
-                    value={newType}
-                    onChange={e => setNewType(e.target.value as 'CUSTOMER' | 'VENDOR')}
-                    className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
-                  >
-                    <option value="CUSTOMER">Customer</option>
-                    <option value="VENDOR">Vendor</option>
-                  </select>
-                </div>
-              )}
-              <div>
-                <label className="text-xs text-zinc-400 block mb-1">Phone (Intl format)</label>
-                <input
-                  type="text"
-                  value={newPhone}
-                  onChange={e => setNewPhone(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
-                  placeholder="+49 123 456789"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-zinc-400 block mb-1">Address Line 1</label>
-                <input
-                  type="text"
-                  value={newAddressStreet}
-                  onChange={e => setNewAddressStreet(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
-                  placeholder="Street address"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-zinc-400 block mb-1">Address Line 2</label>
-                <input
-                  type="text"
-                  value={newAddressLine2}
-                  onChange={e => setNewAddressLine2(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
-                  placeholder="Apartment, suite, etc."
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-zinc-400 block mb-1">City</label>
-                  <input
-                    type="text"
-                    value={newAddressCity}
-                    onChange={e => setNewAddressCity(e.target.value)}
-                    className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-zinc-400 block mb-1">State/Province</label>
-                  <input
-                    type="text"
-                    value={newAddressState}
-                    onChange={e => setNewAddressState(e.target.value)}
-                    className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-zinc-400 block mb-1">ZIP/Postal Code</label>
-                  <input
-                    type="text"
-                    value={newAddressZip}
-                    onChange={e => setNewAddressZip(e.target.value)}
-                    className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-zinc-400 block mb-1">Country (ISO 3166-1)</label>
-                  <select
-                    value={newAddressCountry}
-                    onChange={e => setNewAddressCountry(e.target.value as CountryCode)}
-                    className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
-                  >
-                    {COUNTRY_CODES.map(c => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-zinc-400 block mb-1">Tax ID (VAT/EIN)</label>
-                <input
-                  type="text"
-                  value={newTaxId}
-                  onChange={e => setNewTaxId(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
-                  placeholder="DE276452187"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-zinc-400 block mb-1">Website</label>
-                <input
-                  type="url"
-                  value={newWebsite}
-                  onChange={e => setNewWebsite(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
-                  placeholder="https://example.com"
-                />
-              </div>
+      {showForm && (
+        <div className="mb-8 border border-zinc-700 rounded-lg p-4 bg-zinc-950">
+          <div className="flex items-center justify-between mb-4">
+            <div className="font-medium">{editingContact ? 'Edit Contact' : 'Add Contact'}</div>
+            <button onClick={() => { setShowForm(false); resetForm() }} className="text-2xl leading-none px-2 text-zinc-400 hover:text-rose-400" aria-label="Close">×</button>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs text-zinc-400 block mb-1">Name *</label>
+              <input
+                type="text"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                required
+              />
             </div>
-<div className="flex gap-2 mt-6">
-              {editingContact && (
-                <button
-                  onClick={e => void deleteContact(editingContact.id, e)}
-                  className="px-3 py-2 rounded bg-rose-900/50 text-rose-400 hover:bg-rose-900/70"
+            <div>
+              <label className="text-xs text-zinc-400 block mb-1">Email</label>
+              <input
+                type="email"
+                value={newEmail}
+                onChange={e => setNewEmail(e.target.value)}
+                className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+              />
+            </div>
+            {!editingContact && (
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1">Type</label>
+                <select
+                  value={newType}
+                  onChange={e => setNewType(e.target.value as 'CUSTOMER' | 'VENDOR')}
+                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
                 >
-                  Delete
-                </button>
-              )}
-              <button
-                onClick={saveContact}
-                className="flex-1 px-4 py-2 rounded bg-emerald-500 text-black font-medium"
-              >
-                {editingContact ? 'Save Contact' : 'Add Contact'}
-              </button>
-              <button
-                onClick={() => { setShowAddModal(false); resetForm() }}
-                className="px-4 py-2 rounded bg-zinc-800 text-zinc-300"
-              >
-                Cancel
-              </button>
+                  <option value="CUSTOMER">Customer</option>
+                  <option value="VENDOR">Vendor</option>
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="text-xs text-zinc-400 block mb-1">Phone (Intl format)</label>
+              <input
+                type="text"
+                value={newPhone}
+                onChange={e => setNewPhone(e.target.value)}
+                className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                placeholder="+49 123 456789"
+              />
             </div>
+            <div>
+              <label className="text-xs text-zinc-400 block mb-1">Address Line 1</label>
+              <input
+                type="text"
+                value={newAddressStreet}
+                onChange={e => setNewAddressStreet(e.target.value)}
+                className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                placeholder="Street address"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400 block mb-1">Address Line 2</label>
+              <input
+                type="text"
+                value={newAddressLine2}
+                onChange={e => setNewAddressLine2(e.target.value)}
+                className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                placeholder="Apartment, suite, etc."
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1">City</label>
+                <input
+                  type="text"
+                  value={newAddressCity}
+                  onChange={e => setNewAddressCity(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1">State/Province</label>
+                <input
+                  type="text"
+                  value={newAddressState}
+                  onChange={e => setNewAddressState(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1">ZIP/Postal Code</label>
+                <input
+                  type="text"
+                  value={newAddressZip}
+                  onChange={e => setNewAddressZip(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1">Country (ISO 3166-1)</label>
+                <select
+                  value={newAddressCountry}
+                  onChange={e => setNewAddressCountry(e.target.value as CountryCode)}
+                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                >
+                  {COUNTRY_CODES.map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400 block mb-1">Tax ID (VAT/EIN)</label>
+              <input
+                type="text"
+                value={newTaxId}
+                onChange={e => setNewTaxId(e.target.value)}
+                className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                placeholder="DE276452187"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400 block mb-1">Website</label>
+              <input
+                type="url"
+                value={newWebsite}
+                onChange={e => setNewWebsite(e.target.value)}
+                className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                placeholder="https://example.com"
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-2 mt-6">
+            {editingContact && (
+              <button
+                onClick={e => void deleteContact(editingContact.id, e)}
+                className="px-3 py-2 rounded bg-rose-900/50 text-rose-400 hover:bg-rose-900/70"
+              >
+                Delete
+              </button>
+            )}
+            <button
+              onClick={saveContact}
+              className="flex-1 px-4 py-2 rounded bg-emerald-500 text-black font-medium"
+            >
+              {editingContact ? 'Save Contact' : 'Add Contact'}
+            </button>
+            <button
+              onClick={() => { setShowForm(false); resetForm() }}
+              className="px-4 py-2 rounded bg-zinc-800 text-zinc-300"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}
@@ -961,172 +996,6 @@ function ReportsContent() {
             <div className="text-zinc-500">Loading...</div>
           )}
         </div>
-      </div>
-    </div>
-  )
-}
-
-
-interface Invoice {
-  id: string
-  invoiceNumber: string
-  status: string
-  currency: string
-  total: number
-  subtotal: number
-  taxAmount: number
-  issueDate: string
-  dueDate: string
-  paidDate?: string
-  contact: { name: string; addressCountry?: string }
-  lines: { description: string; quantity: number; unitPrice: number; lineTotal: number }[]
-}
-
-function InvoicingContent() {
-  const [invoices, setInvoices] = useState<Invoice[]>([])
-  const [loading, setLoading] = useState(true)
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'SENT' | 'PAID' | 'OVERDUE' | 'CANCELLED'>('ALL')
-  const [processingPayment, setProcessingPayment] = useState<string | null>(null)
-
-  const fetchInvoices = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/invoices${statusFilter === 'ALL' ? '' : `?status=${statusFilter}`}`)
-      const data = await res.json()
-      setInvoices(data.invoices || [])
-    } catch {} finally {
-      setLoading(false)
-    }
-  }, [statusFilter])
-
-  useEffect(() => {
-    void fetchInvoices()
-  }, [fetchInvoices])
-
-  const createPaymentLink = async (invoiceId: string) => {
-    setProcessingPayment(invoiceId)
-    try {
-      const res = await fetch('/api/payments/stripe/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId }),
-      })
-      const data = await res.json()
-      if (data.clientSecret) {
-        window.open(`https://pay.stripe.com/${data.id}`, '_blank')
-      }
-      void fetchInvoices()
-    } catch {} finally {
-      setProcessingPayment(null)
-    }
-  }
-
-  const sendPayPalInvoice = async (invoiceId: string) => {
-    setProcessingPayment(invoiceId)
-    try {
-      const res = await fetch('/api/payments/paypal/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId }),
-      })
-      const data = await res.json()
-      if (data.link) {
-        window.open(data.link, '_blank')
-      }
-      void fetchInvoices()
-    } catch {} finally {
-      setProcessingPayment(null)
-    }
-  }
-
-  const statusColor = (status: string) => {
-    switch (status) {
-      case 'PAID': return 'bg-emerald-950 text-emerald-400'
-      case 'OVERDUE': return 'bg-rose-950 text-rose-400'
-      case 'SENT': return 'bg-blue-950 text-blue-400'
-      case 'DRAFT': return 'bg-zinc-800 text-zinc-400'
-      default: return 'bg-zinc-800 text-zinc-400'
-    }
-  }
-
-  return (
-    <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Invoicing</h1>
-          <p className="text-xs text-zinc-500 mt-1">
-            Create invoices manually or via AI. All invoices are white-label with your branding.
-          </p>
-        </div>
-        <a href="/invoicing/create" className="px-3 py-1.5 rounded bg-emerald-500 text-black font-medium text-sm hover:bg-emerald-400">
-          New Invoice
-        </a>
-      </div>
-
-      <div className="flex items-center gap-3 mb-4">
-        <select
-          value={statusFilter}
-          onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
-          className="px-2 py-1.5 rounded bg-zinc-900 border border-zinc-700 text-sm"
-        >
-          <option value="ALL">All Status</option>
-          <option value="DRAFT">Draft</option>
-          <option value="SENT">Sent</option>
-          <option value="PAID">Paid</option>
-          <option value="OVERDUE">Overdue</option>
-          <option value="CANCELLED">Cancelled</option>
-        </select>
-      </div>
-
-      <div className="max-w-4xl space-y-2 max-h-[60vh] overflow-y-auto">
-        {loading ? (
-          <div className="text-zinc-500">Loading...</div>
-        ) : invoices.length === 0 ? (
-          <div className="text-zinc-500 p-4">No invoices yet. Click "New Invoice" to create one.</div>
-        ) : (
-          invoices.map(invoice => (
-            <div
-              key={invoice.id}
-              className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 hover:border-zinc-700 transition-colors"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-medium">{invoice.invoiceNumber}</div>
-                  <div className="text-xs text-zinc-400">{invoice.contact.name}</div>
-                  <div className="text-xs text-zinc-500 mt-1">
-                    {new Date(invoice.issueDate).toLocaleDateString()} → {new Date(invoice.dueDate).toLocaleDateString()}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`px-2 py-0.5 rounded text-xs ${statusColor(invoice.status)}`}>
-                    {invoice.status}
-                  </span>
-                  <span className="font-medium">{formatCurrency(invoice.total, invoice.currency)}</span>
-                  {invoice.status === 'DRAFT' && (
-                    <>
-                      <button
-                        onClick={() => void createPaymentLink(invoice.id)}
-                        disabled={processingPayment === invoice.id}
-                        className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-emerald-400 disabled:opacity-50"
-                        title="Send via Stripe"
-                      >
-                        Stripe
-                      </button>
-                      <button
-                        onClick={() => void sendPayPalInvoice(invoice.id)}
-                        disabled={processingPayment === invoice.id}
-                        className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-blue-400 disabled:opacity-50"
-                        title="Send via PayPal"
-                      >
-                        PayPal
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))
-        )}
       </div>
     </div>
   )

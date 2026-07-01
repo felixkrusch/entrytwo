@@ -1,21 +1,29 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Send, Paperclip, Mic, Lock, Unlock } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useNewEntry, NewEntrySuggestion } from './NewEntryContext'
 import { useTranslations } from 'next-intl'
+import { useRouter } from 'next/navigation'
 
 interface Message {
   role: 'user' | 'assistant'
   content: string
-  action?: 'suggest_entry'
+  action?: 'suggest_entry' | 'create_invoice'
   suggestion?: NewEntrySuggestion
+  createInvoice?: {
+    contactName?: string
+    amount?: number
+    description?: string
+    currency?: string
+  }
   isStreaming?: boolean
 }
 
 export default function ChatPage() {
   const { openNewEntry } = useNewEntry()
+  const router = useRouter()
   const t = useTranslations('app.chat')
   const tToasts = useTranslations('app.toasts')
 
@@ -25,6 +33,15 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // LLM live connection indicator (hybrid: real outcomes + cheap intent-driven probes + server cache)
+  const [llmStatus, setLlmStatus] = useState<{
+    connected: boolean
+    hasKey: boolean
+    provider?: string
+    model?: string
+    lastChecked?: number
+  } | null>(null)
 
   // Chat Lock: when true, chat is advisory only. No create/modify/reverse actions allowed.
   // This is a deliberate safety control (see docs for rationale).
@@ -45,8 +62,42 @@ export default function ChatPage() {
     toast.success(next ? t('lockedToast') : t('unlockedToast'))
   }
 
+  // Hybrid LLM status:
+  // - Primary signal: real /api/chat outcomes (updated in sendMessage success/failure)
+  // - Secondary cheap probes: on mount + when tab becomes visible + on input focus (debounced)
+  const lastStatusCheckRef = useRef(0)
+  const STATUS_STALE_MS = 60_000
+
+  const refreshLlmStatus = async (force = false) => {
+    const now = Date.now()
+    if (!force && now - lastStatusCheckRef.current < STATUS_STALE_MS) return
+    lastStatusCheckRef.current = now
+    try {
+      const r = await fetch('/api/llm/status')
+      const d = await r.json()
+      setLlmStatus(d)
+    } catch {
+      setLlmStatus({ connected: false, hasKey: false })
+    }
+  }
+
+  useEffect(() => {
+    // Initial cheap probe on mount
+    refreshLlmStatus(true)
+  }, [])
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (!document.hidden) {
+        refreshLlmStatus()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
+
   // Client fallback (used only if /api/chat fails). Server version is much smarter.
-  const generateResponse = (text: string): { response: string; suggestion?: NewEntrySuggestion } => {
+  const generateResponse = (text: string): { response: string; suggestion?: NewEntrySuggestion; createInvoice?: { contactName?: string; amount?: number; description?: string; currency?: string } } => {
     const lower = text.toLowerCase().trim()
     const amountMatch = text.match(/(\d+[\.,]?\d*)/)
     const amount = amountMatch ? parseFloat(amountMatch[1].replace(',', '.')) : 100
@@ -54,8 +105,13 @@ export default function ChatPage() {
     // Multi-currency detection in fallback (Phase 0)
     const currency = /usd|\$|dollars/.test(lower) ? 'USD' : (/eur|euro/.test(lower) ? 'EUR' : 'EUR')
 
+    // Extract merchant early (used for invoice prefill)
+    const merchantMatch = text.match(/from\s+([A-Za-z0-9 .&'-]+)/i)
+    const extractedMerchant: string | undefined = merchantMatch ? merchantMatch[1].trim() : undefined
+
     let response = ''
     let suggestion: NewEntrySuggestion | undefined
+    let createInvoice: { contactName?: string; amount?: number; description?: string; currency?: string } | undefined = undefined
 
     if (lower.includes('reverse')) {
       response = 'Use the chat to reverse the most recent unreversed entry. It will prefill the reversal lines.'
@@ -96,13 +152,26 @@ export default function ChatPage() {
         ]
       }
     } else if (lower.includes('invoice') || lower.includes('bill') || lower.includes('payable')) {
-      response = `Expense via payable ~${amount}.`
-      suggestion = {
-        description: text,
-        lines: [
-          { accountCode: '5200', debit: amount, currency },
-          { accountCode: '2000', credit: amount, description: 'Accounts payable', currency }
-        ]
+      // Revenue invoice for customer (AI-first path) → use the invoice form, not journal
+      const looksLikeCustomerInvoice = /invoice|bill.*(client|customer|acme|john|sarah|corp|gmbh|ltd|inc)/i.test(text) || (lower.includes('invoice') && !lower.includes('from '))
+      if (looksLikeCustomerInvoice) {
+        response = `I'll create a customer invoice for ~${amount}.`
+        suggestion = undefined
+        createInvoice = {
+          contactName: extractedMerchant,
+          amount,
+          description: text,
+          currency,
+        }
+      } else {
+        response = `Expense via payable ~${amount}.`
+        suggestion = {
+          description: text,
+          lines: [
+            { accountCode: '5200', debit: amount, currency },
+            { accountCode: '2000', credit: amount, description: 'Accounts payable', currency }
+          ]
+        }
       }
     } else if (lower.includes('equity') || lower.includes('owner') || lower.includes('capital')) {
       response = `Owner contribution ~${amount}.`
@@ -134,9 +203,6 @@ export default function ChatPage() {
 
     // Phase 1: client fallback non-EUR → needs confirmation.
     // Also extract merchant (e.g. "Adobe invoice") for future feed rate lookup.
-    const merchantMatch = text.match(/from\s+([A-Za-z0-9 .&'-]+)/i)
-    const extractedMerchant = merchantMatch ? merchantMatch[1].trim() : undefined
-
     if (suggestion) {
       if (currency !== 'EUR') {
         suggestion = { ...suggestion, needsConfirmation: true }
@@ -146,7 +212,7 @@ export default function ChatPage() {
       }
     }
 
-    return { response, suggestion }
+    return { response, suggestion, createInvoice }
   }
 
   const sendMessage = async () => {
@@ -180,7 +246,24 @@ export default function ChatPage() {
       })
 
       if (!res.ok) {
+        // Real outcome: mark LLM as not connected right now
+        setLlmStatus(prev => ({
+          connected: false,
+          hasKey: !!prev?.hasKey,
+          provider: prev?.provider,
+          model: prev?.model,
+          lastChecked: Date.now(),
+        }))
         throw new Error('Chat request failed')
+      } else {
+        // Real successful outcome → mark healthy
+        setLlmStatus(prev => ({
+          connected: true,
+          hasKey: true,
+          provider: prev?.provider,
+          model: prev?.model,
+          lastChecked: Date.now(),
+        }))
       }
 
       // Check if response is streaming (text/plain) or JSON
@@ -217,17 +300,27 @@ export default function ChatPage() {
         setMessages(prev => {
           const updated = [...prev]
           if (updated[streamingMsgIndex]) {
+            const isInvoice = !!data.createInvoice
             updated[streamingMsgIndex] = {
               role: 'assistant',
               content: data.response || 'Got it.',
-              action: data.suggestion ? 'suggest_entry' : undefined,
-              suggestion: data.suggestion
+              action: isInvoice ? 'create_invoice' : (data.suggestion ? 'suggest_entry' : undefined),
+              suggestion: data.suggestion,
+              createInvoice: data.createInvoice
             }
           }
           return updated
         })
       }
     } catch {
+      // Real outcome: hard failure (network, etc.)
+      setLlmStatus(prev => ({
+        connected: false,
+        hasKey: !!prev?.hasKey,
+        provider: prev?.provider,
+        model: prev?.model,
+        lastChecked: Date.now(),
+      }))
       toast.error(tToasts('chatError') || 'Chat service unavailable, using local fallback.')
       const { response, suggestion } = generateResponse(current)
       setMessages(prev => {
@@ -271,6 +364,56 @@ export default function ChatPage() {
       return
     }
     openNewEntry(suggestion)
+  }
+
+  const handleCreateInvoice = async (prefill?: { contactName?: string; amount?: number; description?: string; currency?: string }) => {
+    if (isChatLocked) {
+      toast.error(t('lockedToast') || 'Chat is locked (advisory mode). Unlock to allow actions.')
+      return
+    }
+
+    // If we have a clean structured payload (amount + description), try direct creation first
+    if (prefill?.amount && prefill.description) {
+      try {
+        // Find a default customer (first CUSTOMER) for direct create path
+        const cRes = await fetch('/api/contacts?type=CUSTOMER')
+        const cData = await cRes.json()
+        const firstCustomer = (cData.contacts || [])[0]
+
+        if (firstCustomer) {
+          const body = {
+            contactId: firstCustomer.id,
+            lines: [{
+              description: prefill.description,
+              quantity: 1,
+              unitPrice: prefill.amount,
+            }]
+          }
+          const createRes = await fetch('/api/invoices', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          })
+          if (createRes.ok) {
+            const inv = await createRes.json()
+            router.push('/app?view=invoicing')
+            // Open the newly created invoice details
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('open-invoice-details', { detail: { id: inv.id } }))
+            }, 180)
+            return
+          }
+        }
+      } catch {
+        // fall through to the prefill flow
+      }
+    }
+
+    // Fallback: open panel + prefill form (user still clicks Create)
+    router.push('/app?view=invoicing')
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('prefill-invoice', { detail: prefill || {} }))
+    }, 120)
   }
 
   const handleAttachment = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -364,44 +507,72 @@ export default function ChatPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-auto p-6 space-y-6">
-        {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : ''}`}>
-            <div className={`max-w-[82%] rounded-2xl px-5 py-3 text-sm whitespace-pre-wrap ${
-              msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-zinc-800'
-            }`}>
-              {msg.content || (msg.isStreaming ? '' : null)}
-                {msg.isStreaming && !msg.content && (
-                  <span className="text-zinc-500">...</span>
-                )}
-                {msg.action === 'suggest_entry' && (
-                  <button
-                    onClick={() => handleSuggest(msg.suggestion)}
-                    className="mt-2 block text-xs px-3 py-1 bg-white text-black rounded-full hover:bg-zinc-200 transition"
-                  >
-                     {msg.suggestion?.reversingOriginalId
-                       ? t('reviewReversal')
-                       : (msg.suggestion?.needsConfirmation ? t('reviewAndConfirm') : t('createEntry'))}
-                  </button>
-                )}
+      <div className="flex-1 overflow-auto p-6 pb-1 flex flex-col">
+        {/* Messages fill the space above */}
+        <div className="flex-1 space-y-6">
+          {messages.map((msg, i) => (
+            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : ''}`}>
+              <div className={`max-w-[82%] rounded-2xl px-5 py-3 text-sm whitespace-pre-wrap ${
+                msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-zinc-800'
+              }`}>
+                {msg.content || (msg.isStreaming ? '' : null)}
+                  {msg.isStreaming && !msg.content && (
+                    <span className="text-zinc-500">...</span>
+                  )}
+                  {msg.action === 'suggest_entry' && (
+                    <button
+                      onClick={() => handleSuggest(msg.suggestion)}
+                      className="mt-2 block text-xs px-3 py-1 bg-white text-black rounded-full hover:bg-zinc-200 transition"
+                    >
+                       {msg.suggestion?.reversingOriginalId
+                         ? t('reviewReversal')
+                         : (msg.suggestion?.needsConfirmation ? t('reviewAndConfirm') : t('createEntry'))}
+                    </button>
+                  )}
 
-                {/* Phase 1: show merchant + real feed rate usage */}
-                {msg.suggestion && (
-                  <div className="mt-1 text-[10px] space-x-2">
-                    {msg.suggestion.merchant && (
-                      <span className="text-amber-400">from {msg.suggestion.merchant}</span>
-                    )}
-                     {Array.isArray(msg.suggestion.lines) && msg.suggestion.lines.some((l: { fxSource?: string | null }) => String(l.fxSource || '').startsWith('BANK_FEED')) && (
-                      <span className="text-emerald-400">real feed rate</span>
-                    )}
-                    {msg.suggestion.merchant && !msg.suggestion.needsConfirmation && !msg.suggestion.reversingOriginalId && (
-                      <span className="text-zinc-500">(authoritative)</span>
-                    )}
-                  </div>
-                )}
+                  {msg.createInvoice && (
+                    <button
+                      onClick={() => handleCreateInvoice(msg.createInvoice)}
+                      className="mt-2 block text-xs px-3 py-1 bg-emerald-500 text-black rounded-full hover:bg-emerald-400 transition"
+                    >
+                      Create Invoice
+                    </button>
+                  )}
+
+                  {/* Phase 1: show merchant + real feed rate usage */}
+                  {msg.suggestion && (
+                    <div className="mt-1 text-[10px] space-x-2">
+                      {msg.suggestion.merchant && (
+                        <span className="text-amber-400">from {msg.suggestion.merchant}</span>
+                      )}
+                       {Array.isArray(msg.suggestion.lines) && msg.suggestion.lines.some((l: { fxSource?: string | null }) => String(l.fxSource || '').startsWith('BANK_FEED')) && (
+                        <span className="text-emerald-400">real feed rate</span>
+                      )}
+                      {msg.suggestion.merchant && !msg.suggestion.needsConfirmation && !msg.suggestion.reversingOriginalId && (
+                        <span className="text-zinc-500">(authoritative)</span>
+                      )}
+                    </div>
+                  )}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
+
+        {/* LLM indicator at the very bottom of this div */}
+        <div className="mt-auto pt-1 text-[10px]">
+          {llmStatus ? (
+            <span className={`inline-flex items-center gap-1.5 ${llmStatus.connected ? 'text-emerald-400' : 'text-rose-400'}`}>
+              <span className={`inline-block w-1.5 h-1.5 rounded-full ${llmStatus.connected ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+              {llmStatus.connected ? 'LLM connected' : (llmStatus.hasKey ? 'LLM unreachable' : 'LLM not configured')}
+              {llmStatus.model ? ` • ${llmStatus.model}` : ''}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-zinc-500">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-zinc-500" />
+              Checking LLM…
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="border-t border-zinc-800 p-4">
@@ -413,20 +584,21 @@ export default function ChatPage() {
             className="hidden"
             onChange={handleAttachment}
           />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="p-3 text-zinc-400 hover:text-zinc-200 transition-colors"
-            title="Attach file (PDF or image)"
-          >
-            <Paperclip className="w-5 h-5" />
-          </button>
+           <button
+             type="button"
+             onClick={() => fileInputRef.current?.click()}
+             className="p-3 text-zinc-400 hover:text-zinc-200 transition-colors"
+             title="Attach file (PDF or image)"
+           >
+             <Paperclip className="w-5 h-5" />
+           </button>
 
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            onFocus={() => refreshLlmStatus()}
             placeholder={t('placeholder')}
             className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-3 text-sm focus:outline-none focus:border-zinc-700"
           />
@@ -456,9 +628,6 @@ export default function ChatPage() {
             {t('lockedStatus')}
           </div>
         )}
-        <div className="text-[10px] text-center text-zinc-600 mt-2">
-          Phase 0/1 • Fully i18n-ready + tax + multi-currency foundations + chat lock safety
-        </div>
       </div>
     </div>
   )
