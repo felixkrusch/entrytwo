@@ -14,6 +14,7 @@ import NewJournalEntryModal from './NewJournalEntryModal'
 import TopBar from './TopBar'
 import { NewEntryProvider, useNewEntry } from './NewEntryContext'
 import InvoicingPanel from './InvoicingPanel'
+import LedgerView from './LedgerView'
 import { useTranslations } from 'next-intl'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
@@ -42,7 +43,29 @@ function AppContent({ children }: { children: ReactNode }) {
     else if (pathname === '/invoicing') router.replace('/app?view=invoicing')
   }, [pathname, router])
 
-  const view = (searchParams?.get('view') as 'dashboard' | 'contacts' | 'invoicing' | 'reports') ?? 'dashboard'
+  const rawView = searchParams?.get('view')
+  const hasAccountParam = !!(searchParams?.get('accountCode') || searchParams?.get('account'))
+  const view = (rawView as 'dashboard' | 'contacts' | 'invoicing' | 'reports' | 'ledger') ?? (hasAccountParam ? 'ledger' : 'dashboard')
+  const ledgerAccountCode = searchParams?.get('accountCode') || searchParams?.get('account') || undefined
+
+  // Support chat-driven ledger open
+  useEffect(() => {
+    const handler = (e: Event & { detail?: { code?: string; from?: string; to?: string; search?: string } }) => {
+      const d = (e as Event & { detail?: Record<string, unknown> }).detail || {}
+      const code = typeof d.code === 'string' ? d.code : undefined
+      if (code) {
+        const params = new URLSearchParams(searchParams?.toString() || '')
+        params.set('view', 'ledger')
+        params.set('accountCode', code)
+        if (typeof d.from === 'string') params.set('from', d.from)
+        if (typeof d.to === 'string') params.set('to', d.to)
+        if (typeof d.search === 'string') params.set('search', d.search)
+        router.push(`${pathname}?${params.toString()}`)
+      }
+    }
+    window.addEventListener('open-ledger', handler)
+    return () => window.removeEventListener('open-ledger', handler)
+  }, [router, pathname, searchParams])
 
   const handleFilterAccountByCode = (code: string) => {
     setSelectedAccount(prev => {
@@ -162,18 +185,50 @@ function AppContent({ children }: { children: ReactNode }) {
                 )}
 
                 <SummaryBar />
-                <ErrorBoundary><AccountsPanel
-                  onSelectAccount={setSelectedAccount}
-                  selectedAccountId={selectedAccount?.id}
-                  selectedAccountCode={selectedAccount?.code}
-                /></ErrorBoundary>
-                <ErrorBoundary><JournalEntriesPanel filterAccountId={selectedAccount?.code} /></ErrorBoundary>
-                <ErrorBoundary><ReportsPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} /></ErrorBoundary>
-                <ErrorBoundary><ProfitLossPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} /></ErrorBoundary>
-                <ErrorBoundary><AuditLogPanel /></ErrorBoundary>
-                <ErrorBoundary><TemplatesPanel /></ErrorBoundary>
-                <ErrorBoundary><QuickFeedImport /></ErrorBoundary>
-                <ErrorBoundary><RecentFeedRates /></ErrorBoundary>
+
+                {/* Live dashboard main grid:
+                    - lg: 3 columns for the primary live sections
+                    - xl and above: allow up to 6 columns for denser layouts / future widgets
+                */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-6 gap-6">
+                  <div className="lg:col-span-3 xl:col-span-6">
+                    <ErrorBoundary>
+                      <AccountsPanel
+                        onSelectAccount={setSelectedAccount}
+                        selectedAccountId={selectedAccount?.id}
+                        selectedAccountCode={selectedAccount?.code}
+                      />
+                    </ErrorBoundary>
+                  </div>
+
+                  <div className="lg:col-span-3 xl:col-span-6">
+                    <ErrorBoundary><JournalEntriesPanel filterAccountId={selectedAccount?.code} /></ErrorBoundary>
+                  </div>
+
+                  <div className="lg:col-span-3 xl:col-span-3">
+                    <ErrorBoundary><ReportsPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} /></ErrorBoundary>
+                  </div>
+
+                  <div className="lg:col-span-3 xl:col-span-3">
+                    <ErrorBoundary><ProfitLossPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} /></ErrorBoundary>
+                  </div>
+
+                  <div className="lg:col-span-3 xl:col-span-6">
+                    <ErrorBoundary><AuditLogPanel /></ErrorBoundary>
+                  </div>
+
+                  <div className="lg:col-span-3 xl:col-span-3">
+                    <ErrorBoundary><TemplatesPanel /></ErrorBoundary>
+                  </div>
+
+                  <div className="lg:col-span-3 xl:col-span-3">
+                    <ErrorBoundary><QuickFeedImport /></ErrorBoundary>
+                  </div>
+
+                  <div className="lg:col-span-3 xl:col-span-6">
+                    <ErrorBoundary><RecentFeedRates /></ErrorBoundary>
+                  </div>
+                </div>
               </>
             )}
 
@@ -185,10 +240,18 @@ function AppContent({ children }: { children: ReactNode }) {
                  <InvoicingPanel />
                )}
 
-              {view === 'reports' && (
-                <ReportsContent />
-              )}
-           </div>
+               {view === 'reports' && (
+                 <ReportsContent />
+               )}
+
+               {view === 'ledger' && ledgerAccountCode && (
+                 <LedgerView accountCode={ledgerAccountCode} />
+               )}
+
+               {view === 'ledger' && !ledgerAccountCode && (
+                 <div className="text-sm text-zinc-400">No account selected for ledger.</div>
+               )}
+            </div>
         </div>
       </div>
 

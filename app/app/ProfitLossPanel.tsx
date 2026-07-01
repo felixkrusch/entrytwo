@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useTranslations, useFormatter } from 'next-intl'
-import toast from 'react-hot-toast'
+import { useRouter } from 'next/navigation'
 
 interface ReportItem {
   code: string
@@ -46,12 +46,15 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode }: 
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
 
+  const router = useRouter()
+
   const handleClickAccount = (code?: string) => {
-    if (code && onFilterAccount) {
-      const isSame = currentFilterCode === code
-      onFilterAccount(isSame ? '' : code)
-      if (!isSame) toast.success(`Filtered journal to ${code}`)
-    }
+    if (!code) return
+    // Strong preference: open the dedicated ledger view
+    const params = new URLSearchParams()
+    params.set('view', 'ledger')
+    params.set('accountCode', code)
+    router.push(`/app?${params.toString()}`)
   }
 
   const loadPL = async () => {

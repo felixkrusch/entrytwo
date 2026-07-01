@@ -20,28 +20,75 @@ const createEntrySchema = z.object({
   })).min(2)
 })
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const entries = await prisma.journalEntry.findMany({
-      orderBy: { date: 'desc' },
-      take: 20,
-      include: {
-        lines: {
-          include: {
-            account: {
-              select: { code: true, name: true }
-            },
-            taxRate: {
-              select: { id: true, jurisdiction: true, name: true, rate: true, taxType: true }
-            },
-            contact: {
-              select: { id: true, name: true, type: true }
+    const { searchParams } = new URL(request.url)
+
+    const accountCode = searchParams.get('accountCode') || searchParams.get('account')
+    const search = (searchParams.get('search') || '').trim()
+    const from = searchParams.get('from')
+    const to = searchParams.get('to')
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
+    const limit = Math.min(100, Math.max(5, parseInt(searchParams.get('limit') || '25', 10)))
+    const sortParam = searchParams.get('sort') || 'date:desc'
+    const [sortField, sortDir] = sortParam.split(':')
+    const orderBy: any = sortField === 'date' ? { date: sortDir === 'asc' ? 'asc' : 'desc' } : { date: 'desc' }
+
+    const where: any = {}
+
+    if (from || to) {
+      where.date = {}
+      if (from) where.date.gte = new Date(from)
+      if (to) where.date.lte = new Date(to)
+    }
+
+    if (accountCode) {
+      where.lines = {
+        some: {
+          account: { code: accountCode }
+        }
+      }
+    }
+
+    if (search) {
+      where.OR = [
+        { description: { contains: search, mode: 'insensitive' } },
+        {
+          lines: {
+            some: {
+              description: { contains: search, mode: 'insensitive' }
             }
           }
         }
-      }
+      ]
+    }
+
+    const [total, entries] = await Promise.all([
+      prisma.journalEntry.count({ where }),
+      prisma.journalEntry.findMany({
+        where,
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          lines: {
+            include: {
+              account: { select: { code: true, name: true } },
+              taxRate: { select: { id: true, jurisdiction: true, name: true, rate: true, taxType: true } },
+              contact: { select: { id: true, name: true, type: true } }
+            }
+          }
+        }
+      })
+    ])
+
+    return NextResponse.json({
+      entries,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1
     })
-    return NextResponse.json(entries)
   } catch (error) {
     console.error('Error fetching journal entries:', error)
     return NextResponse.json(

@@ -601,6 +601,46 @@ lines.push({ accountCode: debitCode, debit: taxAmt, description: `Tax ${deRate.n
     response = 'Live Balance Sheet, P&L and Summary are on the right.'
   } else if (lower.includes('account') || lower.includes('chart')) {
     response = 'Chart of accounts is on the right.'
+  } else if (/(how much|spent|spend|expense|cost).*?(on|for|in)\s+([A-Za-z0-9 ]{2,30})/i.test(text) || /utilities|office supplies|rent|travel|software/i.test(lower)) {
+    // High-reachability: open dedicated ledger view for the account
+    const accountMatch = text.match(/(?:on|for|in)\s+([A-Za-z0-9 ]{2,30})/i)
+    let hint = accountMatch ? accountMatch[1].trim().toLowerCase() : ''
+    if (!hint) {
+      if (lower.includes('utilities')) hint = 'utilities'
+      else if (lower.includes('supplies')) hint = 'supplies'
+      else if (lower.includes('rent')) hint = 'rent'
+      else if (lower.includes('travel')) hint = 'travel'
+      else if (lower.includes('software') || lower.includes('adobe')) hint = 'software'
+    }
+
+    // Resolve to a real account code
+    const accs = await prisma.account.findMany({ select: { code: true, name: true } })
+    let code = '5200'
+    const lowerHint = hint.toLowerCase()
+    const match = accs.find(a => a.name.toLowerCase().includes(lowerHint) || a.code === lowerHint)
+    if (match) code = match.code
+    else if (lowerHint.includes('util')) code = '5200'
+    else if (lowerHint.includes('supply') || lowerHint.includes('office')) code = '5000'
+    else if (lowerHint.includes('rent')) code = '5100'
+    else if (lowerHint.includes('travel')) code = '5300'
+    else if (lowerHint.includes('software')) code = '5110'
+
+    // Year if mentioned
+    const yearMatch = text.match(/\b(20\d{2})\b/)
+    const year = yearMatch ? yearMatch[1] : null
+
+    response = `Opening the ledger for account ${code}.`
+
+    // Return a payload the UI will consume to navigate into the ledger view
+    return {
+      response,
+      openLedger: {
+        code,
+        from: year ? `${year}-01-01` : undefined,
+        to: year ? `${year}-12-31` : undefined,
+        search: hint || undefined
+      }
+    }
   } else {
     response = "I can draft journal entries. Try: 'bought supplies for 65', 'client paid 800', or 'reverse last entry'."
   }

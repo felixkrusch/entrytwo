@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useNewEntry } from './NewEntryContext'
 import toast from 'react-hot-toast'
 import { useTranslations, useFormatter } from 'next-intl'
+import { useRouter } from 'next/navigation'
 
 interface JournalLine {
   id: string
@@ -119,11 +120,20 @@ export default function JournalEntriesPanel({ filterAccountId }: JournalEntriesP
     })
   })
 
+  const router = useRouter()
+
   const refresh = () => {
     setError(null)
     fetchEntries()
     fetchReversals()
     setLastUpdated(new Date())
+  }
+
+  const openLedgerForAccount = (code: string) => {
+    const params = new URLSearchParams()
+    params.set('view', 'ledger')
+    params.set('accountCode', code)
+    router.push(`/app?${params.toString()}`)
   }
 
   return (
@@ -213,9 +223,21 @@ export default function JournalEntriesPanel({ filterAccountId }: JournalEntriesP
                        {(entry.description || '').match(/^Repeat (of|entry)/i) && (
                          <span className="text-[10px] px-1.5 py-px rounded bg-sky-900/40 text-sky-400 border border-sky-800">repeated</span>
                        )}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-zinc-500 font-mono text-xs">{new Date(entry.date).toISOString().split('T')[0]}</div>
+                     </div>
+                     <div className="flex items-center gap-3">
+                       <div className="text-zinc-500 font-mono text-xs">{new Date(entry.date).toISOString().split('T')[0]}</div>
+                       {/* Quick open full ledger for first account of this entry */}
+                       {entry.lines[0]?.account?.code && (
+                         <button
+                           onClick={(e) => {
+                             e.stopPropagation()
+                             openLedgerForAccount(entry.lines[0].account.code)
+                           }}
+                           className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+                         >
+                           Open ledger
+                         </button>
+                       )}
                       {!isReversal && !hasBeenReversed && (
                         <>
                           <button

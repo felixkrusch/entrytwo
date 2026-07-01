@@ -197,6 +197,37 @@ export default function ChatPage() {
       response = 'Live Balance Sheet, P&L and Summary are on the right. Or ask the chat for specific numbers.'
     } else if (lower.includes('account') || lower.includes('chart')) {
       response = 'Chart of accounts is on the right.'
+    } else if (/(how much|spent|spend|expense|cost).*?(on|for|in)\s+([A-Za-z0-9 ]{2,30})/i.test(text) || /utilities|office supplies|rent|travel|software/i.test(lower)) {
+      // Chat can trigger the dedicated ledger view for an account (AI-first pattern)
+      const accountMatch = text.match(/(?:on|for|in)\s+([A-Za-z0-9 ]{2,30})/i)
+      let hint = accountMatch ? accountMatch[1].trim().toLowerCase() : ''
+      if (!hint) {
+        if (lower.includes('utilities')) hint = 'utilities'
+        else if (lower.includes('supplies')) hint = 'supplies'
+        else if (lower.includes('rent')) hint = 'rent'
+      }
+
+      // Try to guess account code from common names (best effort)
+      let code = '5200' // fallback expense
+      if (hint.includes('util')) code = '5200'
+      else if (hint.includes('supply') || hint.includes('office')) code = '5000'
+      else if (hint.includes('rent')) code = '5100'
+      else if (hint.includes('travel')) code = '5300'
+      else if (hint.includes('software') || hint.includes('adobe')) code = '5110'
+
+      // Extract year if present
+      const yearMatch = text.match(/\b(20\d{2})\b/)
+      const year = yearMatch ? yearMatch[1] : null
+
+      response = `Opening the ledger for account ${code}.`
+
+      // We return a special payload that the UI will turn into a ledger navigation
+      ;(window as any).__pendingLedger = {
+        code,
+        from: year ? `${year}-01-01` : undefined,
+        to: year ? `${year}-12-31` : undefined,
+        search: hint || undefined
+      }
     } else {
       response = "I can draft journal entries. Try 'bought supplies for 65', 'client paid 800', or 'reverse last entry'."
     }
@@ -311,6 +342,16 @@ export default function ChatPage() {
           }
           return updated
         })
+
+        // Chat-triggered ledger open (AI-first high-reachability)
+        if ((data as any)?.openLedger?.code) {
+          const d = (data as any).openLedger
+          const evt: any = { code: d.code }
+          if (d.from) evt.from = d.from
+          if (d.to) evt.to = d.to
+          if (d.search) evt.search = d.search
+          window.dispatchEvent(new CustomEvent('open-ledger', { detail: evt }))
+        }
       }
     } catch {
       // Real outcome: hard failure (network, etc.)
@@ -335,6 +376,13 @@ export default function ChatPage() {
         }
         return updated
       })
+
+      // Local fallback path: also support ledger navigation hints
+      const pending = (window as any).__pendingLedger
+      if (pending?.code) {
+        window.dispatchEvent(new CustomEvent('open-ledger', { detail: pending }))
+        delete (window as any).__pendingLedger
+      }
     } finally {
       setIsLoading(false)
       // Mark the message as no longer streaming

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { useRouter } from 'next/navigation'
 
 interface Account {
   id: string
@@ -207,12 +208,15 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
     }
   }
 
+  const router = useRouter()
+
   const handleClick = (account: Account) => {
-    if (selectedAccountId === account.id) {
-      onSelectAccount?.(null)
-    } else {
-      onSelectAccount?.(account)
-    }
+    // Open dedicated ledger experience (strong replacement on right side)
+    // Keep using the view system for now (as decided).
+    const params = new URLSearchParams()
+    params.set('view', 'ledger')
+    params.set('accountCode', account.code)
+    router.push(`/app?${params.toString()}`)
   }
 
   return (

@@ -109,7 +109,24 @@ export default function AuditLogPanel() {
               )}
               {selectedEvent.payload?.lines && (
                 <div>
-                  <div className="text-zinc-400 mb-1">Lines ({selectedEvent.payload.lines.length}):</div>
+                  <div className="text-zinc-400 mb-1 flex items-center justify-between">
+                    <span>Lines ({selectedEvent.payload.lines.length}):</span>
+                    <button
+                      onClick={() => {
+                        const lines = (selectedEvent.payload?.lines ?? []) as Array<{ account?: { code?: string } }>
+                        const firstCode = lines.find((l) => l?.account?.code)?.account?.code
+                        if (firstCode) {
+                          const params = new URLSearchParams()
+                          params.set('view', 'ledger')
+                          params.set('accountCode', firstCode)
+                          window.location.href = `/app?${params.toString()}`
+                        }
+                      }}
+                      className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+                    >
+                      Open ledger
+                    </button>
+                  </div>
                   <pre className="bg-zinc-950 p-3 rounded text-xs overflow-x-auto">{JSON.stringify(selectedEvent.payload.lines, null, 2)}</pre>
                 </div>
               )}

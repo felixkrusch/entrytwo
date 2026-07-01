@@ -142,7 +142,7 @@ export default function SummaryBar() {
       {error && (
         <div className="text-[10px] text-rose-400 mb-2 px-2">{error}</div>
       )}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-3 xxl:grid-cols-6 gap-3">
         <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
           <div className="text-xs text-zinc-500">{t('assets')}</div>
           <div className="text-2xl font-mono text-emerald-400 mt-1">
