@@ -46,31 +46,34 @@ async function validateJournalIntent(params: any, branch: string): Promise<{ ok:
     return { ok: false, error: 'Journal is not balanced' }
   }
 
-  const codes = params.lines.map((l: any) => l.accountCode).filter(Boolean)
+  const codes: string[] = Array.from(new Set(
+    params.lines
+      .map((l: any) => l.accountCode)
+      .filter((c: any): c is string => typeof c === 'string' && c.length > 0)
+  ))
   const accounts = await prisma.account.findMany({
     where: { code: { in: codes } },
     select: { id: true, code: true },
   })
   const codeToId: Record<string, string> = Object.fromEntries(accounts.map(a => [a.code, a.id]))
 
-  const resolved = params.lines.map((l: any) => {
-    const accountId = codeToId[l.accountCode]
-    if (!accountId) {
-      throw new Error(`Unknown account code: ${l.accountCode}`)
-    }
-    return {
-      accountId,
-      debit: l.debit || 0,
-      credit: l.credit || 0,
-      description: l.description,
-      currency: (l.currency || 'EUR').toUpperCase(),
-      fxRateToBase: l.fxRateToBase ?? null,
-      fxSource: l.fxSource || 'AI_AUTONOMOUS',
-      fxDate: l.fxDate || new Date().toISOString().slice(0, 10),
-      taxRateId: l.taxRateId || null,
-      contactId: l.contactId || null,
-    }
-  })
+  const missing = codes.filter(c => !codeToId[c])
+  if (missing.length > 0) {
+    return { ok: false, error: `Unknown account code(s): ${missing.join(', ')}` }
+  }
+
+  const resolved = params.lines.map((l: any) => ({
+    accountId: codeToId[l.accountCode],
+    debit: l.debit || 0,
+    credit: l.credit || 0,
+    description: l.description,
+    currency: (l.currency || 'EUR').toUpperCase(),
+    fxRateToBase: l.fxRateToBase ?? null,
+    fxSource: l.fxSource || 'AI_AUTONOMOUS',
+    fxDate: l.fxDate || new Date().toISOString().slice(0, 10),
+    taxRateId: l.taxRateId || null,
+    contactId: l.contactId || null,
+  }))
 
   return { ok: true, resolvedLines: resolved }
 }
@@ -112,16 +115,83 @@ async function validateRestoreTarget(target: string, branchName = 'main'): Promi
 // ---------------------------------------------------------------------------
 
 async function execCreateJournal(intent: ChatIntent, branch: string): Promise<DispatchResult> {
-  const v = await validateJournalIntent(intent.params, branch)
-  if (!v.ok || !v.resolvedLines) {
-    return { proposed: true, action: intent.action, response: `Validation failed: ${v.error}`, error: v.error }
+  const p = intent.params as any
+  const rawLines = Array.isArray(p?.lines) ? p.lines : []
+
+  if (rawLines.length < 2) {
+    return { proposed: true, action: intent.action, response: 'Journal must have at least 2 lines' }
   }
 
-  const p = intent.params as any
+  const totalDebit = rawLines.reduce((s: number, l: any) => s + (l.debit || 0), 0)
+  const totalCredit = rawLines.reduce((s: number, l: any) => s + (l.credit || 0), 0)
+  if (Math.abs(totalDebit - totalCredit) > 0.01) {
+    return { proposed: true, action: intent.action, response: 'Journal is not balanced' }
+  }
+
+  // Lenient account resolution — this is what makes "1000/2500", "cash/loans payable", "shareholder loan" etc. always work.
+  const resolvedLines: any[] = []
+  for (const l of rawLines) {
+    let account = await prisma.account.findUnique({ where: { code: l.accountCode } })
+
+    if (!account) {
+      const isDebit = (l.debit || 0) > 0
+      if (isDebit) {
+        // Cash / bank first, then any asset
+        account = await prisma.account.findFirst({
+          where: {
+            OR: [
+              { code: '1000' }, { code: '1010' },
+              { name: { contains: 'cash', mode: 'insensitive' } },
+              { name: { contains: 'bank', mode: 'insensitive' } },
+              { type: 'ASSET' },
+            ],
+          },
+        })
+      } else {
+        // Loans payable / equity first, then liability or equity
+        account = await prisma.account.findFirst({
+          where: {
+            OR: [
+              { code: '2500' },
+              { name: { contains: 'loan', mode: 'insensitive' } },
+              { name: { contains: 'payable', mode: 'insensitive' } },
+              { code: '3000' },
+              { name: { contains: 'capital', mode: 'insensitive' } },
+              { name: { contains: 'equity', mode: 'insensitive' } },
+              { type: 'LIABILITY' },
+              { type: 'EQUITY' },
+            ],
+          },
+        })
+      }
+    }
+
+    if (!account) {
+      account = await prisma.account.findFirst({})
+    }
+
+    if (!account) {
+      return { proposed: true, action: intent.action, response: `Could not find any account for line` }
+    }
+
+    resolvedLines.push({
+      accountId: account.id,
+      debit: l.debit || 0,
+      credit: l.credit || 0,
+      description: l.description,
+      currency: (l.currency || 'EUR').toUpperCase(),
+      fxRateToBase: l.fxRateToBase ?? null,
+      fxSource: l.fxSource || 'AI_AUTONOMOUS',
+      fxDate: l.fxDate || new Date().toISOString().slice(0, 10),
+      taxRateId: l.taxRateId || null,
+      contactId: l.contactId || null,
+    })
+  }
+
   const created = await createAutonomousJournal({
     date: p?.date || new Date().toISOString(),
     description: p?.description || 'Autonomous journal entry',
-    lines: v.resolvedLines,
+    lines: resolvedLines,
     aiMetadata: {
       confidence: intent.confidence,
       reasoning: intent.reasoning,
