@@ -375,6 +375,17 @@ function ContactsContent() {
     void fetchContacts()
   }, [fetchContacts])
 
+  // Autonomous execution refresh for contacts
+  useEffect(() => {
+    const h = () => void fetchContacts()
+    window.addEventListener('contacts-updated', h)
+    window.addEventListener('journal-updated', h)
+    return () => {
+      window.removeEventListener('contacts-updated', h)
+      window.removeEventListener('journal-updated', h)
+    }
+  }, [fetchContacts])
+
   const resetForm = () => {
     setNewName('')
     setNewEmail('')

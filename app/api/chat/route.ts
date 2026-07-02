@@ -8,6 +8,8 @@ import { getMerchantMemoryPrompt, getMerchantMemory } from '@/lib/agentMemory'
 import { getLlmConfig, createLlmModel } from '@/lib/llm'
 import { findRecentBankFeedRateForMerchant } from '@/lib/feedMatching'
 import { createAutonomousJournal } from '@/lib/accounting/autonomous'
+import { IntentSchema, ChatIntent, ActionType } from '@/lib/chat/intent'
+import { dispatchIntent as runDispatch } from '@/lib/chat/dispatcher'
 
 const SuggestionSchema = z.object({
   description: z.string().optional(),
@@ -247,6 +249,29 @@ export async function POST(req: NextRequest) {
     const balances = await getCurrentBalancesSummary()
     const taxContext = await getTaxRatesContext()
 
+    // Git view context passed from client (for autonomous execution on correct branch/asOf)
+    const requestedBranch = (body?.branch || 'main').toString()
+    const requestedAsOf = body?.asOf || undefined
+
+    // Direct approved intent (from confirmation UI)
+    if (body?.intent && typeof body.intent === 'object') {
+      try {
+        const approvedIntent: ChatIntent = {
+          ...body.intent,
+          approved: true,
+          branch: body.intent.branch || requestedBranch,
+        }
+        const result = await runDispatch(approvedIntent, {
+          chatLocked,
+          currentBranch: requestedBranch,
+          currentAsOf: requestedAsOf,
+        })
+        return Response.json(result)
+      } catch (e) {
+        console.error('Direct approved intent failed', e)
+      }
+    }
+
     // Phase 2: compute a preliminary merchant hint from the user message
     const preliminaryMerchant = (lastMessage.match(/from\s+([A-Za-z0-9 .&'-]+)/i)?.[1] || '').trim()
 
@@ -303,11 +328,31 @@ ${feedRatesText ? feedRatesText + '\n' : ''}
 ${memoryText ? memoryText + '\n' : ''}
 Use the above memory and feed rates when they are relevant. Prefer real BANK_FEED rates over published rates.
 
-Tax confidence rule (strict):
-- Return "taxConfidence" (0.0-1.0).
-- >= 0.80: you are confident (strong memory + jurisdiction match) → the UI will apply autonomously.
-- <  0.70: you are uncertain (different region, weak memory, ambiguous document) → the UI will force user confirmation.
-`
+  You must output ONE structured intent using the following action vocabulary (exact strings only):
+
+SAFE AUTONOMOUS (execute immediately if confidence high and server validation passes):
+CREATE_JOURNAL, APPLY_TEMPLATE, CREATE_CONTACT, UPDATE_CONTACT,
+CREATE_INVOICE_DRAFT, GENERATE_RECURRING_DRAFT,
+MATCH_FEED_TRANSACTION, SYNC_FEED, IMPORT_FEED_CSV,
+RECONCILE_ACCOUNT, LEARN_MERCHANT, OPEN_LEDGER, EXPLAIN
+
+ALWAYS USE PROPOSE_* FORM (never auto-execute):
+PROPOSE_RESTORE, PROPOSE_MERGE, PROPOSE_REVERSE, PROPOSE_TAG_CLOSE,
+PROPOSE_SEND_INVOICE, PROPOSE_CHARGE, PROPOSE_BULK_REVERSE, PROPOSE_IMPORT_BACKUP,
+PROPOSE_CREATE_ACCOUNT, PROPOSE_UPDATE_TAX_RATE, PROPOSE_UPDATE_SETTINGS, PROPOSE_USER_CHANGE
+
+Examples:
+- "add shareholder loan of 800 USD" → {"action":"CREATE_JOURNAL","confidence":0.95,"params":{"description":"shareholder loan","lines":[{"accountCode":"1000","debit":800,"currency":"USD"},{"accountCode":"2500","credit":800,"currency":"USD"}]}}
+- "add ACME Corp as customer" → {"action":"CREATE_CONTACT","confidence":0.9,"params":{"name":"ACME Corp","type":"CUSTOMER"}}
+- "draft invoice John for 450 consulting" → {"action":"CREATE_INVOICE_DRAFT","confidence":0.92,"params":{"description":"Consulting","amount":450,"contactName":"John"}}
+- "restore to 2026-06-15" → {"action":"PROPOSE_RESTORE","confidence":0.8,"params":{"target":"2026-06-15"}}
+- "merge ai-june into main" → {"action":"PROPOSE_MERGE","confidence":0.85,"params":{"sourceBranch":"ai-june"}}
+
+Return exactly one JSON object with: action, confidence (0-1), reasoning (short), params, branch (use "${requestedBranch}").
+Current view: branch=${requestedBranch}${requestedAsOf ? ` asOf=${requestedAsOf}` : ''}
+
+You are an autonomous junior bookkeeper. Execute routine safe work directly. Always propose (never execute) anything destructive, money-moving, or that changes master data/config.
+ `
 
     // AI-first invoice detection (customer / client language)
     const isCustomerInvoice = /invoice|bill/i.test(lower) && (/(client|customer|acme|corp|gmbh|ltd|inc|john|sarah)/i.test(lower) || !/from\s/i.test(lower))
@@ -325,6 +370,76 @@ Tax confidence rule (strict):
       })
     }
 
+    // -----------------------------------------------------------------
+    // NEW AUTONOMOUS INTENT PATH (full scope per Autonomous-AI-Execution-Plan)
+    // We always attempt structured intent first for any action-like message.
+    // Legacy suggestion path is kept as fallback for now.
+    // -----------------------------------------------------------------
+    const looksLikeAction = /bought|paid|received|purchase|expense|revenue|supplies|software|client|services|capital|office|consult|bill|subscription|equipment|laptop|rent|salary|invoice|sale|record|post|add.*contact|create.*contact|draft.*invoice|generate.*recurring|match.*feed|sync.*feed|reconcile|restore|rollback|merge/.test(lower)
+
+    if (looksLikeAction) {
+      try {
+        const { object: intentObj } = await generateObject({
+          model,
+          schema: IntentSchema,
+          prompt: `${system}\n\nUser: ${lastMessage}\n\nReturn ONE structured intent object. Use exact action names from the vocabulary above. Include confidence and short reasoning. For journals include balanced lines with accountCode. For contacts include name+type. For invoices include description or lines. For restore/merge use PROPOSE_* forms.`,
+        })
+
+        const parsedIntent = IntentSchema.safeParse(intentObj)
+        if (!parsedIntent.success) {
+          // Fall through to legacy path
+          throw new Error('Intent parse failed')
+        }
+
+        const intent: ChatIntent = {
+          ...parsedIntent.data,
+          branch: parsedIntent.data.branch || requestedBranch,
+          asOf: parsedIntent.data.asOf || requestedAsOf,
+        }
+
+        // Dispatch (this applies all classification, validation, chatLocked, confidence, and Git rules)
+        const dispatchResult = await runDispatch(intent, {
+          chatLocked,
+          currentBranch: requestedBranch,
+          currentAsOf: requestedAsOf,
+        })
+
+        // Special handling for navigation actions
+        if (dispatchResult.openLedger) {
+          window?.dispatchEvent?.(new CustomEvent('open-ledger', { detail: dispatchResult.openLedger }))
+        }
+
+        // If dispatcher decided to execute or propose, return immediately
+        if (dispatchResult.executed || dispatchResult.proposed) {
+          const payload: any = {
+            response: dispatchResult.response,
+            executed: dispatchResult.executed,
+            proposed: dispatchResult.proposed,
+            action: dispatchResult.action,
+            entityId: dispatchResult.entityId,
+            branch: dispatchResult.branch || requestedBranch,
+            asOf: dispatchResult.asOf || requestedAsOf,
+            eventId: dispatchResult.eventId,
+          }
+          if (dispatchResult.createdAutonomously) payload.createdAutonomously = true
+          if (dispatchResult.reconciled) payload.reconciled = dispatchResult.reconciled
+          if (dispatchResult.openLedger) payload.openLedger = dispatchResult.openLedger
+          if (dispatchResult.proposedAction) payload.proposedAction = dispatchResult.proposedAction
+          if (dispatchResult.error) payload.error = dispatchResult.error
+
+          return Response.json(payload)
+        }
+
+        // If dispatcher did nothing useful, fall through to legacy suggestion
+      } catch (intentErr) {
+        // Intent path failed or was not applicable → continue to legacy journal suggestion path below
+        console.log('Intent path fell back to legacy suggestion', intentErr)
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // LEGACY JOURNAL SUGGESTION PATH (kept for transition + non-action chat)
+    // -----------------------------------------------------------------
     const looksLikeTx = lower.match(/bought|paid|received|purchase|expense|revenue|supplies|software|client|services|capital|office|consult|bill|subscription|equipment|laptop|rent|salary|invoice|sale|record|post/)
     if (looksLikeTx) {
       try {
@@ -338,7 +453,6 @@ Tax confidence rule (strict):
         for await (const d of textRes.textStream) text += d
 
         // Enrich suggestion lines with rates if the model omitted fx metadata for foreign currency.
-        // Phase 1 improvement: first try to find a real BANK_FEED rate from a previous import for the same merchant.
         const merchantFromModel = (object as { merchant?: string } | null)?.merchant || ''
         const merchantHint = merchantFromModel || (lastMessage.match(/from\s+([A-Za-z0-9 .&-]+)/i)?.[1] || '')
 
@@ -349,8 +463,6 @@ Tax confidence rule (strict):
             const cur = (line.currency || 'EUR').toUpperCase()
             if (cur !== 'EUR' && line.fxRateToBase == null) {
               let usedRealFeed = false
-
-              // 1. Try previous authoritative feed for this merchant (best case)
               if (merchantHint) {
                 const feedRate = await findRecentBankFeedRateForMerchant(merchantHint.toLowerCase())
                 if (feedRate && feedRate.currency === cur) {
@@ -361,8 +473,6 @@ Tax confidence rule (strict):
                   usedRealFeedForAny = true
                 }
               }
-
-              // 2. Fallback to published rate (ECB etc.)
               if (!usedRealFeed) {
                 const rate = await getFxRateToBase(cur)
                 if (rate != null) {
@@ -375,9 +485,6 @@ Tax confidence rule (strict):
           }
         }
 
-        // Phase 1 rule:
-        // - If we have non-EUR lines that ended up WITHOUT a BANK_FEED source → require confirmation.
-        // - If every foreign line has a BANK_FEED source (we reused a real previous feed rate) → no forced confirmation.
         let needsConfirmation = false
         if (object && Array.isArray(object.lines)) {
           const foreignLines = object.lines.filter((l: { currency?: string }) => (l.currency || 'EUR').toUpperCase() !== 'EUR')
@@ -389,7 +496,6 @@ Tax confidence rule (strict):
 
         const finalMerchant = merchantHint || (object as { merchant?: string } | null)?.merchant || undefined
 
-        // Phase 2 memory: attach remembered categorization for this merchant (keyed by merchant + region)
         let memory: { merchant: string; suggestedAccountCode?: string; suggestedTaxRateId?: string; lastUsed?: string } | undefined = undefined
         if (finalMerchant) {
           try {
@@ -405,10 +511,6 @@ Tax confidence rule (strict):
           } catch {}
         }
 
-        // NEW: Tax confidence rules (user spec):
-        // - >= 0.80 → autonomous (clear needsConfirmation=false for tax)
-        // - <  0.70 → force confirmation
-        // - 0.70-0.79 → leave as-is (existing logic decides)
         const rawTaxConf = (object as { taxConfidence?: number })?.taxConfidence
         let taxConf: number | undefined
         if (typeof rawTaxConf === 'number') taxConf = Math.max(0, Math.min(1, rawTaxConf))
@@ -419,16 +521,13 @@ Tax confidence rule (strict):
           if (taxConf < 0.70) finalNeedsConfirmation = true
         }
 
-        // Respect explicit chat lock (advisory mode) — never autonomous when locked
         if (chatLocked) {
           finalNeedsConfirmation = true
         }
 
-        // Git Model: high-confidence autonomous creation (see docs/Git-Model-for-Accounting.md)
-        // If no forced confirmation, the AI is allowed to commit directly.
+        // Legacy autonomous path (journals only) - will be retired once intent path is complete
         if (!finalNeedsConfirmation && object && Array.isArray(object.lines)) {
           try {
-            // Resolve accountCodes to ids
             const codes = object.lines.map((l: any) => l.accountCode)
             const accounts = await prisma.account.findMany({
               where: { code: { in: codes } },
@@ -455,19 +554,17 @@ Tax confidence rule (strict):
               aiMetadata: {
                 confidence: taxConf ?? 0.85,
                 model: 'chat',
-                reasoning: 'High-confidence autonomous suggestion from chat',
+                reasoning: 'High-confidence autonomous suggestion from chat (legacy path)',
               },
             })
 
-            const finalText = `Created autonomously (high confidence): ${created.description || 'Journal entry'}`
             return Response.json({
-              response: finalText,
+              response: `Created autonomously (high confidence): ${created.description || 'Journal entry'}`,
               createdAutonomously: true,
               entryId: created.id,
             })
           } catch (autonomousErr) {
-            // Fall back to suggestion if autonomous creation fails
-            console.error('Autonomous journal creation failed, falling back to suggestion', autonomousErr)
+            console.error('Legacy autonomous journal failed, falling back to suggestion', autonomousErr)
           }
         }
 
@@ -482,7 +579,6 @@ Tax confidence rule (strict):
           finalText += `\n\nUsing real rate from previous feed for ${finalMerchant}.`
         }
 
-        // Return JSON for transactions (to include suggestions)
         return Response.json({ response: finalText, suggestion })
       } catch {
         return Response.json(await generateFallback(lastMessage))
@@ -720,29 +816,8 @@ lines.push({ accountCode: debitCode, debit: taxAmt, description: `Tax ${deRate.n
       }
     }
   } else if (/restore|rollback|go back to|reset to.*(date|state)/i.test(lower)) {
-    // Git Model: chat can request restore (creates rollback event)
-    const dateMatch = text.match(/\b(20\d{2}-\d{2}-\d{2})\b/)
-    const target = dateMatch ? dateMatch[1] : null
-
-    if (target) {
-      ;(async () => {
-        try {
-          const ev = await prisma.event.findFirst({
-            where: { createdAt: { gte: new Date(target), lte: new Date(target + 'T23:59:59') } },
-            orderBy: { createdAt: 'asc' },
-          })
-          if (ev) {
-            const { restoreBranchToEvent } = await import('@/lib/accounting/restore')
-            await restoreBranchToEvent('main', ev.id)
-            // Signal UI to refresh
-            // Note: server cannot directly dispatch; clients listen to journal-updated via other means after actions
-          }
-        } catch {}
-      })()
-      response = `Restoring main to around ${target} (Git model rollback).`
-    } else {
-      response = 'Tell me a date like "restore to 2026-06-15".'
-    }
+    // Now handled by the new intent dispatcher (PROPOSE_RESTORE). Fallback just tells user.
+    response = 'Use "restore to 2026-06-15" — the system will propose the rollback for your confirmation.'
   } else {
     response = "I can draft journal entries. Try: 'bought supplies for 65', 'client paid 800', 'reconcile 1100', or 'restore to 2026-06-15'."
   }

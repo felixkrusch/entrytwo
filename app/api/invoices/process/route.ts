@@ -569,6 +569,13 @@ export async function POST(request: Request) {
         }
       : null
 
+    const highConfidenceDraft = (
+      (confidence === 'high' || (feedMatch && String(feedMatch.fxSource || '').startsWith('BANK_FEED'))) &&
+      !!currency &&
+      (feedInfo.matched || (feedMatch && String(feedMatch.fxSource || '').startsWith('BANK_FEED'))) &&
+      !taxInfo
+    )
+
     return NextResponse.json({
       success: true,
       filename: file.name,
@@ -587,14 +594,17 @@ export async function POST(request: Request) {
         merchant: vendor || undefined,
         lines: suggestionLines,
         source: 'pdf',
-        needsConfirmation: !(
-          (confidence === 'high' || (feedMatch && String(feedMatch.fxSource || '').startsWith('BANK_FEED'))) &&
-          !!currency &&
-          (feedInfo.matched || (feedMatch && String(feedMatch.fxSource || '').startsWith('BANK_FEED'))) &&
-          !taxInfo
-        ),
+        needsConfirmation: !highConfidenceDraft,
         feedMatch: feedInfo.matched ? feedInfo : undefined,
       },
+      // New: when high confidence, signal that chat can autonomously create draft
+      autonomousDraft: highConfidenceDraft ? {
+        description: `Invoice: ${file.name}${vendor ? ` — ${vendor}` : ''}`,
+        merchant: vendor || undefined,
+        amount: total,
+        currency: useCurrency,
+        contactName: vendor || undefined,
+      } : undefined,
       contact: contactMatch ? {
         ...contactMatch.contact,
         newlyCreated: contactMatch.created,
@@ -604,6 +614,7 @@ export async function POST(request: Request) {
         taxInfo ? `Detected tax ${taxInfo.jurisdiction} ${taxInfo.name} (${(taxInfo.rate * 100).toFixed(0)}%).` : null,
         feedInfo.matched ? 'Matched to feed.' : null,
         contactMatch?.created ? 'Created vendor contact.' : null,
+        highConfidenceDraft ? 'High confidence — will create draft autonomously.' : null,
       ].filter(Boolean).join(' '),
     })
   } catch (error) {

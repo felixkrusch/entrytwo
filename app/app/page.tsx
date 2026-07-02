@@ -270,10 +270,15 @@ export default function ChatPage() {
         content: m.content
       }))
 
+      // Pass current Git view (branch / asOf) so autonomous actions respect the viewed state
+      const sp = new URLSearchParams(window.location.search)
+      const branch = sp.get('branch') || 'main'
+      const asOf = sp.get('asOf') || sp.get('asof') || undefined
+
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history, chatLocked: isChatLocked })
+        body: JSON.stringify({ messages: history, chatLocked: isChatLocked, branch, asOf })
       })
 
       if (!res.ok) {
@@ -355,9 +360,14 @@ export default function ChatPage() {
           window.dispatchEvent(new CustomEvent('open-ledger', { detail: evt }))
         }
 
-        // Git model signals: refresh all views after AI autonomous actions
-        if ((data as any)?.createdAutonomously || (data as any)?.reconciled || (data as any)?.restored) {
+        // Git model signals: refresh all views after AI autonomous actions (full scope)
+        const d = data as any
+        if (d?.createdAutonomously || d?.reconciled || d?.restored || d?.executed) {
           window.dispatchEvent(new CustomEvent('journal-updated'))
+          window.dispatchEvent(new CustomEvent('contacts-updated'))
+          window.dispatchEvent(new CustomEvent('invoices-updated'))
+          window.dispatchEvent(new CustomEvent('feeds-updated'))
+          window.dispatchEvent(new CustomEvent('git-head-changed'))
         }
       }
     } catch {
@@ -471,6 +481,47 @@ export default function ChatPage() {
     }, 120)
   }
 
+  // Handle approval of a proposed autonomous action (destructive / high-impact)
+  const handleApproveProposal = async (msg: any) => {
+    if (isChatLocked) {
+      toast.error(t('lockedToast') || 'Chat is locked.')
+      return
+    }
+    const proposed = msg.proposedAction
+    if (!proposed) return
+
+    try {
+      const sp = new URLSearchParams(window.location.search)
+      const branch = sp.get('branch') || 'main'
+      const asOf = sp.get('asOf') || undefined
+
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: `APPROVE ${proposed.type}` }],
+          chatLocked: false,
+          branch,
+          asOf,
+          // Send the original intent back with approved flag
+          intent: { action: proposed.type, params: proposed.params, approved: true, confidence: 1.0, branch },
+        }),
+      })
+      const data = await res.json()
+      if (data?.executed) {
+        toast.success('Action executed after confirmation.')
+        window.dispatchEvent(new CustomEvent('journal-updated'))
+        window.dispatchEvent(new CustomEvent('contacts-updated'))
+        window.dispatchEvent(new CustomEvent('invoices-updated'))
+        window.dispatchEvent(new CustomEvent('git-head-changed'))
+      } else {
+        toast.error(data?.response || 'Confirmation failed')
+      }
+    } catch (e) {
+      toast.error('Confirmation request failed')
+    }
+  }
+
   const handleAttachment = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -497,54 +548,86 @@ export default function ChatPage() {
         const data = await res.json()
         toast.dismiss(loadingId)
 
-        if (data.text) {
-          const preview = data.text.substring(0, 280) + (data.text.length > 280 ? '...' : '')
+          if (data.text) {
+            const preview = data.text.substring(0, 280) + (data.text.length > 280 ? '...' : '')
 
-          const det = data.detected || {}
-          const detectedCurrency = det.currency || 'EUR'
-          const detectedTotal = typeof det.total === 'number' ? det.total : null
-          const amount = detectedTotal ?? 100
+            const det = data.detected || {}
+            const detectedCurrency = det.currency || 'EUR'
+            const detectedTotal = typeof det.total === 'number' ? det.total : null
+            const amount = detectedTotal ?? 100
 
-          const apiSuggestion = data.suggestion
-          const pdfSuggestion: NewEntrySuggestion = apiSuggestion
-            ? {
-                description: apiSuggestion.description,
-                lines: apiSuggestion.lines,
-              }
-            : {
-                description: `Invoice: ${file.name}${det.vendor ? ` — ${det.vendor}` : ''}`,
-                lines: [
-                  { accountCode: '5200', debit: amount, description: 'Expense from invoice', currency: detectedCurrency },
-                  { accountCode: '2000', credit: amount, description: 'Accounts payable', currency: detectedCurrency }
-                ]
-              }
+            const apiSuggestion = data.suggestion
+            const pdfSuggestion: NewEntrySuggestion = apiSuggestion
+              ? {
+                  description: apiSuggestion.description,
+                  lines: apiSuggestion.lines,
+                }
+              : {
+                  description: `Invoice: ${file.name}${det.vendor ? ` — ${det.vendor}` : ''}`,
+                  lines: [
+                    { accountCode: '5200', debit: amount, description: 'Expense from invoice', currency: detectedCurrency },
+                    { accountCode: '2000', credit: amount, description: 'Accounts payable', currency: detectedCurrency }
+                  ]
+                }
 
-          const currencyNote = det.currency
-            ? `Detected currency: ${det.currency} (confidence: ${det.currencyConfidence || 'low'})`
-            : 'Currency not confidently detected from PDF.'
+            const currencyNote = det.currency
+              ? `Detected currency: ${det.currency} (confidence: ${det.currencyConfidence || 'low'})`
+              : 'Currency not confidently detected from PDF.'
 
-          const taxNote = det.tax
-            ? `Detected tax: ${det.tax.jurisdiction} ${det.tax.name} (${(det.tax.rate * 100).toFixed(0)}%)`
-            : ''
+            const taxNote = det.tax
+              ? `Detected tax: ${det.tax.jurisdiction} ${det.tax.name} (${(det.tax.rate * 100).toFixed(0)}%)`
+              : ''
 
-          const needsConfirm = apiSuggestion?.needsConfirmation || (!det.currency || det.currencyConfidence === 'low')
+            const needsConfirm = apiSuggestion?.needsConfirmation || (!det.currency || det.currencyConfidence === 'low')
 
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: `Extracted from ${file.name}:\n${preview}\n\n${currencyNote}${taxNote ? `\n${taxNote}` : ''}${detectedTotal ? `\nGuessed total: ${detectedTotal}` : ''}\n\n${needsConfirm ? 'Please review currency, tax, and amounts and confirm before posting.' : 'Review the suggestion.'}`,
-            action: 'suggest_entry',
-            suggestion: {
-              ...pdfSuggestion,
-              source: 'pdf',
-              needsConfirmation: needsConfirm,
+            // If the PDF processor signals high-confidence autonomous draft, create it directly (safe autonomous path)
+            if (data.autonomousDraft && !needsConfirm && !isChatLocked) {
+              try {
+                const cRes = await fetch('/api/contacts?type=CUSTOMER&limit=1')
+                const cData = await cRes.json()
+                const cust = (cData.contacts || [])[0]
+                const body = {
+                  contactId: cust?.id,
+                  currency: data.autonomousDraft.currency || detectedCurrency,
+                  lines: [{
+                    description: data.autonomousDraft.description,
+                    quantity: 1,
+                    unitPrice: data.autonomousDraft.amount || amount,
+                  }]
+                }
+                const invRes = await fetch('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+                if (invRes.ok) {
+                  const inv = await invRes.json()
+                  setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: `Extracted from ${file.name} and created draft invoice autonomously: ${inv.invoiceNumber || ''}\n\n${currencyNote}${taxNote ? `\n${taxNote}` : ''}`
+                  }])
+                  router.push('/app?view=invoicing')
+                  setTimeout(() => window.dispatchEvent(new CustomEvent('open-invoice-details', { detail: { id: inv.id } })), 150)
+                  window.dispatchEvent(new CustomEvent('invoices-updated'))
+                  toast.success('Draft invoice created autonomously from PDF')
+                  toast.dismiss(loadingId)
+                  return
+                }
+              } catch {}
             }
-          }])
 
-          toast.success(t('pdfParsed'))
-        } else {
-          toast.dismiss(loadingId)
-          toast.error(t('pdfNoText'))
-        }
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: `Extracted from ${file.name}:\n${preview}\n\n${currencyNote}${taxNote ? `\n${taxNote}` : ''}${detectedTotal ? `\nGuessed total: ${detectedTotal}` : ''}\n\n${needsConfirm ? 'Please review currency, tax, and amounts and confirm before posting.' : 'Review the suggestion.'}`,
+              action: 'suggest_entry',
+              suggestion: {
+                ...pdfSuggestion,
+                source: 'pdf',
+                needsConfirmation: needsConfirm,
+              }
+            }])
+
+            toast.success(t('pdfParsed'))
+          } else {
+            toast.dismiss(loadingId)
+            toast.error(t('pdfNoText'))
+          }
       } catch {
         toast.dismiss(loadingId)
         toast.error(t('pdfFailed') || 'Failed to process PDF')
@@ -585,14 +668,28 @@ export default function ChatPage() {
                     </button>
                   )}
 
-                  {msg.createInvoice && (
-                    <button
-                      onClick={() => handleCreateInvoice(msg.createInvoice)}
-                      className="mt-2 block text-xs px-3 py-1 bg-emerald-500 text-black rounded-full hover:bg-emerald-400 transition"
-                    >
-                      Create Invoice
-                    </button>
-                  )}
+                   {msg.createInvoice && (
+                     <button
+                       onClick={() => handleCreateInvoice(msg.createInvoice)}
+                       className="mt-2 block text-xs px-3 py-1 bg-emerald-500 text-black rounded-full hover:bg-emerald-400 transition"
+                     >
+                       Create Invoice
+                     </button>
+                   )}
+
+                   {/* New autonomous proposal confirmation surface */}
+                   {(msg as any).proposedAction && (
+                     <div className="mt-3 p-2 border border-amber-700 bg-amber-950/30 rounded text-xs">
+                       <div className="mb-1 text-amber-400">Action requires confirmation:</div>
+                       <div className="font-mono text-[10px] mb-2">{JSON.stringify((msg as any).proposedAction)}</div>
+                       <button
+                         onClick={() => handleApproveProposal(msg as any)}
+                         className="px-3 py-1 bg-amber-600 text-black rounded-full text-xs hover:bg-amber-500"
+                       >
+                         Confirm & Execute
+                       </button>
+                     </div>
+                   )}
 
                   {/* Phase 1: show merchant + real feed rate usage */}
                   {msg.suggestion && (

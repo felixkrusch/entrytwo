@@ -355,6 +355,17 @@ export default function InvoicingPanel() {
     void fetchRecurring()
   }, [fetchInvoices, fetchRecurring])
 
+  // Autonomous execution refresh
+  useEffect(() => {
+    const h = () => { void fetchInvoices(); void fetchRecurring() }
+    window.addEventListener('invoices-updated', h)
+    window.addEventListener('journal-updated', h)
+    return () => {
+      window.removeEventListener('invoices-updated', h)
+      window.removeEventListener('journal-updated', h)
+    }
+  }, [fetchInvoices, fetchRecurring])
+
   useEffect(() => {
     if (showCreate) {
       void fetchContacts()
