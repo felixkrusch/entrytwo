@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { recordCommitOnBranch } from '@/lib/accounting/commit'
 
 const reverseSchema = z.object({
-  originalId: z.string()
+  originalId: z.string(),
+  branch: z.string().optional()
 })
 
 export async function POST(request: Request) {
@@ -30,6 +32,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Original entry not found' }, { status: 404 })
     }
 
+    const branchForCommit = (body.branch || 'main') as string
+    const br = await prisma.accountingBranch.findUnique({ where: { name: branchForCommit } })
+    const parentHead = br?.headEventId || null
+
     const reversingEntry = await prisma.$transaction(async (tx) => {
       const created = await tx.journalEntry.create({
         data: {
@@ -41,8 +47,8 @@ export async function POST(request: Request) {
               debit: Number(line.credit),
               credit: Number(line.debit),
               description: `Reversal: ${line.description || ''}`,
-              currency: line.currency || 'EUR',   // preserve multi-currency
-              taxRateId: line.taxRateId || null,   // preserve tax foundation
+              currency: line.currency || 'EUR',
+              taxRateId: line.taxRateId || null,
               fxRateToBase: line.fxRateToBase != null ? Number(line.fxRateToBase) : null,
               fxSource: line.fxSource || null,
               fxDate: line.fxDate || null,
@@ -56,11 +62,12 @@ export async function POST(request: Request) {
         }
       })
 
-      await tx.event.create({
+      const revEvent = await tx.event.create({
         data: {
           eventType: 'JOURNAL_ENTRY_REVERSED',
           entityType: 'JournalEntry',
           entityId: created.id,
+          parentEventId: parentHead,
           payload: {
             originalId,
             description: created.description,
@@ -77,10 +84,26 @@ export async function POST(request: Request) {
         }
       })
 
-      return created
+      // Mark the reversing entry as introduced by this reversal event
+      await tx.journalEntry.update({
+        where: { id: created.id },
+        data: { introducedByEventId: revEvent.id }
+      })
+
+      return { created, commitEventId: revEvent.id, branchForCommit }
     })
 
-    return NextResponse.json(reversingEntry, { status: 201 })
+    const created = (reversingEntry as any).created
+    const commitEventId = (reversingEntry as any).commitEventId
+    const b = (reversingEntry as any).branchForCommit || branchForCommit
+
+    if (commitEventId) {
+      await recordCommitOnBranch(created.id, b, commitEventId)
+    } else {
+      await recordCommitOnBranch(created.id, b)
+    }
+
+    return NextResponse.json(created, { status: 201 })
   } catch (error) {
     console.error('Reverse error:', error)
     return NextResponse.json({ error: 'Failed to reverse entry' }, { status: 500 })

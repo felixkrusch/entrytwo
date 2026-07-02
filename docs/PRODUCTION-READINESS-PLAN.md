@@ -1,8 +1,10 @@
 # entrytwo — Production Readiness Plan (General + Invoicing Deep Dive)
 
-**Date:** 2026-06-29  
+**Date:** 2026-06-29 (updated 2026-07-01)  
 **Status:** Draft for implementation  
-**Goal:** Turn the excellent ideas in the docs into a reliable, AI-first, production-grade accounting application, with **invoicing as a first-class, fully integrated feature**.
+**Guiding Philosophy:** See **`docs/Git-Model-for-Accounting.md`** — this is the authoritative foundation. All work must align with the Git model for accounting (branches, merges, autonomous high-confidence AI commits, AI-driven reconciliation producing classical reports, full history + rollback).
+
+**Goal:** Turn the excellent ideas in the docs into a reliable, AI-first, production-grade accounting application, with **invoicing as a first-class, fully integrated feature**, built on the Git model of financial truth.
 
 ## 1. Executive Summary
 
@@ -18,11 +20,20 @@ entrytwo is an **AI-first double-entry accounting system**. The chat (left) is t
   - No real PDF, no AI creation path, static snippets, random numbers, stubs everywhere.
 - General app has good bones but lacks tests, CI, hardened Docker, error handling, and complete i18n.
 
-**Vision (from docs):**
-- "Invoice ACME Corp for $5,000 consulting..." via chat or deluxe right-panel form.
+**Vision (from docs, aligned to Git Model):**
+See `docs/Git-Model-for-Accounting.md` for the foundational philosophy. Key points:
+- The entire accounting state is a Git-like repository: immutable commits, branches, merges, tags, diffs, blame, full history, and safe rollback.
+- AI is a first-class contributor that creates journal entries autonomously at high confidence.
+- Reconciliation is AI-driven; the classical report is the output of AI work.
+- Chat is the primary way to say "reconcile these accounts", "explain the discrepancy", or "restore to <date>".
+- Human role shifts to high-level direction and exception review.
+
+Specific to invoicing:
+- "Invoice ACME Corp for $5,000 consulting..." via chat or deluxe right-panel form (creates DRAFT + journal, then explicit send).
 - Proper double-entry (AR + Revenue + tax output on create; Bank + AR on payment).
 - White-label PDF + QR (EPC etc.) + Stripe/PayPal payment links (no "powered by" branding on the invoice itself).
 - Smart snippets, templates, extraction, reminders, reports, recurring.
+- All actions logged as events; AI proposals can live on branches before merge.
 
 This plan defines **what "production ready" means** and a concrete path to get there, with heavy focus on replanning and fixing invoicing.
 

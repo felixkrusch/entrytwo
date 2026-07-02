@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { recordCommitOnBranch } from '@/lib/accounting/commit'
+import { getVisibleJournalEntryIds, getVisibleJournalEntryIdsAtPoint } from '@/lib/accounting/ancestry'
 
 const createEntrySchema = z.object({
   date: z.string().refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid date format' }),
@@ -34,10 +36,37 @@ export async function GET(request: Request) {
     const [sortField, sortDir] = sortParam.split(':')
     const orderBy: any = sortField === 'date' ? { date: sortDir === 'asc' ? 'asc' : 'desc' } : { date: 'desc' }
 
+    // Git Model: branch + asOf
+    // - If asOf: pinned view at that point (uses ancestry of the event at that point)
+    // - Else: current view for the branch = entries visible in the ancestor chain of the branch's current head
+    const branchParam = searchParams.get('branch') || undefined
+    const asOf = searchParams.get('asOf') || searchParams.get('asof') || undefined
+    const targetBranch = branchParam || 'main'
+
+    let visibleEntryIds: string[] = []
+    let restrictToVisible = false
+    if (asOf) {
+      visibleEntryIds = await getVisibleJournalEntryIdsAtPoint(asOf)
+      restrictToVisible = true
+    } else {
+      const br = await prisma.accountingBranch.findUnique({ where: { name: targetBranch } })
+      visibleEntryIds = await getVisibleJournalEntryIds(br?.headEventId)
+      // Only restrict if ancestry gave us a non-empty set. For legacy data with no parents yet, show all for current view.
+      restrictToVisible = visibleEntryIds.length > 0
+    }
+
     const where: any = {}
+    if (restrictToVisible) {
+      if (visibleEntryIds.length > 0) {
+        where.id = { in: visibleEntryIds }
+      } else {
+        where.id = 'no-visible-entries-match'
+      }
+    }
+    // else: no ancestry restriction → show all (legacy current main or no head yet)
 
     if (from || to) {
-      where.date = {}
+      where.date = where.date || {}
       if (from) where.date.gte = new Date(from)
       if (to) where.date.lte = new Date(to)
     }
@@ -82,12 +111,18 @@ export async function GET(request: Request) {
       })
     ])
 
+    // If using ancestry filter, the "total" above is already the visible count for the view.
+    // We keep page/limit for UI pagination of the visible set.
+
     return NextResponse.json({
       entries,
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit) || 1
+      totalPages: Math.ceil(total / limit) || 1,
+      // Git model context echoed back
+      branch: targetBranch,
+      asOf: asOf || null
     })
   } catch (error) {
     console.error('Error fetching journal entries:', error)
@@ -159,7 +194,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const entry = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const created = await tx.journalEntry.create({
         data: {
           date: new Date(date),
@@ -191,11 +226,17 @@ export async function POST(request: Request) {
         }
       })
 
-      await tx.event.create({
+      // Git Model: determine branch (default main), get current head for ancestry parent
+      const branchForCommit = (body.branch || 'main') as string
+      const br = await tx.accountingBranch.findUnique({ where: { name: branchForCommit } })
+      const parentForNewEvent = br?.headEventId || null
+
+      const createdEvent = await tx.event.create({
         data: {
           eventType: 'JOURNAL_ENTRY_CREATED',
           entityType: 'JournalEntry',
           entityId: created.id,
+          parentEventId: parentForNewEvent,
           payload: {
             description: created.description,
             date: created.date,
@@ -213,10 +254,27 @@ export async function POST(request: Request) {
         }
       })
 
-      return created
+      // Mark the journal entry as introduced by this event (for ancestry visibility)
+      await tx.journalEntry.update({
+        where: { id: created.id },
+        data: { introducedByEventId: createdEvent.id }
+      })
+
+      return { createdEntry: created, commitEventId: createdEvent.id, branchForCommit }
     })
 
-    return NextResponse.json(entry, { status: 201 })
+    const createdEntry = (result as any).createdEntry
+    const commitEventId = (result as any).commitEventId
+    const branchForCommit = (result as any).branchForCommit || 'main'
+
+    // Advance branch head using the new commit event (sets parent on the event and advances head)
+    if (commitEventId) {
+      await recordCommitOnBranch(createdEntry.id, branchForCommit, commitEventId)
+    } else {
+      await recordCommitOnBranch(createdEntry.id, branchForCommit)
+    }
+
+    return NextResponse.json(createdEntry, { status: 201 })
   } catch (error: unknown) {
     console.error('Error creating journal entry:', error)
 

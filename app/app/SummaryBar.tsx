@@ -25,10 +25,21 @@ export default function SummaryBar() {
     setLoading(true)
     setError(null)
     try {
+      // Git model: carry branch/asOf so summary reflects current head state (or pinned view)
+      const params = new URLSearchParams(window.location.search)
+      const branch = params.get('branch')
+      const asOf = params.get('asOf') || params.get('asof')
+      const qs = (p: string) => {
+        const u = new URLSearchParams()
+        if (branch) u.set('branch', branch)
+        if (asOf) u.set('asOf', asOf)
+        const s = u.toString()
+        return s ? `${p}?${s}` : p
+      }
       const settled = await Promise.allSettled([
-        fetch('/api/reports/balance-sheet'),
-        fetch('/api/reports/profit-loss'),
-        fetch('/api/journal-entries'),
+        fetch(qs('/api/reports/balance-sheet')),
+        fetch(qs('/api/reports/profit-loss')),
+        fetch(qs('/api/journal-entries')),
         fetch('/api/events'),
       ])
       const [bsRes, plRes, jeRes, evRes] = settled

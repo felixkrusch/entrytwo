@@ -16,9 +16,11 @@ interface AccountsPanelProps {
   onSelectAccount?: (account: Account | null) => void
   selectedAccountId?: string
   selectedAccountCode?: string
+  branch?: string
+  asOf?: string
 }
 
-export default function AccountsPanel({ onSelectAccount, selectedAccountId, selectedAccountCode }: AccountsPanelProps) {
+export default function AccountsPanel({ onSelectAccount, selectedAccountId, selectedAccountCode, branch = 'main', asOf }: AccountsPanelProps) {
   const t = useTranslations('app.panels.accounts')
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
@@ -60,7 +62,10 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
   const fetchAccounts = async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/accounts')
+      const params = new URLSearchParams()
+      if (branch) params.set('branch', branch)
+      if (asOf) params.set('asOf', asOf)
+      const res = await fetch(`/api/accounts?${params.toString()}`)
       const data = await res.json()
       if (Array.isArray(data)) setAccounts(data)
     } catch {
@@ -74,7 +79,7 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
     // Defer first fetch to avoid "setState synchronously in effect" lint error
     const id = setTimeout(() => { void fetchAccounts() }, 0)
     return () => clearTimeout(id)
-  }, [])
+  }, [branch, asOf])
 
   // Listen for clear filter from journal panel
   useEffect(() => {
@@ -89,6 +94,13 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
     window.addEventListener('clear-all-filters', clearAll)
     return () => window.removeEventListener('clear-all-filters', clearAll)
   }, [])
+
+  // Refresh counts and list whenever any journal entry is created/reversed/updated
+  useEffect(() => {
+    const handler = () => { void fetchAccounts() }
+    window.addEventListener('journal-updated', handler)
+    return () => window.removeEventListener('journal-updated', handler)
+  }, [branch, asOf])
 
   const handleAddAccount = async () => {
     if (!newCode.trim() || !newName.trim()) return
@@ -213,9 +225,12 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
   const handleClick = (account: Account) => {
     // Open dedicated ledger experience (strong replacement on right side)
     // Keep using the view system for now (as decided).
+    // Git Model: propagate branch/asOf to ledger
     const params = new URLSearchParams()
     params.set('view', 'ledger')
     params.set('accountCode', account.code)
+    if (branch && branch !== 'main') params.set('branch', branch)
+    if (asOf) params.set('asOf', asOf)
     router.push(`/app?${params.toString()}`)
   }
 
@@ -232,6 +247,9 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
               {t('clearFilter')}
             </button>
           )}
+          {(branch && branch !== 'main') || asOf ? (
+            <span className="text-[10px] text-emerald-400">({branch !== 'main' ? branch : 'main'}{asOf ? ' @ ' + asOf : ''})</span>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <button

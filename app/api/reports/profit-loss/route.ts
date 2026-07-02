@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getTaxDirection } from '@/lib/taxDirection'
+import { getVisibleJournalEntryIds, getVisibleJournalEntryIdsAtPoint } from '@/lib/accounting/ancestry'
 
 interface ReportItem {
   code: string
@@ -17,15 +18,30 @@ export async function GET(request: Request) {
     const url = new URL(request.url)
     const from = url.searchParams.get('from')
     const to = url.searchParams.get('to')
+    const branch = url.searchParams.get('branch') || 'main'
+    const asOf = url.searchParams.get('asOf') || url.searchParams.get('asof')
 
-    const lineWhere = (from && to) ? {
-      journalEntry: {
-        date: {
-          gte: new Date(from),
-          lte: new Date(to),
-        }
-      }
-    } : {}
+    const branchParam = branch || 'main'
+    let visibleEntryIds: string[] = []
+    if (asOf) {
+      visibleEntryIds = await getVisibleJournalEntryIdsAtPoint(asOf)
+    } else {
+      const br = await prisma.accountingBranch.findUnique({ where: { name: branchParam } })
+      visibleEntryIds = await getVisibleJournalEntryIds(br?.headEventId)
+    }
+
+    const lineWhere: any = {}
+    if (visibleEntryIds.length > 0) {
+      lineWhere.journalEntryId = { in: visibleEntryIds }
+    } else {
+      lineWhere.id = 'no-visible'
+    }
+    if (from || to) {
+      lineWhere.journalEntry = lineWhere.journalEntry || {}
+      lineWhere.journalEntry.date = lineWhere.journalEntry.date || {}
+      if (from) lineWhere.journalEntry.date.gte = new Date(from)
+      if (to) lineWhere.journalEntry.date.lte = new Date(to)
+    }
 
     const accounts = await prisma.account.findMany({
       include: {

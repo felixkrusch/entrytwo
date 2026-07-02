@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { findMatch, learnMerchant } from '@/lib/matching'
 import type { FeedTransaction } from '@prisma/client'
+import { recordCommitOnBranch } from '@/lib/accounting/commit'
 
 interface FeedTxWithConn extends FeedTransaction {
   connection: { accountId: string; provider: string | null } | null
@@ -67,6 +68,9 @@ export async function POST(request: Request) {
           where: { id: transactionId },
           data: { status: 'posted', journalEntryId: entry.id },
         })
+
+        // Git Model: feed match post follows current head of main (or could take branch from body)
+        await recordCommitOnBranch(entry.id, 'main')
 
         return NextResponse.json({ status: 'posted', entryId: entry.id })
       }

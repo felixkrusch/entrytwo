@@ -148,7 +148,10 @@ async function createPaymentJournalEntry(invoiceId: string, amount: number, curr
     })
   }
 
-  await prisma.journalEntry.create({
+  const br = await prisma.accountingBranch.findUnique({ where: { name: 'main' } })
+  const parentHead = br?.headEventId || null
+
+  const created = await prisma.journalEntry.create({
     data: {
       date: new Date(),
       description: `Payment for ${invoice.invoiceNumber}`,
@@ -171,4 +174,19 @@ async function createPaymentJournalEntry(invoiceId: string, amount: number, curr
       },
     },
   })
+
+  const ev = await prisma.event.create({
+    data: {
+      eventType: 'JOURNAL_ENTRY_CREATED',
+      entityType: 'JournalEntry',
+      entityId: created.id,
+      parentEventId: parentHead,
+      payload: { description: created.description, source: 'stripe' },
+    },
+  })
+  await prisma.journalEntry.update({ where: { id: created.id }, data: { introducedByEventId: ev.id } })
+
+  // Advance main head
+  const { recordCommitOnBranch } = await import('@/lib/accounting/commit')
+  await recordCommitOnBranch(created.id, 'main', ev.id)
 }

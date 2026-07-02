@@ -26,6 +26,13 @@ enum EventType {
   MANUAL_ADJUSTMENT
   SYSTEM
   USER_CREATED
+  // Git Model for Accounting events (see docs/Git-Model-for-Accounting.md and docs/Git-Model-Implementation-Plan.md)
+  BRANCH_CREATED
+  MERGE
+  TAG_CREATED
+  ROLLBACK
+  RECONCILIATION_RUN
+  AI_AUTONOMOUS_ENTRY
 }
 
 enum Role {
@@ -86,14 +93,16 @@ model Contact {
 }
 
 model JournalEntry {
-  id               String            @id @default(uuid())
-  date             DateTime
-  description      String?
-  createdAt        DateTime          @default(now())
-  createdBy        String?
-  lines            JournalLine[]
-  feedTransactions FeedTransaction[]
-  invoices         Invoice[]
+  id                 String            @id @default(uuid())
+  date               DateTime
+  description        String?
+  createdAt          DateTime          @default(now())
+  createdBy          String?
+  // Git Model: the Event that introduced this entry into a branch's visible history
+  introducedByEventId String?
+  lines              JournalLine[]
+  feedTransactions   FeedTransaction[]
+  invoices           Invoice[]
 }
 
 model JournalLine {
@@ -138,21 +147,41 @@ model TaxRate {
 }
 
 model Event {
-  id         String    @id @default(uuid())
-  eventType  EventType
-  entityType String
-  entityId   String
-  payload    Json
-  metadata   Json?
-  createdAt  DateTime  @default(now())
-  createdBy  String?
-  user       User?     @relation(fields: [createdBy], references: [id])
+  id            String    @id @default(uuid())
+  eventType     EventType
+  entityType    String
+  entityId      String
+  payload       Json
+  metadata      Json?
+  createdAt     DateTime  @default(now())
+  createdBy     String?
+  // Git ancestry: parent points to previous head for linear history + restore jumps
+  parentEventId String?
+  parent        Event?    @relation("EventParent", fields: [parentEventId], references: [id])
+  children      Event[]   @relation("EventParent")
+  user          User?     @relation(fields: [createdBy], references: [id])
 }
 
 model Snapshot {
   id        String   @id @default(uuid())
   createdAt DateTime @default(now())
   data      Json
+  // Git Model: the event up to which this snapshot is valid (for replay)
+  upToEventId String?
+}
+
+// Git Model for Accounting: lightweight branches for main, AI proposals, experiments
+// See docs/Git-Model-for-Accounting.md and docs/Git-Model-Implementation-Plan.md
+model AccountingBranch {
+  id          String   @id @default(uuid())
+  name        String   @unique // "main", "ai-june-recon", etc.
+  description String?
+  headEventId String?  // points to the latest Event that is the head of this branch
+  headSnapshotId String? // optional: snapshot for fast restore
+  isMain      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  createdBy   String?
+  updatedAt   DateTime @updatedAt
 }
 
 // Global settings / company configuration (used by Admin UI)

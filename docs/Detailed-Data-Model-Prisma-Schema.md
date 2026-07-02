@@ -8,7 +8,16 @@
 
 ## 1. Purpose
 
-This document defines the detailed database schema for entrytwo using Prisma. It focuses on supporting full double-entry accounting, strong auditability, version control / rollback capabilities, AI agent interactions, and future multi-user support.
+This document defines the detailed database schema for entrytwo using Prisma. It focuses on supporting full double-entry accounting, strong auditability, **Git-model version control / rollback capabilities** (see `docs/Git-Model-for-Accounting.md`), AI agent interactions, and future multi-user support.
+
+**This schema exists to enable the Git model for accounting:**
+- Events = commits (immutable history)
+- Snapshots = fast restore points
+- Branches / proposals = parallel realities or AI work
+- Replaying events from a snapshot = checkout / restore to any point
+- All AI and human actions produce auditable commits
+
+The Git model (`docs/Git-Model-for-Accounting.md`) is authoritative. This schema must support branches, merges, autonomous high-confidence AI commits, AI-driven reconciliation, and full rollback.
 
 ---
 

@@ -137,8 +137,11 @@ export async function POST(request: Request) {
       }
     }
 
+    const br = await prisma.accountingBranch.findUnique({ where: { name: 'main' } })
+    const parentHead = br?.headEventId || null
+
     for (const journal of data.journalEntries || []) {
-      await prisma.journalEntry.create({
+      const created = await prisma.journalEntry.create({
         data: {
           date: new Date(journal.date),
           description: journal.description,
@@ -158,6 +161,17 @@ export async function POST(request: Request) {
           },
         },
       })
+      // Attach to current main ancestry for visibility (historical import)
+      const ev = await prisma.event.create({
+        data: {
+          eventType: 'JOURNAL_ENTRY_CREATED',
+          entityType: 'JournalEntry',
+          entityId: created.id,
+          parentEventId: parentHead,
+          payload: { description: created.description, source: 'backup_import' },
+        },
+      })
+      await prisma.journalEntry.update({ where: { id: created.id }, data: { introducedByEventId: ev.id } })
     }
 
     for (const setting of data.settings || []) {

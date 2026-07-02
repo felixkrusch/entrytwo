@@ -273,7 +273,7 @@ export default function ChatPage() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history })
+        body: JSON.stringify({ messages: history, chatLocked: isChatLocked })
       })
 
       if (!res.ok) {
@@ -343,14 +343,21 @@ export default function ChatPage() {
           return updated
         })
 
-        // Chat-triggered ledger open (AI-first high-reachability)
+        // Chat-triggered ledger open (AI-first high-reachability) — Git model: carry branch/asOf
         if ((data as any)?.openLedger?.code) {
           const d = (data as any).openLedger
           const evt: any = { code: d.code }
           if (d.from) evt.from = d.from
           if (d.to) evt.to = d.to
           if (d.search) evt.search = d.search
+          if (d.branch) evt.branch = d.branch
+          if (d.asOf) evt.asOf = d.asOf
           window.dispatchEvent(new CustomEvent('open-ledger', { detail: evt }))
+        }
+
+        // Git model signals: refresh all views after AI autonomous actions
+        if ((data as any)?.createdAutonomously || (data as any)?.reconciled || (data as any)?.restored) {
+          window.dispatchEvent(new CustomEvent('journal-updated'))
         }
       }
     } catch {

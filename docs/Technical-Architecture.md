@@ -97,14 +97,15 @@ The AI Agent interacts with the Accounting Core through well-defined tools, with
 
 | Risk                           | Mitigation |
 |--------------------------------|------------|
-| Over-engineering early         | Focus on MVP scope first |
-| AI reliability issues          | Strong verification + human approval |
+| Over-engineering early         | Focus on MVP scope first, but **Git model foundations** (snapshots, events, branches, AI autonomy) are non-negotiable from the start per `docs/Git-Model-for-Accounting.md`. |
+| AI reliability issues          | Strong verification + **high-confidence autonomous commits allowed**; lower confidence goes to branches/proposals. Full logging + rollback always available. |
 | Performance problems           | Use snapshots and proper indexing |
 | Security vulnerabilities       | Follow security best practices from day one |
 | **Hardcoded English / missing i18n** | Enforce i18n framework + code review rules from commit #1. Zero tolerance. |
 | **Weak or missing tax model**  | Tax handling is a Phase 0 deliverable. Expanded TaxRate model + tax-aware journal logic required before real usage. No "add taxes later". |
 | **Missing multi-currency foundation** | JournalLine must carry currency + amount + fx fields from Phase 0. **Automatic conversion to base using rate effective on transaction/payment date** (fxDate + fxRateToBase). Actual rates from bank/credit card feeds are authoritative for imported transactions and must be captured for correct double entry. Public central bank APIs (ECB, Bank of Canada, etc.) may be used as fallback sources. Reports and AI must be currency-aware. |
 | **Missing chat lock / safety** | Lock icon + advisory-only mode must prevent accidental actions. Guard all create/modify paths originating from chat. |
+| **Diluting the Git model**     | `docs/Git-Model-for-Accounting.md` is authoritative. AI autonomy at high confidence, AI-driven reconciliation producing classical reports, full branching + rollback, and treating history as sacred must never be compromised. |
 
 ---
 

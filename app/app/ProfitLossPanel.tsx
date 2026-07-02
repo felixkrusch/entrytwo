@@ -32,9 +32,11 @@ interface PLData {
 interface ProfitLossPanelProps {
   onFilterAccount?: (code: string) => void
   currentFilterCode?: string | null
+  branch?: string
+  asOf?: string
 }
 
-export default function ProfitLossPanel({ onFilterAccount, currentFilterCode }: ProfitLossPanelProps) {
+export default function ProfitLossPanel({ onFilterAccount, currentFilterCode, branch = 'main', asOf }: ProfitLossPanelProps) {
   const t = useTranslations('app.panels.profitLoss')
   const format = useFormatter()
 
@@ -66,6 +68,8 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode }: 
         url.searchParams.set('from', fromDate)
         url.searchParams.set('to', toDate)
       }
+      if (branch) url.searchParams.set('branch', branch)
+      if (asOf) url.searchParams.set('asOf', asOf)
       const res = await fetch(url.toString())
       if (!res.ok) throw new Error('Failed to load P&L')
       const d: unknown = await res.json()
@@ -100,8 +104,18 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode }: 
   if (loading) {
     return (
       <div className="mt-8">
-        <div className="text-sm text-zinc-500 mb-4">{t('title')}</div>
-        <div className="text-zinc-500 text-sm">{t('loading')}</div>
+        <div className="mb-6">
+            <h1 className="text-xl font-semibold">{t('title')}</h1>
+          <p className="text-xs text-zinc-500 mt-1">
+            Live Profit &amp; Loss.
+          </p>
+          {(branch && branch !== 'main') || asOf ? (
+            <div className="mt-1 text-[10px] text-emerald-400">
+              Viewing {branch !== 'main' ? branch + ' branch' : 'main'} {asOf ? `as of ${asOf}` : ''} (not current main)
+            </div>
+          ) : null}
+        </div>
+        <div className="text-zinc-500 text-sm">Loading…</div>
       </div>
     )
   }

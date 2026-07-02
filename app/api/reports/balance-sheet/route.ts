@@ -1,20 +1,39 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { getVisibleJournalEntryIds, getVisibleJournalEntryIdsAtPoint } from '@/lib/accounting/ancestry'
 
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url)
     const from = url.searchParams.get('from')
     const to = url.searchParams.get('to')
+    const branchParam = url.searchParams.get('branch') || 'main'
+    const asOf = url.searchParams.get('asOf') || url.searchParams.get('asof')
 
-    const where = from && to ? {
-      journalEntry: {
-        date: {
-          gte: new Date(from),
-          lte: new Date(to),
-        }
-      }
-    } : {}
+    // Git ancestry visibility for current state (unless pinned asOf)
+    // If ancestry set is empty (legacy data / no parents yet), fall back to showing all for current view.
+    let visibleEntryIds: string[] = []
+    let restrict = false
+    if (asOf) {
+      visibleEntryIds = await getVisibleJournalEntryIdsAtPoint(asOf)
+      restrict = true
+    } else {
+      const br = await prisma.accountingBranch.findUnique({ where: { name: branchParam } })
+      visibleEntryIds = await getVisibleJournalEntryIds(br?.headEventId)
+      restrict = visibleEntryIds.length > 0
+    }
+
+    const where: any = {}
+    if (restrict && visibleEntryIds.length > 0) {
+      where.journalEntryId = { in: visibleEntryIds }
+    }
+
+    if (from || to) {
+      where.journalEntry = where.journalEntry || {}
+      where.journalEntry.date = where.journalEntry.date || {}
+      if (from) where.journalEntry.date.gte = new Date(from)
+      if (to) where.journalEntry.date.lte = new Date(to)
+    }
 
     const accounts = await prisma.account.findMany({
       include: {

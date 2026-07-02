@@ -195,7 +195,7 @@ The system is divided into the following layers:
 
 - **User Interface Layer**: Chat + Voice on the left side, with a dynamic right panel containing tables and dashboards.
 - **AI Agent Layer**: Handles reasoning, memory, verification, tool calling, and action execution.
-- **Accounting Core**: Contains the double-entry engine, audit logging, and version control logic.
+- **Accounting Core**: Contains the double-entry engine, audit logging, and **Git-model version control** (commits = journal entries, branches, merges, tags, diffs, blame, rollback via snapshots + events). See `docs/Git-Model-for-Accounting.md` — this is the authoritative philosophy. AI is a first-class committer at high confidence.
 - **Data Layer**: PostgreSQL database using event sourcing for full auditability and rollback support.
 
 The AI Agent interacts with the Accounting Core through a controlled set of tools, with an approval workflow for sensitive actions.
@@ -209,7 +209,7 @@ The AI Agent interacts with the Accounting Core through a controlled set of tool
 | 0     | Accounting Foundation (with i18n + Tax + Multi-Currency from Day One) | Double-entry core + audit logging + **full i18n** + **TaxRate + tax lines + tax-aware P&L** + **Multi-currency on lines + base currency + FX rates + automatic date-pinned conversion to base + currency-aware reports** |
 | 0.5   | Setup & Admin UI                   | Proper local/production setup guide + **Admin UI** (users + roles + company settings + first-admin bootstrap) |
 | 1     | AI Agent MVP                       | Chat interface + PDF processing + basic agent (tax-aware suggestions) |
-| 2     | Reliability Layer                  | Memory system + verification + rollback               |
+| 2     | Reliability Layer                  | Memory system + verification + **full Git-model rollback/branching/reconciliation as AI-first process** (see `docs/Git-Model-for-Accounting.md`) |
 | 3     | Productization                     | Licensing, onboarding, migration tools                |
 | 4     | Advanced Capabilities              | Deeper reasoning and more autonomy                    |
 

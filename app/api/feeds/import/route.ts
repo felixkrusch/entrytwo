@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { recordCommitOnBranch } from '@/lib/accounting/commit'
 
 const feedImportSchema = z.object({
   date: z.string(),
@@ -52,7 +53,11 @@ export async function POST(request: Request) {
     const effectiveFxSource = fxSource || `BANK_FEED:import:${reference || 'manual'}`
     const effectiveFxDate = fxDate || date
 
-    const entry = await prisma.$transaction(async (tx) => {
+    const branchForCommit = (body.branch || 'main') as string
+    const br = await prisma.accountingBranch.findUnique({ where: { name: branchForCommit } })
+    const parentHead = br?.headEventId || null
+
+    const result = await prisma.$transaction(async (tx) => {
       const created = await tx.journalEntry.create({
         data: {
           date: new Date(date),
@@ -60,15 +65,13 @@ export async function POST(request: Request) {
           lines: {
             create: [
               {
-                // The actual movement on the bank/card account (authoritative base amount)
                 accountId: settlementAccount.id,
-                credit: baseAmount,           // typical for a card charge / outgoing
+                credit: baseAmount,
                 debit: 0,
                 description: `Settlement via feed${reference ? ` (${reference})` : ''}`,
                 currency: baseCurrency,
               },
               {
-                // The original foreign amount with authoritative rate from the feed
                 accountId: counterAccount.id,
                 debit: foreignAmount,
                 credit: 0,
@@ -90,11 +93,12 @@ export async function POST(request: Request) {
         },
       })
 
-      await tx.event.create({
+      const ev = await tx.event.create({
         data: {
           eventType: 'MANUAL_ADJUSTMENT',
           entityType: 'JournalEntry',
           entityId: created.id,
+          parentEventId: parentHead,
           payload: {
             source: 'feed_import',
             description: created.description,
@@ -110,10 +114,25 @@ export async function POST(request: Request) {
         },
       })
 
-      return created
+      await tx.journalEntry.update({
+        where: { id: created.id },
+        data: { introducedByEventId: ev.id }
+      })
+
+      return { created, commitEventId: ev.id, branchForCommit }
     })
 
-    return NextResponse.json(entry, { status: 201 })
+    const created = (result as any).created
+    const commitEventId = (result as any).commitEventId
+    const b = (result as any).branchForCommit || branchForCommit
+
+    if (commitEventId) {
+      await recordCommitOnBranch(created.id, b, commitEventId)
+    } else {
+      await recordCommitOnBranch(created.id, b)
+    }
+
+    return NextResponse.json(created, { status: 201 })
   } catch (error) {
     console.error('Feed import error:', error)
     return NextResponse.json({ error: 'Failed to import feed' }, { status: 500 })

@@ -27,9 +27,11 @@ interface BSData {
 interface ReportsPanelProps {
   onFilterAccount?: (code: string) => void
   currentFilterCode?: string | null
+  branch?: string
+  asOf?: string
 }
 
-export default function ReportsPanel({ onFilterAccount, currentFilterCode }: ReportsPanelProps) {
+export default function ReportsPanel({ onFilterAccount, currentFilterCode, branch = 'main', asOf }: ReportsPanelProps) {
   const t = useTranslations('app.panels.reports')
   const format = useFormatter()
   const [data, setData] = useState<BSData | null>(null)
@@ -46,6 +48,8 @@ export default function ReportsPanel({ onFilterAccount, currentFilterCode }: Rep
       url.searchParams.set('from', fromDate)
       url.searchParams.set('to', toDate)
     }
+    if (branch) url.searchParams.set('branch', branch)
+    if (asOf) url.searchParams.set('asOf', asOf)
     fetch(url.toString())
       .then(res => {
         if (!res.ok) throw new Error('Failed to load balance sheet')
@@ -105,53 +109,30 @@ export default function ReportsPanel({ onFilterAccount, currentFilterCode }: Rep
   }
 
   return (
-    <div className="mt-8">
-      {error && (
-        <div className="text-[10px] text-rose-400 mb-2 px-2">{error}</div>
-      )}
-      <div className="flex items-center justify-between mb-3">
+    <div>
+      <div className="mb-6 flex items-end justify-between">
+        <div>
+          <h1 className="text-xl font-semibold">{t('title')}</h1>
+          <p className="text-xs text-zinc-500 mt-1">
+            Balance Sheet and Profit & Loss statements.
+          </p>
+          {(branch && branch !== 'main') || asOf ? (
+            <div className="mt-1 text-[10px] text-emerald-400">
+              Viewing {branch !== 'main' ? branch + ' branch' : 'main'} {asOf ? `as of ${asOf}` : ''} (not current main)
+            </div>
+          ) : null}
+        </div>
         <div className="flex items-center gap-2">
-          <div className="text-sm text-zinc-500">{t('title')}</div>
           <button
             onClick={refresh}
-            className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 hover:bg-zinc-800 text-zinc-400"
-            title="Refresh balance sheet"
+            className="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 hover:bg-emerald-900 transition"
           >
-            ↻
+            {t('live')}
           </button>
-          <div className="flex items-center gap-1 text-xs">
-            <input
-              type="date"
-              value={fromDate}
-              onChange={e => setFromDate(e.target.value)}
-              className="bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5"
-            />
-            <span className="text-zinc-600">→</span>
-            <input
-              type="date"
-              value={toDate}
-              onChange={e => setToDate(e.target.value)}
-              className="bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5"
-            />
-            {(fromDate || toDate) && (
-              <button
-                onClick={() => { setFromDate(''); setToDate('') }}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-400"
-              >
-                Clear
-              </button>
-            )}
-          </div>
+          {currentFilterCode && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">filtered: {currentFilterCode}</span>
+          )}
         </div>
-        <button
-          onClick={refresh}
-          className="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 hover:bg-emerald-900 transition"
-        >
-          {t('live')}
-        </button>
-        {currentFilterCode && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">filtered: {currentFilterCode}</span>
-        )}
       </div>
       {lastUpdated && (
         <div className="text-[10px] text-zinc-600 -mt-3 mb-2 text-right">

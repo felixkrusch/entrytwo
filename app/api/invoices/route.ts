@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { recordCommitOnBranch } from '@/lib/accounting/commit'
 import { EventType } from '@prisma/client'
 
 const InvoiceLineSchema = z.object({
@@ -267,6 +268,9 @@ export async function POST(request: Request) {
         data: { journalEntryId: journalEntry.id },
         include: { contact: true, lines: { include: { taxRate: true } } },
       })
+
+      // Git Model: record using ancestry (default main). We set parent inside recordCommitOnBranch.
+      await recordCommitOnBranch(journalEntry.id, 'main')
 
       await tx.event.create({
         data: {

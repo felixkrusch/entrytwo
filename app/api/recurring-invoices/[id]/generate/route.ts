@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { recordCommitOnBranch } from '@/lib/accounting/commit'
 
 function advanceDate(date: Date, frequency: string, interval: number): Date {
   const d = new Date(date)
@@ -175,6 +176,9 @@ export async function POST(
           payload: { invoiceNumber: created.invoiceNumber, recurringId: rec.id, source: 'recurring' },
         },
       })
+
+      // Git Model: ancestry-aware commit on main
+      await recordCommitOnBranch(je.id, 'main')
 
       return created
     })

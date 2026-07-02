@@ -157,12 +157,22 @@ Build the **Accounting Core** first, then layer the AI on top. Never let the AI 
 
 ---
 
-## 7. Recommended Starting Point
+## 7. Recommended Starting Point + Foundational Philosophy
 
-**Start with Phase 0 only.**
+**The Git Model for Accounting (`docs/Git-Model-for-Accounting.md`) is the authoritative high-level document.**  
+It must be treated as non-negotiable for all future work.
+
+Key principles (never dilute):
+- Accounting records = Git repository of financial truth (commits, branches, merges, tags, diffs, blame, full immutable history).
+- AI is a first-class autonomous contributor: high-confidence actions (especially reconciliation and routine journal entries) can be committed directly.
+- Reconciliation is AI-first. The classical report is the output of the AI's work.
+- Full Git-style rollback / time travel via snapshots + events is mandatory.
+- The explicit goal is to replace routine bookkeeping drudgery so users do not need to hire accountants for this class of work.
+
+**Start with Phase 0 only**, but every Phase 0+ deliverable must be designed through the Git model lens (event sourcing + snapshots for rollback, branches for proposals, AI autonomy rules, chat as the command interface).
 
 Build a clean, trustworthy double-entry accounting core with audit logging first.  
-Once that works reliably, *then* start adding the AI layer on top.
+Once that works reliably, *then* start adding the AI layer on top — but the AI layer must be allowed to act as a real committer (high confidence autonomous) and the system must support branching + rollback from day one of AI features.
 
 ---
 

@@ -230,18 +230,21 @@
       "chatError": "Chat service unavailable, using local fallback."
     },
     "auth": {
-      "signin": {
-        "title": "Sign In",
-        "description": "Enter your email for a magic link",
-        "emailPlaceholder": "you@company.com",
-        "send": "Send Magic Link",
-        "sending": "Sending...",
-        "checkEmail": "Check your email",
-        "magicSent": "A magic link has been sent to {email}",
-        "orContinue": "or continue with email",
-        "google": "Sign in with Google",
-        "github": "Sign in with GitHub"
-      },
+       "signin": {
+         "title": "Sign In",
+         "description": "Enter your email for a magic link",
+         "emailPlaceholder": "you@company.com",
+         "send": "Send Magic Link",
+         "sending": "Sending...",
+         "checkEmail": "Check your email",
+         "magicSent": "A magic link has been sent to {email}",
+         "orContinue": "or continue with email",
+         "google": "Sign in with Google",
+         "github": "Sign in with GitHub",
+         "firstAdminTitle": "Create First Admin",
+         "firstAdminDesc": "No administrator exists yet. Create the initial ADMIN user to unlock the application.",
+         "createFirstAdmin": "Create First Admin"
+       },
       "totp": {
         "setup": "Enable TOTP 2FA",
         "disable": "Disable Two-Factor Authentication"

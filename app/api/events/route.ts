@@ -5,7 +5,7 @@ export async function GET() {
   try {
     const events = await prisma.event.findMany({
       orderBy: { createdAt: 'desc' },
-      take: 25,
+      take: 50,  // More for a rich GitHub-style commit history view
       include: {
         user: {
           select: { email: true }

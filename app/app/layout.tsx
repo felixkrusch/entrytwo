@@ -15,6 +15,9 @@ import TopBar from './TopBar'
 import { NewEntryProvider, useNewEntry } from './NewEntryContext'
 import InvoicingPanel from './InvoicingPanel'
 import LedgerView from './LedgerView'
+import GitModelBootstrap from './GitModelBootstrap'
+import GitModelControls from './GitModelControls'
+import BooksViewIndicator from './BooksViewIndicator'
 import { useTranslations } from 'next-intl'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
@@ -48,9 +51,13 @@ function AppContent({ children }: { children: ReactNode }) {
   const view = (rawView as 'dashboard' | 'contacts' | 'invoicing' | 'reports' | 'ledger') ?? (hasAccountParam ? 'ledger' : 'dashboard')
   const ledgerAccountCode = searchParams?.get('accountCode') || searchParams?.get('account') || undefined
 
-  // Support chat-driven ledger open
+  // Git Model for Accounting: branch + asOf (point in time / branch view)
+  const currentBranch = searchParams?.get('branch') || 'main'
+  const asOf = searchParams?.get('asOf') || searchParams?.get('asof') || undefined
+
+  // Support chat-driven ledger open (Git model: also carries branch/asOf when provided)
   useEffect(() => {
-    const handler = (e: Event & { detail?: { code?: string; from?: string; to?: string; search?: string } }) => {
+    const handler = (e: Event & { detail?: { code?: string; from?: string; to?: string; search?: string; branch?: string; asOf?: string } }) => {
       const d = (e as Event & { detail?: Record<string, unknown> }).detail || {}
       const code = typeof d.code === 'string' ? d.code : undefined
       if (code) {
@@ -60,6 +67,8 @@ function AppContent({ children }: { children: ReactNode }) {
         if (typeof d.from === 'string') params.set('from', d.from)
         if (typeof d.to === 'string') params.set('to', d.to)
         if (typeof d.search === 'string') params.set('search', d.search)
+        if (typeof d.branch === 'string') params.set('branch', d.branch)
+        if (typeof d.asOf === 'string') params.set('asOf', d.asOf)
         router.push(`${pathname}?${params.toString()}`)
       }
     }
@@ -142,6 +151,11 @@ function AppContent({ children }: { children: ReactNode }) {
 
         <div className="flex-1 p-6 overflow-auto bg-zinc-900">
           <div className="max-w-5xl mx-auto space-y-8">
+            {/* Persistent view indicator for Git model (branch / asOf) — shown on dashboard and ledger */}
+            <ErrorBoundary>
+              <BooksViewIndicator />
+            </ErrorBoundary>
+
             {view === 'dashboard' && (
               <>
                 <div className="flex items-center justify-between">
@@ -186,6 +200,11 @@ function AppContent({ children }: { children: ReactNode }) {
 
                 <SummaryBar />
 
+                {/* Git Model for Accounting controls: branch / asOf / reconcile / restore */}
+                <ErrorBoundary>
+                  <GitModelControls />
+                </ErrorBoundary>
+
                 {/* Live dashboard main grid:
                     - lg: 3 columns for the primary live sections
                     - xl and above: allow up to 6 columns for denser layouts / future widgets
@@ -197,25 +216,33 @@ function AppContent({ children }: { children: ReactNode }) {
                         onSelectAccount={setSelectedAccount}
                         selectedAccountId={selectedAccount?.id}
                         selectedAccountCode={selectedAccount?.code}
+                        branch={currentBranch}
+                        asOf={asOf}
                       />
                     </ErrorBoundary>
                   </div>
 
                   <div className="lg:col-span-3 xl:col-span-6">
-                    <ErrorBoundary><JournalEntriesPanel filterAccountId={selectedAccount?.code} /></ErrorBoundary>
+                    <ErrorBoundary><JournalEntriesPanel filterAccountId={selectedAccount?.code} branch={currentBranch} asOf={asOf} /></ErrorBoundary>
                   </div>
 
                   <div className="lg:col-span-3 xl:col-span-3">
-                    <ErrorBoundary><ReportsPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} /></ErrorBoundary>
+                    <ErrorBoundary><ReportsPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} branch={currentBranch} asOf={asOf} /></ErrorBoundary>
                   </div>
 
                   <div className="lg:col-span-3 xl:col-span-3">
-                    <ErrorBoundary><ProfitLossPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} /></ErrorBoundary>
+                    <ErrorBoundary><ProfitLossPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} branch={currentBranch} asOf={asOf} /></ErrorBoundary>
                   </div>
 
                   <div className="lg:col-span-3 xl:col-span-6">
-                    <ErrorBoundary><AuditLogPanel /></ErrorBoundary>
-                  </div>
+                     <div className="mb-2 flex items-center justify-between">
+                       <div>
+                         <div className="text-sm font-medium">Commit History</div>
+                         <div className="text-[10px] text-zinc-500">All changes as immutable commits (journal entries + branch/merge/tag/rollback). GitHub-style list.</div>
+                       </div>
+                     </div>
+                     <ErrorBoundary><AuditLogPanel /></ErrorBoundary>
+                   </div>
 
                   <div className="lg:col-span-3 xl:col-span-3">
                     <ErrorBoundary><TemplatesPanel /></ErrorBoundary>
@@ -244,9 +271,9 @@ function AppContent({ children }: { children: ReactNode }) {
                  <ReportsContent />
                )}
 
-               {view === 'ledger' && ledgerAccountCode && (
-                 <LedgerView accountCode={ledgerAccountCode} />
-               )}
+                {view === 'ledger' && ledgerAccountCode && (
+                  <LedgerView accountCode={ledgerAccountCode} branch={currentBranch} asOf={asOf} />
+                )}
 
                {view === 'ledger' && !ledgerAccountCode && (
                  <div className="text-sm text-zinc-400">No account selected for ledger.</div>
@@ -261,6 +288,9 @@ function AppContent({ children }: { children: ReactNode }) {
         onSuccess={handleModalSuccess}
         initialSuggestion={suggestion}
       />
+
+      {/* Git Model for Accounting bootstrap (ensures main branch etc.) */}
+      <GitModelBootstrap />
     </div>
   )
 }
@@ -825,9 +855,22 @@ function ReportsContent() {
   const fetchReports = useCallback(async () => {
     setLoading(true)
     try {
+      // Git: propagate current branch/asOf (from URL) so reports follow head or pinned view
+      const sp = new URLSearchParams(window.location.search)
+      const branch = sp.get('branch')
+      const asOf = sp.get('asOf') || sp.get('asof')
+      const qs = (base: string) => {
+        const u = new URLSearchParams()
+        if (dateFrom) u.set('from', dateFrom)
+        if (dateTo) u.set('to', dateTo)
+        if (branch) u.set('branch', branch)
+        if (asOf) u.set('asOf', asOf)
+        const s = u.toString()
+        return s ? `${base}?${s}` : base
+      }
       const [bsRes, plRes] = await Promise.all([
-        fetch(dateFrom && dateTo ? `/api/reports/balance-sheet?from=${dateFrom}&to=${dateTo}` : '/api/reports/balance-sheet'),
-        fetch(dateFrom && dateTo ? `/api/reports/profit-loss?from=${dateFrom}&to=${dateTo}` : '/api/reports/profit-loss'),
+        fetch(qs('/api/reports/balance-sheet')),
+        fetch(qs('/api/reports/profit-loss')),
       ])
       
       if (bsRes.ok) {

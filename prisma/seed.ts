@@ -122,46 +122,9 @@ async function main() {
   });
   console.log("Seeded sample contact");
 
-  const cash = await prisma.account.findUnique({ where: { code: "1000" } });
-  const equity = await prisma.account.findUnique({ where: { code: "3000" } });
-
-  if (cash && equity) {
-    const entry = await prisma.journalEntry.create({
-      data: {
-        date: new Date(),
-        description: "Initial capital contribution",
-        lines: {
-          create: [
-            { accountId: cash.id, debit: 10000, credit: 0, description: "Cash received" },
-            { accountId: equity.id, debit: 0, credit: 10000, description: "Owner equity" },
-          ],
-        },
-      },
-      include: {
-        lines: {
-          include: { account: { select: { code: true } } }
-        }
-      }
-    });
-
-    await prisma.event.create({
-      data: {
-        eventType: "JOURNAL_ENTRY_CREATED",
-        entityType: "JournalEntry",
-        entityId: entry.id,
-        payload: {
-          description: entry.description,
-          date: entry.date,
-          lines: entry.lines.map((l) => ({
-            account: l.account.code,
-            debit: Number(l.debit),
-            credit: Number(l.credit)
-          }))
-        }
-      }
-    });
-    console.log("Seeded initial journal entry + audit event");
-  }
+  // No initial journal entries or balances are seeded on fresh install.
+  // The books start completely empty (0 assets, 0 equity, etc.).
+  // Any opening balances must be entered intentionally by the user.
 
   console.log("Seeding complete.");
 }

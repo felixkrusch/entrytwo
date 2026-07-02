@@ -21,9 +21,11 @@ interface Entry {
 
 interface Props {
   accountCode: string
+  branch?: string
+  asOf?: string
 }
 
-export default function LedgerView({ accountCode }: Props) {
+export default function LedgerView({ accountCode, branch = 'main', asOf }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const format = useFormatter()
@@ -63,6 +65,8 @@ export default function LedgerView({ accountCode }: Props) {
       if (search) params.set('search', search)
       if (from) params.set('from', from)
       if (to) params.set('to', to)
+      if (branch) params.set('branch', branch)
+      if (asOf) params.set('asOf', asOf)
 
       const res = await fetch(`/api/journal-entries?${params.toString()}`)
       if (!res.ok) throw new Error('Failed to load ledger')
@@ -76,9 +80,9 @@ export default function LedgerView({ accountCode }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [accountCode, search, from, to, page, limit])
+  }, [accountCode, search, from, to, page, limit, branch, asOf])
 
-  // Sync filters to URL (so chat / bookmarks work)
+  // Sync filters to URL (so chat / bookmarks work) — include Git model params
   const syncUrl = useCallback(() => {
     const params = new URLSearchParams()
     params.set('view', 'ledger')
@@ -87,17 +91,21 @@ export default function LedgerView({ accountCode }: Props) {
     if (from) params.set('from', from)
     if (to) params.set('to', to)
     if (page > 1) params.set('page', String(page))
+    if (branch && branch !== 'main') params.set('branch', branch)
+    if (asOf) params.set('asOf', asOf)
     router.replace(`/app?${params.toString()}`, { scroll: false })
-  }, [accountCode, search, from, to, page, router])
+  }, [accountCode, search, from, to, page, router, branch, asOf])
 
-  // Also allow opening ledger directly from chat with pre-applied filters
+  // Also allow opening ledger directly from chat with pre-applied filters (Git model: branch/asOf)
   useEffect(() => {
-    const handler = (e: Event & { detail?: { code?: string; from?: string; to?: string; search?: string } }) => {
+    const handler = (e: Event & { detail?: { code?: string; from?: string; to?: string; search?: string; branch?: string; asOf?: string } }) => {
       const d = e?.detail
       if (d?.code && d.code === accountCode) {
         if (d.from) setFrom(d.from)
         if (d.to) setTo(d.to)
         if (d.search) setSearch(d.search)
+        if (d.branch) { /* parent layout handles URL */ }
+        if (d.asOf) { /* parent layout handles URL */ }
         setPage(1)
       }
     }
@@ -143,7 +151,7 @@ export default function LedgerView({ accountCode }: Props) {
 
   return (
     <div>
-      {/* Dynamic tabs / breadcrumbs for context switching */}
+      {/* Dynamic tabs / breadcrumbs + Git model context */}
       <div className="flex items-center gap-2 mb-4 text-sm border-b border-zinc-800 pb-3">
         <button
           onClick={goToDashboard}
@@ -155,6 +163,15 @@ export default function LedgerView({ accountCode }: Props) {
         <div className="font-medium text-white">
           Ledger · {accountCode} {accountName ? `— ${accountName}` : ''}
         </div>
+
+        {/* Git model context in ledger (accountant friendly) */}
+        {(branch && branch !== 'main') || asOf ? (
+          <span className="ml-2 text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 font-mono">
+            {branch !== 'main' ? `${branch} branch` : 'main'}
+            {asOf ? ` • ${asOf.length > 12 ? asOf.slice(0, 8) + '…' : asOf}` : ''}
+          </span>
+        ) : null}
+
         <button
           onClick={goToDashboard}
           className="ml-auto text-xs px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"

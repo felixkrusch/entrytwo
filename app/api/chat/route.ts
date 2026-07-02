@@ -7,6 +7,7 @@ import { getRecentFeedRatesPromptText } from '@/lib/recentFeedRates'
 import { getMerchantMemoryPrompt, getMerchantMemory } from '@/lib/agentMemory'
 import { getLlmConfig, createLlmModel } from '@/lib/llm'
 import { findRecentBankFeedRateForMerchant } from '@/lib/feedMatching'
+import { createAutonomousJournal } from '@/lib/accounting/autonomous'
 
 const SuggestionSchema = z.object({
   description: z.string().optional(),
@@ -224,8 +225,10 @@ async function answerDataQuery(text: string) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages } = await req.json()
-    const lastMessage = messages[messages.length - 1]?.content || ''
+    const body = await req.json()
+    const messages = body?.messages || []
+    const chatLocked = !!body?.chatLocked
+    const lastMessage = (messages[messages.length - 1]?.content || '').toString()
     const lower = lastMessage.toLowerCase()
 
     const dataAnswer = await answerDataQuery(lastMessage)
@@ -416,6 +419,58 @@ Tax confidence rule (strict):
           if (taxConf < 0.70) finalNeedsConfirmation = true
         }
 
+        // Respect explicit chat lock (advisory mode) — never autonomous when locked
+        if (chatLocked) {
+          finalNeedsConfirmation = true
+        }
+
+        // Git Model: high-confidence autonomous creation (see docs/Git-Model-for-Accounting.md)
+        // If no forced confirmation, the AI is allowed to commit directly.
+        if (!finalNeedsConfirmation && object && Array.isArray(object.lines)) {
+          try {
+            // Resolve accountCodes to ids
+            const codes = object.lines.map((l: any) => l.accountCode)
+            const accounts = await prisma.account.findMany({
+              where: { code: { in: codes } },
+              select: { id: true, code: true },
+            })
+            const codeToId = Object.fromEntries(accounts.map(a => [a.code, a.id]))
+
+            const autoLines = object.lines.map((l: any) => ({
+              accountId: codeToId[l.accountCode],
+              debit: l.debit || 0,
+              credit: l.credit || 0,
+              description: l.description,
+              currency: l.currency || 'EUR',
+              fxRateToBase: l.fxRateToBase ?? null,
+              fxSource: l.fxSource || 'AI_AUTONOMOUS',
+              fxDate: l.fxDate || new Date().toISOString().slice(0, 10),
+              taxRateId: l.taxRateId || null,
+            }))
+
+            const created = await createAutonomousJournal({
+              date: new Date().toISOString(),
+              description: object.description || lastMessage,
+              lines: autoLines,
+              aiMetadata: {
+                confidence: taxConf ?? 0.85,
+                model: 'chat',
+                reasoning: 'High-confidence autonomous suggestion from chat',
+              },
+            })
+
+            const finalText = `Created autonomously (high confidence): ${created.description || 'Journal entry'}`
+            return Response.json({
+              response: finalText,
+              createdAutonomously: true,
+              entryId: created.id,
+            })
+          } catch (autonomousErr) {
+            // Fall back to suggestion if autonomous creation fails
+            console.error('Autonomous journal creation failed, falling back to suggestion', autonomousErr)
+          }
+        }
+
         const suggestion = object
           ? { ...object, needsConfirmation: finalNeedsConfirmation, merchant: finalMerchant, memory }
           : undefined
@@ -601,6 +656,29 @@ lines.push({ accountCode: debitCode, debit: taxAmt, description: `Tax ${deRate.n
     response = 'Live Balance Sheet, P&L and Summary are on the right.'
   } else if (lower.includes('account') || lower.includes('chart')) {
     response = 'Chart of accounts is on the right.'
+  } else if (/reconcile|why.*(not zero|off|difference|doesn.t add up)|explain.*(cash|balance|discrepancy)/i.test(lower)) {
+    // Git Model: chat-driven reconciliation / explanation
+    // Examples:
+    // "reconcile 1100 for June"
+    // "why is cash not zero?"
+    // "explain the difference on bank"
+    const accMatch = lower.match(/\b(1[0-9]{3}|2[0-9]{3}|3[0-9]{3}|4[0-9]{3}|5[0-9]{3})\b/) // rough account code
+    const accountCode = accMatch ? accMatch[0] : '1100'
+
+    // Git Model: AI-driven reconcile (autonomous at high confidence)
+    let reconciledFor: string | null = null
+    try {
+      const mod = await import('@/lib/accounting/reconcile')
+      await mod.reconcileAccount({ accountCode, autoApplyHighConfidence: true })
+      reconciledFor = accountCode
+    } catch {}
+
+    response = `Reconciling ${accountCode} (AI-driven per Git model). Check the ledger and events for the result.`
+    return {
+      response,
+      reconciled: { accountCode },
+      // Signal client to refresh views
+    }
   } else if (/(how much|spent|spend|expense|cost).*?(on|for|in)\s+([A-Za-z0-9 ]{2,30})/i.test(text) || /utilities|office supplies|rent|travel|software/i.test(lower)) {
     // High-reachability: open dedicated ledger view for the account
     const accountMatch = text.match(/(?:on|for|in)\s+([A-Za-z0-9 ]{2,30})/i)
@@ -641,8 +719,32 @@ lines.push({ accountCode: debitCode, debit: taxAmt, description: `Tax ${deRate.n
         search: hint || undefined
       }
     }
+  } else if (/restore|rollback|go back to|reset to.*(date|state)/i.test(lower)) {
+    // Git Model: chat can request restore (creates rollback event)
+    const dateMatch = text.match(/\b(20\d{2}-\d{2}-\d{2})\b/)
+    const target = dateMatch ? dateMatch[1] : null
+
+    if (target) {
+      ;(async () => {
+        try {
+          const ev = await prisma.event.findFirst({
+            where: { createdAt: { gte: new Date(target), lte: new Date(target + 'T23:59:59') } },
+            orderBy: { createdAt: 'asc' },
+          })
+          if (ev) {
+            const { restoreBranchToEvent } = await import('@/lib/accounting/restore')
+            await restoreBranchToEvent('main', ev.id)
+            // Signal UI to refresh
+            // Note: server cannot directly dispatch; clients listen to journal-updated via other means after actions
+          }
+        } catch {}
+      })()
+      response = `Restoring main to around ${target} (Git model rollback).`
+    } else {
+      response = 'Tell me a date like "restore to 2026-06-15".'
+    }
   } else {
-    response = "I can draft journal entries. Try: 'bought supplies for 65', 'client paid 800', or 'reverse last entry'."
+    response = "I can draft journal entries. Try: 'bought supplies for 65', 'client paid 800', 'reconcile 1100', or 'restore to 2026-06-15'."
   }
 
   return { response, suggestion }

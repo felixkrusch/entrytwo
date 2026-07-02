@@ -33,11 +33,13 @@ interface JournalEntry {
   lines: JournalLine[]
 }
 
-interface JournalEntriesPanelProps {
+export interface JournalEntriesPanelProps {
   filterAccountId?: string
+  branch?: string
+  asOf?: string
 }
 
-export default function JournalEntriesPanel({ filterAccountId }: JournalEntriesPanelProps) {
+export default function JournalEntriesPanel({ filterAccountId, branch = 'main', asOf }: JournalEntriesPanelProps) {
   const { openNewEntry } = useNewEntry()
   const t = useTranslations('app.panels.journal')
   const format = useFormatter()
@@ -51,13 +53,19 @@ export default function JournalEntriesPanel({ filterAccountId }: JournalEntriesP
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   const fetchEntries = () => {
-    fetch('/api/journal-entries')
+    const params = new URLSearchParams()
+    if (filterAccountId) params.set('accountCode', filterAccountId)
+    if (branch) params.set('branch', branch)
+    if (asOf) params.set('asOf', asOf)
+
+    fetch(`/api/journal-entries?${params.toString()}`)
       .then(res => {
         if (!res.ok) throw new Error('Failed to load journal')
         return res.json()
       })
       .then(data => {
         if (Array.isArray(data)) setEntries(data)
+        else if (data && Array.isArray(data.entries)) setEntries(data.entries)
       })
       .catch(() => {
         setError('Could not load journal entries')
@@ -226,18 +234,33 @@ export default function JournalEntriesPanel({ filterAccountId }: JournalEntriesP
                      </div>
                      <div className="flex items-center gap-3">
                        <div className="text-zinc-500 font-mono text-xs">{new Date(entry.date).toISOString().split('T')[0]}</div>
-                       {/* Quick open full ledger for first account of this entry */}
-                       {entry.lines[0]?.account?.code && (
-                         <button
-                           onClick={(e) => {
-                             e.stopPropagation()
-                             openLedgerForAccount(entry.lines[0].account.code)
-                           }}
-                           className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
-                         >
-                           Open ledger
-                         </button>
-                       )}
+                        {/* Quick open full ledger for first account of this entry */}
+                        {entry.lines[0]?.account?.code && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openLedgerForAccount(entry.lines[0].account.code)
+                            }}
+                            className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+                          >
+                            Open ledger
+                          </button>
+                        )}
+                        {/* Git-model: view this journal entry as a commit point (like clicking a SHA) */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const p = new URLSearchParams()
+                            p.set('view', 'ledger')
+                            p.set('accountCode', entry.lines[0]?.account?.code || '')
+                            p.set('asOf', entry.date)
+                            router.push(`/app?${p.toString()}`)
+                          }}
+                          className="text-[10px] px-2 py-0.5 rounded border border-emerald-800 text-emerald-400 hover:bg-emerald-950"
+                          title="Load books exactly at this journal entry (commit)"
+                        >
+                          View at this commit
+                        </button>
                       {!isReversal && !hasBeenReversed && (
                         <>
                           <button
@@ -250,10 +273,11 @@ export default function JournalEntriesPanel({ filterAccountId }: JournalEntriesP
                               }
                               if (!confirm(t('confirmReverse'))) return
                               try {
+                                const branch = (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('branch') : null) || 'main'
                                 const res = await fetch('/api/journal-entries/reverse', {
                                   method: 'POST',
                                   headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ originalId: entry.id })
+                                  body: JSON.stringify({ originalId: entry.id, branch })
                                 })
                                 if (!res.ok) throw new Error(await res.text())
                                 toast.success(t('reversingSuccess'))

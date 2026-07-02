@@ -408,7 +408,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
         const revRes = await fetch('/api/journal-entries/reverse', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ originalId: initialSuggestion.reversingOriginalId })
+          body: JSON.stringify({ originalId: initialSuggestion.reversingOriginalId, branch: (new URLSearchParams(window.location.search).get('branch') || 'main') })
         })
         if (!revRes.ok) {
           const d = await revRes.json()
@@ -419,9 +419,14 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
         return
       }
 
+      // Git: pass current branch context so entry lands in the correct ancestry
+      const sp = new URLSearchParams(window.location.search)
+      const branch = sp.get('branch') || 'main'
+
       const payload = {
         date,
         description: description || undefined,
+        branch,
         lines: lines.map(l => ({
           accountId: l.accountId,
           debit: Number(l.debit),

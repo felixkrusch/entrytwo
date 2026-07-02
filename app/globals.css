@@ -24,3 +24,31 @@ input:focus, select:focus, textarea:focus {
   border-color: #3f3f46;
   outline: none;
 }
+
+/* === Make EVERYTHING clickable show the hand pointer === */
+/* Native controls */
+button:not(:disabled),
+a,
+[role="button"],
+label[for],
+input[type="checkbox"],
+input[type="radio"],
+select,
+summary {
+  cursor: pointer;
+}
+
+/* Custom clickable elements (divs, spans, etc. used as buttons/rows) */
+.cursor-pointer,
+[onclick],
+div[onClick],
+span[onClick],
+p[onClick],
+li[onClick] {
+  cursor: pointer;
+}
+
+/* Common interactive patterns in this app */
+[tabindex]:not([tabindex="-1"]) {
+  cursor: pointer;
+}

@@ -75,17 +75,24 @@ The `Event` table should serve as the central audit log.
 
 ---
 
-## 6. AI Agent Security
+## 6. AI Agent Security (Aligned to Git Model)
 
-This is one of the most critical areas:
+See the foundational document **`docs/Git-Model-for-Accounting.md`**. Key security implications:
 
-- All AI actions that modify data must go through an **approval system**
-- The agent should only be able to call predefined tools
-- Tool permissions should be restricted based on user role
-- Implement verification steps before executing high-risk actions
-- Log every AI decision and reasoning (for debugging and compliance)
+- AI is a **first-class committer**. At high confidence it may create journal entries autonomously (with full audit).
+- Lower-confidence or high-risk actions must go through branches / proposals (like PRs) that require explicit merge.
+- Every AI action (autonomous or proposed) is a first-class, immutable commit with full reasoning, confidence, and sources.
+- History is sacred — rollbacks and reversals always create new auditable events (never rewrite past).
+- The "approval system" is Git-like: high-confidence = direct commit; everything else = proposal/branch awaiting merge.
 
-**Implementation status (2026-06-26):** Approval workflow + chat lock implemented. Verification layer active in `lib/verifySuggestion.ts`. All changes audited via Event table.
+**Implementation status (2026-06-26, updated 2026-07-01):** Approval workflow + chat lock implemented. Verification layer active in `lib/verifySuggestion.ts`. All changes audited via Event table. Full autonomous high-confidence path + branching/rollback per Git model not yet implemented — this is now a core requirement.
+
+**Additional rules:**
+- All AI actions that modify data must be logged with model, prompt summary, confidence, and sources.
+- Tool permissions should be restricted based on user role.
+- High-risk actions (large amounts, tax changes, new jurisdictions) should default to proposal/branch even at moderate confidence.
+- Implement verification steps before executing high-risk actions.
+- Log every AI decision and reasoning (for debugging and compliance).
 
 ---
 
