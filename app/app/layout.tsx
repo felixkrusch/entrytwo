@@ -18,6 +18,7 @@ import LedgerView from './LedgerView'
 import GitModelBootstrap from './GitModelBootstrap'
 import GitModelControls from './GitModelControls'
 import BooksViewIndicator from './BooksViewIndicator'
+import ReceiptsPanel from './ReceiptsPanel'
 import { useTranslations } from 'next-intl'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
@@ -48,7 +49,7 @@ function AppContent({ children }: { children: ReactNode }) {
 
   const rawView = searchParams?.get('view')
   const hasAccountParam = !!(searchParams?.get('accountCode') || searchParams?.get('account'))
-  const view = (rawView as 'dashboard' | 'contacts' | 'invoicing' | 'reports' | 'ledger') ?? (hasAccountParam ? 'ledger' : 'dashboard')
+  const view = (rawView as 'dashboard' | 'contacts' | 'invoicing' | 'reports' | 'ledger' | 'receipts') ?? (hasAccountParam ? 'ledger' : 'dashboard')
   const ledgerAccountCode = searchParams?.get('accountCode') || searchParams?.get('account') || undefined
 
   // Git Model for Accounting: branch + asOf (point in time / branch view)
@@ -275,10 +276,14 @@ function AppContent({ children }: { children: ReactNode }) {
                   <LedgerView accountCode={ledgerAccountCode} branch={currentBranch} asOf={asOf} />
                 )}
 
-               {view === 'ledger' && !ledgerAccountCode && (
-                 <div className="text-sm text-zinc-400">No account selected for ledger.</div>
-               )}
-            </div>
+                {view === 'ledger' && !ledgerAccountCode && (
+                  <div className="text-sm text-zinc-400">No account selected for ledger.</div>
+                )}
+
+                {view === 'receipts' && (
+                  <ReceiptsPanel />
+                )}
+             </div>
         </div>
       </div>
 

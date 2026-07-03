@@ -7,6 +7,7 @@ import { getVisibleJournalEntryIds, getVisibleJournalEntryIdsAtPoint } from '@/l
 const createEntrySchema = z.object({
   date: z.string().refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid date format' }),
   description: z.string().optional(),
+  sourcePdfPath: z.string().optional(),
   lines: z.array(z.object({
     accountId: z.string().uuid({ message: 'accountId must be a valid UUID' }),
     debit: z.number().min(0),
@@ -145,7 +146,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const { date, description, lines } = parsed.data
+    const { date, description, sourcePdfPath, lines } = parsed.data
 
     const entryDate = date
 
@@ -199,6 +200,7 @@ export async function POST(request: Request) {
         data: {
           date: new Date(date),
           description,
+          sourcePdfPath: sourcePdfPath || null,
           lines: {
             create: lines.map(line => ({
               accountId: line.accountId,

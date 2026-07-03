@@ -96,6 +96,7 @@ model JournalEntry {
   id                 String            @id @default(uuid())
   date               DateTime
   description        String?
+  sourcePdfPath      String?           // original uploaded PDF/image receipt path (under /uploads/receipts)
   createdAt          DateTime          @default(now())
   createdBy          String?
   // Git Model: the Event that introduced this entry into a branch's visible history

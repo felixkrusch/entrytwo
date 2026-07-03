@@ -30,6 +30,7 @@ interface JournalEntry {
   id: string
   date: string
   description: string | null
+  sourcePdfPath?: string | null
   lines: JournalLine[]
 }
 
@@ -220,18 +221,30 @@ export default function JournalEntriesPanel({ filterAccountId, branch = 'main', 
                   onClick={() => setExpanded(isOpen ? null : entry.id)}
                 >
                   <div className="flex justify-between text-sm mb-2">
-                    <div className="font-medium flex items-center gap-2">
-                      {entry.description || t('untitled')}
-                      {isReversal && (
-                        <span className="text-[10px] px-1.5 py-px rounded bg-rose-900/40 text-rose-400 border border-rose-800">{t('reversal')}</span>
-                      )}
-                       {hasBeenReversed && (
-                         <span className="text-[10px] px-1.5 py-px rounded bg-rose-900/40 text-rose-400 border border-rose-800">{t('reversed')}</span>
+                     <div className="font-medium flex items-center gap-2">
+                       {entry.description || t('untitled')}
+                       {isReversal && (
+                         <span className="text-[10px] px-1.5 py-px rounded bg-rose-900/40 text-rose-400 border border-rose-800">{t('reversal')}</span>
                        )}
-                       {(entry.description || '').match(/^Repeat (of|entry)/i) && (
-                         <span className="text-[10px] px-1.5 py-px rounded bg-sky-900/40 text-sky-400 border border-sky-800">repeated</span>
-                       )}
-                     </div>
+                        {hasBeenReversed && (
+                          <span className="text-[10px] px-1.5 py-px rounded bg-rose-900/40 text-rose-400 border border-rose-800">{t('reversed')}</span>
+                        )}
+                        {(entry.description || '').match(/^Repeat (of|entry)/i) && (
+                          <span className="text-[10px] px-1.5 py-px rounded bg-sky-900/40 text-sky-400 border border-sky-800">repeated</span>
+                        )}
+                        {entry.sourcePdfPath && (
+                          <a
+                            href={entry.sourcePdfPath}
+                            target="_blank"
+                            rel="noopener"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-[10px] px-1.5 py-px rounded bg-emerald-900/30 text-emerald-400 border border-emerald-800 hover:bg-emerald-900"
+                            title="Open uploaded receipt / invoice PDF"
+                          >
+                            📎
+                          </a>
+                        )}
+                      </div>
                      <div className="flex items-center gap-3">
                         <div className="text-zinc-500 font-mono text-xs">{(typeof entry.date === 'string' ? entry.date : new Date(entry.date).toISOString()).slice(0, 10)}</div>
                         {/* Quick open full ledger for first account of this entry */}

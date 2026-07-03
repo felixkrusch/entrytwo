@@ -39,8 +39,7 @@ export const ActionType = z.enum([
   'PROPOSE_UPDATE_SETTINGS',
   'PROPOSE_USER_CHANGE',
 
-  // Explicit defer / unknown
-  'SUGGEST_ONLY',
+  // No "SUGGEST_ONLY" — unclear intents fall through to normal chat stream
 ])
 
 export type ActionType = z.infer<typeof ActionType>
@@ -259,7 +258,6 @@ export function getSchemaForAction(action: ActionType): z.ZodTypeAny | null {
     case 'PROPOSE_UPDATE_TAX_RATE':
     case 'PROPOSE_UPDATE_SETTINGS':
     case 'PROPOSE_USER_CHANGE':
-    case 'SUGGEST_ONLY':
       // These either have no params or use loose fallback in IntentSchema
       return z.record(z.string(), z.any())
     default:

@@ -36,6 +36,10 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Filenames of files attached in this chat turn (display only, shown above LLM indicator).
+  // Actual files + paths are stashed in (window as any).__pendingAttachments for send.
+  const [pendingAttachments, setPendingAttachments] = useState<Array<{ name: string; savedPath: string }>>([])
+
   // LLM live connection indicator (hybrid: real outcomes + cheap intent-driven probes + server cache)
   const [llmStatus, setLlmStatus] = useState<{
     connected: boolean
@@ -132,11 +136,37 @@ export default function ChatPage() {
       const branch = sp.get('branch') || 'main'
       const asOf = sp.get('asOf') || sp.get('asof') || undefined
 
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history, chatLocked: isChatLocked, branch, asOf })
-      })
+      // Collect any pending attachments (files + their saved server paths)
+      const pending = ((window as any).__pendingAttachments || []) as Array<{ file: File; savedPath: string }>
+      ;(window as any).__pendingAttachments = []
+      setPendingAttachments([])
+
+      // Build FormData if we have attachments, otherwise plain JSON
+      let res: Response
+      if (pending.length > 0) {
+        const fd = new FormData()
+        // Send recent conversation context as JSON string (server will parse it)
+        const ctx = newMessages.slice(-8).map(m => ({ role: m.role, content: m.content }))
+        fd.append('messages', JSON.stringify(ctx))
+        fd.append('chatLocked', String(!!isChatLocked))
+        fd.append('branch', branch)
+        if (asOf) fd.append('asOf', asOf)
+
+        // Append files + their server paths (server can save them again or just use paths)
+        pending.forEach((p, idx) => {
+          fd.append('file', p.file, p.file.name)
+          // also pass the already-saved public path so it can be linked to created entries
+          fd.append(`savedPath_${idx}`, p.savedPath)
+        })
+
+        res = await fetch('/api/chat', { method: 'POST', body: fd })
+      } else {
+        res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: history, chatLocked: isChatLocked, branch, asOf })
+        })
+      }
 
       if (!res.ok) {
         // Real outcome: mark LLM as not connected right now
@@ -440,127 +470,60 @@ export default function ChatPage() {
     }
   }
 
+  // Attachments: multiple files (PDFs + images) are attached to the *next* user message.
+  // They are sent together with the text prompt to the LLM (chat two-pass).
+  // No legacy extraction, no heuristics here.
   const handleAttachment = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const selected = Array.from(e.target.files || [])
+    if (!selected.length) return
 
-    const lowerName = file.name.toLowerCase()
-    const isPdf = lowerName.endsWith('.pdf')
-    const isImage = /\.(jpg|jpeg|png|webp)$/.test(lowerName) || file.type.startsWith('image/')
+    const allowed = selected.filter(f => {
+      const n = f.name.toLowerCase()
+      return n.endsWith('.pdf') || /\.(jpg|jpeg|png|webp)$/.test(n) || f.type.startsWith('image/')
+    })
 
-    if (!isPdf && !isImage) {
-      toast.error('Please select a PDF or image (jpg, jpeg, png, webp)')
+    if (!allowed.length) {
+      toast.error('Please select PDF or image files (jpg, jpeg, png, webp)')
       e.target.value = ''
       return
     }
 
-    e.target.value = ''
+    // Save the files on the server so we can reference them later (journal.sourcePdfPath etc.)
+    const form = new FormData()
+    allowed.forEach(f => form.append('file', f))
 
-    if (isPdf) {
-      const formData = new FormData()
-      formData.append('file', file)
-
-      const loadingId = toast.loading(t('pdfProcessing'))
-      try {
-        const res = await fetch('/api/invoices/process', { method: 'POST', body: formData })
-        const data = await res.json()
-        toast.dismiss(loadingId)
-
-          if (data.text) {
-            const preview = data.text.substring(0, 280) + (data.text.length > 280 ? '...' : '')
-
-            const det = data.detected || {}
-            const detectedCurrency = det.currency || 'EUR'
-            const detectedTotal = typeof det.total === 'number' ? det.total : null
-            const amount = detectedTotal ?? 100
-
-            const apiSuggestion = data.suggestion
-            const pdfSuggestion: NewEntrySuggestion = apiSuggestion
-              ? {
-                  description: apiSuggestion.description,
-                  lines: apiSuggestion.lines,
-                }
-              : {
-                  description: `Invoice: ${file.name}${det.vendor ? ` — ${det.vendor}` : ''}`,
-                  lines: [
-                    { accountCode: '5200', debit: amount, description: 'Expense from invoice', currency: detectedCurrency },
-                    { accountCode: '2000', credit: amount, description: 'Accounts payable', currency: detectedCurrency }
-                  ]
-                }
-
-            const currencyNote = det.currency
-              ? `Detected currency: ${det.currency} (confidence: ${det.currencyConfidence || 'low'})`
-              : 'Currency not confidently detected from PDF.'
-
-            const taxNote = det.tax
-              ? `Detected tax: ${det.tax.jurisdiction} ${det.tax.name} (${(det.tax.rate * 100).toFixed(0)}%)`
-              : ''
-
-            const needsConfirm = apiSuggestion?.needsConfirmation || (!det.currency || det.currencyConfidence === 'low')
-
-            // If the PDF processor signals high-confidence autonomous draft, create it directly (safe autonomous path)
-            if (data.autonomousDraft && !needsConfirm && !isChatLocked) {
-              try {
-                const cRes = await fetch('/api/contacts?type=CUSTOMER&limit=1')
-                const cData = await cRes.json()
-                const cust = (cData.contacts || [])[0]
-                const body = {
-                  contactId: cust?.id,
-                  currency: data.autonomousDraft.currency || detectedCurrency,
-                  lines: [{
-                    description: data.autonomousDraft.description,
-                    quantity: 1,
-                    unitPrice: data.autonomousDraft.amount || amount,
-                  }]
-                }
-                const invRes = await fetch('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-                if (invRes.ok) {
-                  const inv = await invRes.json()
-                  const invNavigate = { label: 'View invoices', href: '/app?view=invoicing' as const }
-                  setMessages(prev => [...prev, {
-                    role: 'assistant',
-                    content: `Extracted from ${file.name} and created draft invoice autonomously: ${inv.invoiceNumber || ''}\n\n${currencyNote}${taxNote ? `\n${taxNote}` : ''}`,
-                    navigate: invNavigate
-                  }])
-                  setTimeout(() => router.push(invNavigate.href), 70)
-                  setTimeout(() => window.dispatchEvent(new CustomEvent('open-invoice-details', { detail: { id: inv.id } })), 150)
-                  window.dispatchEvent(new CustomEvent('invoices-updated'))
-                  toast.success('Draft invoice created autonomously from PDF')
-                  toast.dismiss(loadingId)
-                  return
-                }
-              } catch {}
-            }
-
-            setMessages(prev => [...prev, {
-              role: 'assistant',
-              content: `Extracted from ${file.name}:\n${preview}\n\n${currencyNote}${taxNote ? `\n${taxNote}` : ''}${detectedTotal ? `\nGuessed total: ${detectedTotal}` : ''}\n\n${needsConfirm ? 'Please review currency, tax, and amounts and confirm before posting.' : 'Review the suggestion.'}`,
-              action: 'suggest_entry',
-              suggestion: {
-                ...pdfSuggestion,
-                source: 'pdf',
-                needsConfirmation: needsConfirm,
-              }
-            }])
-
-            toast.success(t('pdfParsed'))
-          } else {
-            toast.dismiss(loadingId)
-            toast.error(t('pdfNoText'))
-          }
-      } catch {
-        toast.dismiss(loadingId)
-        toast.error(t('pdfFailed') || 'Failed to process PDF')
+    try {
+      const res = await fetch('/api/invoices/process', { method: 'POST', body: form })
+      const data = await res.json()
+      if (!res.ok || !data?.saved?.length) {
+        toast.error('Failed to attach file(s)')
+        e.target.value = ''
+        return
       }
-      return
-    }
 
-    // Image attachment
-    setMessages(prev => [...prev, {
-      role: 'assistant',
-      content: `Attached image: ${file.name}`
-    }])
-    toast.success('Image attached')
+      // Keep the actual File objects + their server paths for the next sendMessage
+      const toAttach = allowed.map((f, i) => ({
+        file: f,
+        savedPath: (data.saved[i] as any)?.savedPath || '',
+      }))
+
+      // Stash for sendMessage
+      ;(window as any).__pendingAttachments = [
+        ...((window as any).__pendingAttachments || []),
+        ...toAttach,
+      ]
+
+      const names = toAttach.map(a => a.file.name).join(', ')
+      // Do not add a chat bubble. We show the filenames in small yellow text
+      // just above the LLM status indicator instead.
+      setPendingAttachments(prev => [...prev, ...toAttach.map(a => ({ name: a.file.name, savedPath: a.savedPath }))])
+
+      toast.success(`${toAttach.length} file(s) attached`)
+    } catch {
+      toast.error('Failed to attach file(s)')
+    } finally {
+      e.target.value = ''
+    }
   }
 
   return (
@@ -640,8 +603,17 @@ export default function ChatPage() {
           ))}
         </div>
 
+        {/* Pending attachment filenames (yellow, small, stacked) shown just above LLM indicator */}
+        {pendingAttachments.length > 0 && (
+          <div className="mt-auto mb-px text-[10px] text-amber-400 leading-tight">
+            {pendingAttachments.map((a, i) => (
+              <div key={i}>{a.name}</div>
+            ))}
+          </div>
+        )}
+
         {/* LLM indicator at the very bottom of this div */}
-        <div className="mt-auto pt-1 text-[10px]">
+        <div className="pt-1 text-[10px]">
           {llmStatus ? (
             <span className={`inline-flex items-center gap-1.5 ${llmStatus.connected ? 'text-emerald-400' : 'text-rose-400'}`}>
               <span className={`inline-block w-1.5 h-1.5 rounded-full ${llmStatus.connected ? 'bg-emerald-400' : 'bg-rose-400'}`} />

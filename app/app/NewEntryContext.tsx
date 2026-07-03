@@ -36,6 +36,7 @@ export interface NewEntrySuggestion {
   needsConfirmation?: boolean
   feedMatch?: FeedMatchInfo
   originalDate?: string
+  sourcePdfPath?: string
   memory?: {
     merchant?: string
     suggestedAccountCode?: string

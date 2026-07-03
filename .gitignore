@@ -48,3 +48,12 @@ next-env.d.ts
 
 # backups (optional - uncomment if you don't want backups in repo)
 # /backups
+
+# User uploads / receipts (PDFs, images, etc. — never commit actual files)
+public/uploads/
+*.pdf
+*.jpg
+*.jpeg
+*.png
+*.webp
+uploads/

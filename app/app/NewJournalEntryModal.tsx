@@ -238,7 +238,23 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
 
   const updateLine = (index: number, field: string, value: string | number) => {
     const newLines = [...lines]
-    newLines[index] = { ...newLines[index], [field]: value }
+
+    if (field === 'currency') {
+      const prevCur = (newLines[index].currency || 'EUR').toUpperCase()
+      const nextCur = String(value).toUpperCase()
+      newLines[index] = {
+        ...newLines[index],
+        currency: nextCur,
+      }
+      if (prevCur !== nextCur) {
+        // Clear any existing FX rate so we re-fetch for the newly selected currency
+        newLines[index].fxRateToBase = undefined
+        newLines[index].fxSource = undefined
+        newLines[index].fxDate = undefined
+      }
+    } else {
+      newLines[index] = { ...newLines[index], [field]: value }
+    }
 
     if (field === 'taxRateId' && newLines[index].debit > 0) {
       const tr = taxRates.find(t => t.id === value)
@@ -427,6 +443,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
         date,
         description: description || undefined,
         branch,
+        sourcePdfPath: (initialSuggestion as any)?.sourcePdfPath || undefined,
         lines: lines.map(l => ({
           accountId: l.accountId,
           debit: Number(l.debit),

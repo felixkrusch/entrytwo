@@ -7,6 +7,8 @@ import { getMerchantMemoryPrompt } from '@/lib/agentMemory'
 import { getLlmConfig, createLlmModel } from '@/lib/llm'
 import { IntentSchema, ChatIntent, ActionType, getSchemaForAction } from '@/lib/chat/intent'
 import { dispatchIntent as runDispatch } from '@/lib/chat/dispatcher'
+import { writeFile, mkdir } from 'fs/promises'
+import { join } from 'path'
 
 // ---------------------------------------------------------------------------
 // Two-pass schemas (Pass 1 = broad intelligence, Pass 2 = exact pack)
@@ -19,8 +21,9 @@ const Pass1Action = z.object({
 })
 
 const Pass1Schema = z.object({
-  // Support compound / multi-sentence intents: multiple distinct actions in one message
-  actions: z.array(Pass1Action).min(1),
+  // Support compound / multi-sentence intents: multiple distinct actions in one message.
+  // For unclear/no-action cases (e.g. pure chat or unparseable attachments), output actions: [] so we fall through to normal stream.
+  actions: z.array(Pass1Action).optional().default([]),
 })
 
 async function getAccountContext() {
@@ -221,19 +224,59 @@ async function answerDataQuery(text: string) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
-    const messages = body?.messages || []
-    const chatLocked = !!body?.chatLocked
+    // Support both JSON and multipart (for file attachments)
+    let messages: any[] = []
+    let chatLocked = false
+    let branch = 'main'
+    let asOf: string | undefined
+    let attachedFiles: Array<{ name: string; buffer: Buffer; savedPath: string; mimeType: string }> = []
+
+    const contentType = req.headers.get('content-type') || ''
+
+    if (contentType.includes('multipart/form-data')) {
+      const form = await req.formData()
+      try {
+        const msgStr = form.get('messages') as string | null
+        messages = msgStr ? JSON.parse(msgStr) : []
+      } catch { messages = [] }
+      chatLocked = form.get('chatLocked') === 'true'
+      branch = (form.get('branch') as string) || 'main'
+      asOf = (form.get('asOf') as string) || undefined
+
+      const files = form.getAll('file') as File[]
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i]
+        const buf = Buffer.from(await f.arrayBuffer())
+        // Save to disk so we can link to journal entries later
+        const uploadsDir = join(process.cwd(), 'public', 'uploads', 'receipts')
+        await mkdir(uploadsDir, { recursive: true })
+        const safe = (f.name || 'doc').replace(/[^a-zA-Z0-9_.-]/g, '_')
+        const fname = `${Date.now()}-${i}-${safe}`
+        const disk = join(uploadsDir, fname)
+        await writeFile(disk, buf)
+        const publicPath = `/uploads/receipts/${fname}`
+        attachedFiles.push({
+          name: f.name,
+          buffer: buf,
+          savedPath: publicPath,
+          mimeType: f.type || 'application/pdf',
+        })
+      }
+    } else {
+      const jsonBody = await req.json()
+      messages = jsonBody?.messages || []
+      chatLocked = !!jsonBody?.chatLocked
+      branch = jsonBody?.branch || 'main'
+      asOf = jsonBody?.asOf
+
+      // Capture direct approved intent for confirmation UI (JSON path)
+      if (jsonBody?.intent && typeof jsonBody.intent === 'object') {
+        ;(globalThis as any).__pendingDirectIntent = jsonBody.intent
+      }
+    }
+
     const lastMessage = (messages[messages.length - 1]?.content || '').toString()
     const lower = lastMessage.toLowerCase()
-
-    // ============================================================
-    // LEGACY HARD FAST-PATHS (disabled for two-pass rollout)
-    // These previously short-circuited before any model call.
-    // Two-pass (Pass 1 intelligence + Pass 2 exact schema) is now the primary path.
-    // Keep commented as emergency fallback reference.
-    // ============================================================
-    // if (/(shareholder|owner)\s*(loan|contribution|capital|draw|investment)/i.test(lastMessage)) { ... }
 
     const dataAnswer = await answerDataQuery(lastMessage)
     if (dataAnswer) return Response.json(dataAnswer)
@@ -256,16 +299,23 @@ export async function POST(req: NextRequest) {
     const contactsContext = await getContactsContext()
 
     // Git view context passed from client (for autonomous execution on correct branch/asOf)
-    const requestedBranch = (body?.branch || 'main').toString()
-    const requestedAsOf = body?.asOf || undefined
+    // Use the normalized values we set above for *both* JSON and multipart paths.
+    const requestedBranch = branch || 'main'
+    const requestedAsOf = asOf
 
     // Direct approved intent (from confirmation UI)
-    if (body?.intent && typeof body.intent === 'object') {
+    // We captured it on globalThis during body parsing (JSON path) or can support via multipart.
+    let pendingDirectIntent: any = null
+    if ((globalThis as any).__pendingDirectIntent) {
+      pendingDirectIntent = (globalThis as any).__pendingDirectIntent
+      ;(globalThis as any).__pendingDirectIntent = null
+    }
+    if (pendingDirectIntent && typeof pendingDirectIntent === 'object') {
       try {
         const approvedIntent: ChatIntent = {
-          ...body.intent,
+          ...pendingDirectIntent,
           approved: true,
-          branch: body.intent.branch || requestedBranch,
+          branch: pendingDirectIntent.branch || requestedBranch,
         }
         const result = await runDispatch(approvedIntent, {
           chatLocked,
@@ -408,7 +458,7 @@ Your job:
 Action list (exact strings):
 SAFE AUTONOMOUS: CREATE_JOURNAL, CREATE_CONTACT, UPDATE_CONTACT, CREATE_INVOICE_DRAFT, GENERATE_RECURRING_DRAFT, MATCH_FEED_TRANSACTION, RECONCILE_ACCOUNT, APPLY_TEMPLATE, OPEN_LEDGER, EXPLAIN, SYNC_FEED, IMPORT_FEED_CSV, LEARN_MERCHANT
 ALWAYS PROPOSE: PROPOSE_RESTORE, PROPOSE_MERGE, PROPOSE_REVERSE, PROPOSE_SEND_INVOICE, PROPOSE_CHARGE, PROPOSE_BULK_REVERSE, PROPOSE_IMPORT_BACKUP, PROPOSE_CREATE_ACCOUNT, PROPOSE_UPDATE_TAX_RATE, PROPOSE_UPDATE_SETTINGS, PROPOSE_USER_CHANGE, PROPOSE_TAG_CLOSE
-Unclear: SUGGEST_ONLY
+Unclear: no action (do not output any action; just stream a normal chat response)
 
 Return EXACTLY this shape (always an array):
 {
@@ -695,8 +745,47 @@ Output ONLY the exact JSON object matching the target schema. No extra text.`
     // Legacy suggestion path removed. Two-pass is the only path for structured actions.
     // Non-action messages fall through to plain stream below.
 
+    // If we have attached files, inject their content into the prompt so the LLM can read them.
+    let promptForStream = lastMessage
+    if (attachedFiles.length > 0) {
+      const parts: string[] = []
+      for (const f of attachedFiles) {
+        // Only text-extractable things we care about right now: PDFs and plain text.
+        // For images we just tell the model we attached a file (vision not enabled here).
+        if (f.mimeType.includes('pdf') || f.mimeType.startsWith('text/')) {
+          try {
+            // Use the same robust pdfjs path for PDFs that we use elsewhere.
+            if (f.mimeType.includes('pdf')) {
+              const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs')
+              if (pdfjs.GlobalWorkerOptions) {
+                pdfjs.GlobalWorkerOptions.workerSrc = 'data:application/javascript,'
+                pdfjs.GlobalWorkerOptions.workerPort = null
+              }
+              const task = pdfjs.getDocument({ data: new Uint8Array(f.buffer), disableWorker: true, workerPort: null, isEvalSupported: false, verbosity: 0 })
+              const doc = await task.promise
+              let txt = ''
+              for (let p = 1; p <= doc.numPages; p++) {
+                const page = await doc.getPage(p)
+                const c = await page.getTextContent()
+                txt += (c.items || []).map((it: any) => it?.str || '').join(' ') + '\n'
+              }
+              await doc.destroy?.().catch(() => {})
+              parts.push(`[ATTACHMENT: ${f.name}]\n${txt.trim()}`)
+            } else {
+              parts.push(`[ATTACHMENT: ${f.name}]\n${f.buffer.toString('utf8')}`)
+            }
+          } catch {
+            parts.push(`[ATTACHMENT: ${f.name}] (could not read content)`)
+          }
+        } else {
+          parts.push(`[ATTACHMENT: ${f.name}] (binary file attached)`)
+        }
+      }
+      promptForStream = `${lastMessage}\n\n${parts.join('\n\n')}`
+    }
+
     // For non-transactions, stream the response
-    const result = await streamText({ model, system, prompt: lastMessage })
+    const result = await streamText({ model, system, prompt: promptForStream })
     return result.toTextStreamResponse()
   } catch (e) {
     console.error('chat error', e)
