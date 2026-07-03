@@ -98,154 +98,9 @@ export default function ChatPage() {
     return () => document.removeEventListener('visibilitychange', onVisibility)
   }, [])
 
-  // Client fallback (used only if /api/chat fails). Server version is much smarter.
-  const generateResponse = (text: string): { response: string; suggestion?: NewEntrySuggestion; createInvoice?: { contactName?: string; amount?: number; description?: string; currency?: string } } => {
-    const lower = text.toLowerCase().trim()
-    const amountMatch = text.match(/(\d+[\.,]?\d*)/)
-    const amount = amountMatch ? parseFloat(amountMatch[1].replace(',', '.')) : 100
-
-    // Multi-currency detection in fallback (Phase 0)
-    const currency = /usd|\$|dollars/.test(lower) ? 'USD' : (/eur|euro/.test(lower) ? 'EUR' : 'EUR')
-
-    // Extract merchant early (used for invoice prefill)
-    const merchantMatch = text.match(/from\s+([A-Za-z0-9 .&'-]+)/i)
-    const extractedMerchant: string | undefined = merchantMatch ? merchantMatch[1].trim() : undefined
-
-    let response = ''
-    let suggestion: NewEntrySuggestion | undefined
-    let createInvoice: { contactName?: string; amount?: number; description?: string; currency?: string } | undefined = undefined
-
-    if (lower.includes('reverse')) {
-      response = 'Use the chat to reverse the most recent unreversed entry. It will prefill the reversal lines.'
-    } else if (lower.includes('supplies') || lower.includes('office supplies')) {
-      response = `Office supplies ~${amount}. Debit Office Supplies (5000), credit Cash (1000).`
-      suggestion = {
-        description: text,
-        lines: [
-          { accountCode: '5000', debit: amount, description: 'Office supplies', currency },
-          { accountCode: '1000', credit: amount, description: 'Cash paid', currency }
-        ]
-      }
-    } else if (lower.includes('software') || lower.includes('subscription')) {
-      response = `Software ~${amount}. Debit Software & Subscriptions (5100), credit Cash (1000).`
-      suggestion = {
-        description: text,
-        lines: [
-          { accountCode: '5100', debit: amount, description: 'Software', currency },
-          { accountCode: '1000', credit: amount, currency }
-        ]
-      }
-    } else if (lower.includes('professional') || lower.includes('consult') || lower.includes('services')) {
-      response = `Professional services ~${amount}.`
-      suggestion = {
-        description: text,
-        lines: [
-          { accountCode: '5200', debit: amount, currency },
-          { accountCode: '1000', credit: amount, currency }
-        ]
-      }
-    } else if (lower.includes('revenue') || lower.includes('client paid') || lower.includes('received')) {
-      response = `Revenue ~${amount}. Bank (1100) debit + Revenue (4000) credit.`
-      suggestion = {
-        description: text,
-        lines: [
-          { accountCode: '1100', debit: amount, description: 'Bank deposit', currency },
-          { accountCode: '4000', credit: amount, description: 'Revenue earned', currency }
-        ]
-      }
-    } else if (lower.includes('invoice') || lower.includes('bill') || lower.includes('payable')) {
-      // Revenue invoice for customer (AI-first path) → use the invoice form, not journal
-      const looksLikeCustomerInvoice = /invoice|bill.*(client|customer|acme|john|sarah|corp|gmbh|ltd|inc)/i.test(text) || (lower.includes('invoice') && !lower.includes('from '))
-      if (looksLikeCustomerInvoice) {
-        response = `I'll create a customer invoice for ~${amount}.`
-        suggestion = undefined
-        createInvoice = {
-          contactName: extractedMerchant,
-          amount,
-          description: text,
-          currency,
-        }
-      } else {
-        response = `Expense via payable ~${amount}.`
-        suggestion = {
-          description: text,
-          lines: [
-            { accountCode: '5200', debit: amount, currency },
-            { accountCode: '2000', credit: amount, description: 'Accounts payable', currency }
-          ]
-        }
-      }
-    } else if (lower.includes('equity') || lower.includes('owner') || lower.includes('capital')) {
-      response = `Owner contribution ~${amount}.`
-      suggestion = {
-        description: text,
-        lines: [
-          { accountCode: '1000', debit: amount, currency },
-          { accountCode: '3000', credit: amount, currency }
-        ]
-      }
-    } else if (lower.includes('journal') || lower.includes('entry')) {
-      response = 'Manual journal entry.'
-      suggestion = {
-        description: text || 'Manual entry',
-        lines: [
-          { accountCode: '1000', debit: amount, currency },
-          { accountCode: '3000', credit: amount, currency }
-        ]
-      }
-    } else if (lower.includes('cash') && lower.includes('balance')) {
-      response = 'Ask the chat "what is my cash balance?" for a live number.'
-    } else if (lower.includes('balance') || lower.includes('report') || lower.includes('asset') || lower.includes('net')) {
-      response = 'Live Balance Sheet, P&L and Summary are on the right. Or ask the chat for specific numbers.'
-    } else if (lower.includes('account') || lower.includes('chart')) {
-      response = 'Chart of accounts is on the right.'
-    } else if (/(how much|spent|spend|expense|cost).*?(on|for|in)\s+([A-Za-z0-9 ]{2,30})/i.test(text) || /utilities|office supplies|rent|travel|software/i.test(lower)) {
-      // Chat can trigger the dedicated ledger view for an account (AI-first pattern)
-      const accountMatch = text.match(/(?:on|for|in)\s+([A-Za-z0-9 ]{2,30})/i)
-      let hint = accountMatch ? accountMatch[1].trim().toLowerCase() : ''
-      if (!hint) {
-        if (lower.includes('utilities')) hint = 'utilities'
-        else if (lower.includes('supplies')) hint = 'supplies'
-        else if (lower.includes('rent')) hint = 'rent'
-      }
-
-      // Try to guess account code from common names (best effort)
-      let code = '5200' // fallback expense
-      if (hint.includes('util')) code = '5200'
-      else if (hint.includes('supply') || hint.includes('office')) code = '5000'
-      else if (hint.includes('rent')) code = '5100'
-      else if (hint.includes('travel')) code = '5300'
-      else if (hint.includes('software') || hint.includes('adobe')) code = '5110'
-
-      // Extract year if present
-      const yearMatch = text.match(/\b(20\d{2})\b/)
-      const year = yearMatch ? yearMatch[1] : null
-
-      response = `Opening the ledger for account ${code}.`
-
-      // We return a special payload that the UI will turn into a ledger navigation
-      ;(window as any).__pendingLedger = {
-        code,
-        from: year ? `${year}-01-01` : undefined,
-        to: year ? `${year}-12-31` : undefined,
-        search: hint || undefined
-      }
-    } else {
-      response = "I can draft journal entries. Try 'bought supplies for 65', 'client paid 800', or 'reverse last entry'."
-    }
-
-    // Phase 1: client fallback non-EUR → needs confirmation.
-    // Also extract merchant (e.g. "Adobe invoice") for future feed rate lookup.
-    if (suggestion) {
-      if (currency !== 'EUR') {
-        suggestion = { ...suggestion, needsConfirmation: true }
-      }
-      if (extractedMerchant && !suggestion.merchant) {
-        suggestion = { ...suggestion, merchant: extractedMerchant }
-      }
-    }
-
-    return { response, suggestion, createInvoice }
+  // Minimal client error response only. Two-pass on the server is the single source of truth.
+  const generateErrorResponse = (text: string): { response: string } => {
+    return { response: 'Chat service unavailable. Please try again.' }
   }
 
   const sendMessage = async () => {
@@ -445,15 +300,13 @@ export default function ChatPage() {
         lastChecked: Date.now(),
       }))
       toast.error(tToasts('chatError') || 'Chat service unavailable, using local fallback.')
-      const { response, suggestion } = generateResponse(current)
+      const { response } = generateErrorResponse(current)
       setMessages(prev => {
         const updated = [...prev]
         if (updated[streamingMsgIndex]) {
           updated[streamingMsgIndex] = {
             role: 'assistant',
-            content: response,
-            action: suggestion ? 'suggest_entry' : undefined,
-            suggestion
+            content: response
           }
         }
         return updated
