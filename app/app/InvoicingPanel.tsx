@@ -246,7 +246,7 @@ export default function InvoicingPanel() {
           if (pd && pd.getMonth() === now.getMonth() && pd.getFullYear() === now.getFullYear()) {
             thisMonthPaid += tot
           }
-        } else {
+        } else if (inv.status !== 'CANCELLED') {
           outstanding += tot
           if (inv.dueDate && new Date(inv.dueDate) < now) overdue += tot
         }
