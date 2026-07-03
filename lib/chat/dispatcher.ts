@@ -694,6 +694,7 @@ async function execReverse(intent: ChatIntent, approved: boolean, branch: string
     action: intent.action,
     response: `Reversed entry ${originalId} autonomously (new entry created)`,
     entityId: revEntry.id,
+    createdAutonomously: true,
   }
 }
 

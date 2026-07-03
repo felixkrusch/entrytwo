@@ -549,9 +549,9 @@ COMPANY:
 ${feedRatesText ? 'BANK FEED RATES (for FX resolution):\n' + feedRatesText + '\n' : ''}
 ${memoryText ? 'MERCHANT MEMORY:\n' + memoryText + '\n' : ''}`.trim()
 
-          const pass2Prompt = `You are performing the final mechanical packing step.
+          const pass2Prompt = `Please proofread the following fields for a contact.
 
-SOURCE MATERIAL (preserve the meaning and numbers exactly):
+SOURCE MATERIAL:
 - Your previous understanding: ${item?.understanding || ''}
 - Original user request: ${lastMessage}
 
@@ -559,22 +559,21 @@ ${referenceBlock}
 
 Company base currency: ${baseCurrency}
 
-MULTI-CURRENCY + FX RULES (critical for CREATE_JOURNAL):
-- The company's base currency is "${baseCurrency}". All base amounts must use currency "${baseCurrency}".
-- When the user gives a foreign amount + currency (e.g. 80 USD) and also the exact settlement in base (e.g. 78 EUR or 78 in base currency):
-  • The expense/revenue line gets the FOREIGN amount + its currency code (e.g. debit 80, currency: "USD").
-  • The settlement line (credit card / bank / cash) gets the EXACT BASE amount in the company's base currency (credit 78, currency: "${baseCurrency}").
-  • ONLY the foreign line gets fxRateToBase = (base settlement amount / foreign amount), fxSource: "MANUAL", fxDate: today's date in YYYY-MM-DD.
-- fxRateToBase = number of base-currency units per one foreign unit.
-- Every JournalLine MUST have a "currency" field (never omit it).
-- If the user gives ONLY a foreign amount and NO base settlement amount or rate, DO NOT invent the base amount or rate. Leave the structure incomplete (the server will ask the user).
-- The journal must balance in BASE currency when fxRateToBase is present on foreign lines.
+Output ONLY the exact JSON object that matches the target schema (no extra text).
 
-GENERAL RULES:
-1. Resolve accountCode to exact codes only from the ACCOUNTS list (never output names like "Cash" or "Rent Expense").
-2. Copy numeric values, signs and descriptions exactly. Do not invent or modify amounts.
-3. Output ONLY the JSON object that matches the target schema. No extra text.
-4. If a lookup cannot be resolved, leave the value — server validation will decide.
+Proofread rules (apply exactly like the simple "please proofread" prompt):
+- Fix obvious casing and spacing only (first letter of each word upper, rest as user wrote).
+- Keep the user's spelling exactly (e.g. "COmpanz" stays "COmpanz", never change to "Company").
+- Properly title-case street, city, country.
+- Move any zip code (e.g. 37396) out of the city field into the street if needed.
+- Country: 2-3 letter codes stay uppercase (USA, UK, DE etc.).
+
+Example input: "TNT COmpanz Inc., 1270 12th street, 37396 baltimore USA"
+Example output (schema fields):
+name: "TNT COmpanz Inc."
+addressStreet: "1270 12th Street, 37396"
+addressCity: "Baltimore"
+addressCountry: "USA"
 
 Produce the exact object now.`
 

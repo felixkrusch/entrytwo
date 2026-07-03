@@ -19,6 +19,8 @@ interface Message {
     currency?: string
   }
   isStreaming?: boolean
+  // Small "View in list" button for autonomous creates (contact / invoice / journal)
+  navigate?: { label: string; href: string }
 }
 
 export default function ChatPage() {
@@ -363,6 +365,25 @@ export default function ChatPage() {
           }
         }
 
+        // Compute a quick nav target for autonomous creates (used for both the button and auto-switch)
+        // Supports two-pass (has action) and legacy high-confidence path (entryId + createdAutonomously, no action)
+        let navigate: { label: string; href: string } | undefined
+        if (d?.createdAutonomously) {
+          const act = (d.action || '').toString().toUpperCase()
+          const resp = String(d.response || '').toLowerCase()
+          if (act === 'CREATE_CONTACT' || /contact/i.test(resp)) {
+            navigate = { label: 'View contacts', href: '/app?view=contacts' }
+          } else if (act === 'CREATE_INVOICE_DRAFT' || act === 'GENERATE_RECURRING_DRAFT' || /invoice/i.test(resp)) {
+            navigate = { label: 'View invoices', href: '/app?view=invoicing' }
+          } else if (act.includes('REVERSE') || /revers(ed|al)/i.test(resp)) {
+            navigate = { label: 'View entries', href: '/app?view=dashboard' }
+          } else if (act === 'CREATE_JOURNAL' || d.entryId || /journal|entry|autonomously/i.test(resp)) {
+            navigate = { label: 'View entries', href: '/app?view=dashboard' }
+          } else if (act === 'MATCH_FEED_TRANSACTION' || /feed|match.*post|posted/i.test(resp)) {
+            navigate = { label: 'View entries', href: '/app?view=dashboard' }
+          }
+        }
+
         setMessages(prev => {
           const updated = [...prev]
           if (updated[streamingMsgIndex]) {
@@ -374,6 +395,7 @@ export default function ChatPage() {
               action: isInvoice ? 'create_invoice' : (synthesizedSuggestion ? 'suggest_entry' : undefined),
               suggestion: synthesizedSuggestion,
               createInvoice: data.createInvoice,
+              ...(navigate ? { navigate } : {}),
               // Preserve proposedAction for non-journal cases (restore/merge/...)
               ...(d?.proposedAction && !isCreateJournalProposal ? { proposedAction: d.proposedAction } : {})
             }
@@ -385,6 +407,11 @@ export default function ChatPage() {
         if (isCreateJournalProposal && synthesizedSuggestion) {
           // small delay so the message appears first
           setTimeout(() => openNewEntry(synthesizedSuggestion), 80)
+        }
+
+        // Auto-switch the right panel for autonomous creates (contacts / invoices / journals)
+        if (navigate) {
+          setTimeout(() => router.push(navigate!.href), 70)
         }
 
         // Chat-triggered ledger open (AI-first high-reachability) — Git model: carry branch/asOf
@@ -636,11 +663,13 @@ export default function ChatPage() {
                 const invRes = await fetch('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
                 if (invRes.ok) {
                   const inv = await invRes.json()
+                  const invNavigate = { label: 'View invoices', href: '/app?view=invoicing' as const }
                   setMessages(prev => [...prev, {
                     role: 'assistant',
-                    content: `Extracted from ${file.name} and created draft invoice autonomously: ${inv.invoiceNumber || ''}\n\n${currencyNote}${taxNote ? `\n${taxNote}` : ''}`
+                    content: `Extracted from ${file.name} and created draft invoice autonomously: ${inv.invoiceNumber || ''}\n\n${currencyNote}${taxNote ? `\n${taxNote}` : ''}`,
+                    navigate: invNavigate
                   }])
-                  router.push('/app?view=invoicing')
+                  setTimeout(() => router.push(invNavigate.href), 70)
                   setTimeout(() => window.dispatchEvent(new CustomEvent('open-invoice-details', { detail: { id: inv.id } })), 150)
                   window.dispatchEvent(new CustomEvent('invoices-updated'))
                   toast.success('Draft invoice created autonomously from PDF')
@@ -706,14 +735,24 @@ export default function ChatPage() {
                     </button>
                   )}
 
-                   {msg.createInvoice && (
-                     <button
-                       onClick={() => handleCreateInvoice(msg.createInvoice)}
-                       className="mt-2 block text-xs px-3 py-1 bg-emerald-500 text-black rounded-full hover:bg-emerald-400 transition"
-                     >
-                       Create Invoice
-                     </button>
-                   )}
+                    {msg.createInvoice && (
+                      <button
+                        onClick={() => handleCreateInvoice(msg.createInvoice)}
+                        className="mt-2 block text-xs px-3 py-1 bg-emerald-500 text-black rounded-full hover:bg-emerald-400 transition"
+                      >
+                        Create Invoice
+                      </button>
+                    )}
+
+                    {/* Quick "view in list" button for autonomous creates (contact / invoice / journal) */}
+                    {msg.navigate && (
+                      <button
+                        onClick={() => router.push(msg.navigate!.href)}
+                        className="mt-2 block text-xs px-3 py-1 bg-zinc-700 text-white rounded-full hover:bg-zinc-600 transition"
+                      >
+                        {msg.navigate.label}
+                      </button>
+                    )}
 
                    {/* New autonomous proposal confirmation surface */}
                    {(msg as any).proposedAction && (
