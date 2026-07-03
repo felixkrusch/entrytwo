@@ -333,35 +333,73 @@ export default function ChatPage() {
       } else {
         // Handle JSON response (transactions with suggestions)
         const data = await res.json()
+        const d = data as any
+
+        let synthesizedSuggestion: NewEntrySuggestion | undefined = data.suggestion
+
+        // Normalize CREATE_JOURNAL proposals (from two-pass confidence gate or explicit proposals)
+        // into the shape the journal modal expects.
+        const isCreateJournalProposal =
+          d?.proposedAction?.type === 'CREATE_JOURNAL' ||
+          (d?.proposed && (d?.action === 'CREATE_JOURNAL' || d?.proposedAction?.type === 'CREATE_JOURNAL'))
+
+        if (!synthesizedSuggestion && isCreateJournalProposal) {
+          const p = d.proposedAction?.params || d.params || d
+          if (p && (p.lines || p.description)) {
+            synthesizedSuggestion = {
+              description: p.description || data.response || 'Journal entry',
+              lines: Array.isArray(p.lines) ? p.lines.map((l: any) => ({
+                accountCode: l.accountCode,
+                debit: l.debit || 0,
+                credit: l.credit || 0,
+                description: l.description,
+                currency: l.currency,
+                fxRateToBase: l.fxRateToBase,
+                fxSource: l.fxSource,
+                fxDate: l.fxDate,
+                taxRateId: l.taxRateId,
+              })) : []
+            }
+          }
+        }
+
         setMessages(prev => {
           const updated = [...prev]
           if (updated[streamingMsgIndex]) {
             const isInvoice = !!data.createInvoice
+
             updated[streamingMsgIndex] = {
               role: 'assistant',
               content: data.response || 'Got it.',
-              action: isInvoice ? 'create_invoice' : (data.suggestion ? 'suggest_entry' : undefined),
-              suggestion: data.suggestion,
-              createInvoice: data.createInvoice
+              action: isInvoice ? 'create_invoice' : (synthesizedSuggestion ? 'suggest_entry' : undefined),
+              suggestion: synthesizedSuggestion,
+              createInvoice: data.createInvoice,
+              // Preserve proposedAction for non-journal cases (restore/merge/...)
+              ...(d?.proposedAction && !isCreateJournalProposal ? { proposedAction: d.proposedAction } : {})
             }
           }
           return updated
         })
 
+        // For journal proposals, open the entry modal directly (user expectation for "showing as proposal")
+        if (isCreateJournalProposal && synthesizedSuggestion) {
+          // small delay so the message appears first
+          setTimeout(() => openNewEntry(synthesizedSuggestion), 80)
+        }
+
         // Chat-triggered ledger open (AI-first high-reachability) — Git model: carry branch/asOf
         if ((data as any)?.openLedger?.code) {
-          const d = (data as any).openLedger
-          const evt: any = { code: d.code }
-          if (d.from) evt.from = d.from
-          if (d.to) evt.to = d.to
-          if (d.search) evt.search = d.search
-          if (d.branch) evt.branch = d.branch
-          if (d.asOf) evt.asOf = d.asOf
+          const ld = (data as any).openLedger
+          const evt: any = { code: ld.code }
+          if (ld.from) evt.from = ld.from
+          if (ld.to) evt.to = ld.to
+          if (ld.search) evt.search = ld.search
+          if (ld.branch) evt.branch = ld.branch
+          if (ld.asOf) evt.asOf = ld.asOf
           window.dispatchEvent(new CustomEvent('open-ledger', { detail: evt }))
         }
 
         // Git model signals: refresh all views after AI autonomous actions (full scope)
-        const d = data as any
         if (d?.createdAutonomously || d?.reconciled || d?.restored || d?.executed) {
           window.dispatchEvent(new CustomEvent('journal-updated'))
           window.dispatchEvent(new CustomEvent('contacts-updated'))

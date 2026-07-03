@@ -36,14 +36,38 @@ function getConfidenceThreshold(action: ActionType): number {
   return DEFAULT_CONFIDENCE_THRESHOLD
 }
 
-async function validateJournalIntent(params: any, branch: string): Promise<{ ok: boolean; error?: string; resolvedLines?: any[] }> {
+export async function validateJournalIntent(params: any, branch: string): Promise<{ ok: boolean; error?: string; resolvedLines?: any[] }> {
   if (!params?.lines || !Array.isArray(params.lines) || params.lines.length < 2) {
     return { ok: false, error: 'Journal must have at least 2 lines' }
   }
-  const totalDebit = params.lines.reduce((s: number, l: any) => s + (l.debit || 0), 0)
-  const totalCredit = params.lines.reduce((s: number, l: any) => s + (l.credit || 0), 0)
-  if (Math.abs(totalDebit - totalCredit) > 0.01) {
-    return { ok: false, error: 'Journal is not balanced' }
+
+  // FX-aware balance check:
+  // - If any line has a different currency + fxRateToBase, we check balance in *base* currency.
+  // - Otherwise fall back to raw amounts.
+  const hasFx = params.lines.some((l: any) => l.currency && l.currency.toUpperCase() !== 'EUR' && l.fxRateToBase != null)
+
+  let totalDebitBase = 0
+  let totalCreditBase = 0
+  let totalDebitRaw = 0
+  let totalCreditRaw = 0
+
+  for (const l of params.lines) {
+    const d = Number(l.debit) || 0
+    const c = Number(l.credit) || 0
+    totalDebitRaw += d
+    totalCreditRaw += c
+
+    const rate = (l.fxRateToBase != null && !isNaN(Number(l.fxRateToBase))) ? Number(l.fxRateToBase) : 1
+    totalDebitBase += d * rate
+    totalCreditBase += c * rate
+  }
+
+  const balanced = hasFx
+    ? Math.abs(totalDebitBase - totalCreditBase) <= 0.01
+    : Math.abs(totalDebitRaw - totalCreditRaw) <= 0.01
+
+  if (!balanced) {
+    return { ok: false, error: 'Journal is not balanced (in base currency after FX)' }
   }
 
   const codes: string[] = Array.from(new Set(
@@ -78,14 +102,14 @@ async function validateJournalIntent(params: any, branch: string): Promise<{ ok:
   return { ok: true, resolvedLines: resolved }
 }
 
-async function validateContactIntent(params: any): Promise<{ ok: boolean; error?: string }> {
+export async function validateContactIntent(params: any): Promise<{ ok: boolean; error?: string }> {
   if (!params?.name || typeof params.name !== 'string' || params.name.trim().length < 2) {
     return { ok: false, error: 'Contact name is required' }
   }
   return { ok: true }
 }
 
-async function validateRestoreTarget(target: string, branchName = 'main'): Promise<{ ok: boolean; error?: string; eventId?: string }> {
+export async function validateRestoreTarget(target: string, branchName = 'main'): Promise<{ ok: boolean; error?: string; eventId?: string }> {
   // Accept date (YYYY-MM-DD) or event id
   let ev = null
   if (/^[0-9a-f-]{36}$/i.test(target)) {
@@ -122,10 +146,33 @@ async function execCreateJournal(intent: ChatIntent, branch: string): Promise<Di
     return { proposed: true, action: intent.action, response: 'Journal must have at least 2 lines' }
   }
 
-  const totalDebit = rawLines.reduce((s: number, l: any) => s + (l.debit || 0), 0)
-  const totalCredit = rawLines.reduce((s: number, l: any) => s + (l.credit || 0), 0)
-  if (Math.abs(totalDebit - totalCredit) > 0.01) {
-    return { proposed: true, action: intent.action, response: 'Journal is not balanced' }
+  // FX-aware balance (same logic as validateJournalIntent)
+  const hasFx = rawLines.some((l: any) =>
+    l.currency && String(l.currency).toUpperCase() !== 'EUR' && l.fxRateToBase != null
+  )
+
+  let totalDebitRaw = 0
+  let totalCreditRaw = 0
+  let totalDebitBase = 0
+  let totalCreditBase = 0
+
+  for (const l of rawLines) {
+    const d = Number(l.debit) || 0
+    const c = Number(l.credit) || 0
+    totalDebitRaw += d
+    totalCreditRaw += c
+
+    const rate = (l.fxRateToBase != null && !isNaN(Number(l.fxRateToBase))) ? Number(l.fxRateToBase) : 1
+    totalDebitBase += d * rate
+    totalCreditBase += c * rate
+  }
+
+  const balanced = hasFx
+    ? Math.abs(totalDebitBase - totalCreditBase) <= 0.01
+    : Math.abs(totalDebitRaw - totalCreditRaw) <= 0.01
+
+  if (!balanced) {
+    return { proposed: true, action: intent.action, response: 'Journal is not balanced (in base currency after FX)' }
   }
 
   // Lenient account resolution — this is what makes "1000/2500", "cash/loans payable", "shareholder loan" etc. always work.

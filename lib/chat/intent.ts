@@ -48,7 +48,7 @@ export type ActionType = z.infer<typeof ActionType>
 // ---------------------------------------------------------------------------
 // Parameter schemas per action (kept minimal but sufficient for execution)
 // ---------------------------------------------------------------------------
-const JournalLine = z.object({
+export const JournalLine = z.object({
   accountCode: z.string(),
   debit: z.number().min(0),
   credit: z.number().min(0),
@@ -61,14 +61,14 @@ const JournalLine = z.object({
   contactId: z.string().optional().nullable(),
 })
 
-const CreateJournalParams = z.object({
+export const CreateJournalParams = z.object({
   description: z.string().optional(),
   date: z.string().optional(), // ISO or yyyy-mm-dd
   lines: z.array(JournalLine).min(2),
   merchant: z.string().optional(),
 })
 
-const ContactParams = z.object({
+export const ContactParams = z.object({
   name: z.string().min(1),
   type: z.enum(['CUSTOMER', 'VENDOR']).optional(),
   email: z.string().optional(),
@@ -78,7 +78,7 @@ const ContactParams = z.object({
   addressCountry: z.string().optional(),
 })
 
-const InvoiceDraftParams = z.object({
+export const InvoiceDraftParams = z.object({
   contactName: z.string().optional(),
   contactId: z.string().optional(),
   description: z.string(),
@@ -92,39 +92,39 @@ const InvoiceDraftParams = z.object({
   })).optional(),
 })
 
-const RecurringGenerateParams = z.object({
+export const RecurringGenerateParams = z.object({
   recurringId: z.string().optional(),
   contactId: z.string().optional(),
 })
 
-const FeedMatchParams = z.object({
+export const FeedMatchParams = z.object({
   feedTransactionId: z.string().optional(),
   externalId: z.string().optional(),
 })
 
-const ReconcileParams = z.object({
+export const ReconcileParams = z.object({
   accountCode: z.string(),
 })
 
-const RestoreParams = z.object({
+export const RestoreParams = z.object({
   target: z.string(), // date or eventId
   branch: z.string().optional(),
 })
 
-const MergeParams = z.object({
+export const MergeParams = z.object({
   sourceBranch: z.string(),
   targetBranch: z.string().optional(),
 })
 
-const ReverseParams = z.object({
+export const ReverseParams = z.object({
   originalId: z.string(),
 })
 
-const SendInvoiceParams = z.object({
+export const SendInvoiceParams = z.object({
   invoiceId: z.string(),
 })
 
-const OpenLedgerParams = z.object({
+export const OpenLedgerParams = z.object({
   code: z.string(),
   from: z.string().optional(),
   to: z.string().optional(),
@@ -217,3 +217,52 @@ export function isMasterDataAction(action: ActionType): boolean {
 
 // Default confidence threshold (can be made per-action later)
 export const DEFAULT_CONFIDENCE_THRESHOLD = 0.85
+
+// ---------------------------------------------------------------------------
+// Schema lookup for two-pass flow (Pass 2 exact packing)
+// ---------------------------------------------------------------------------
+export function getSchemaForAction(action: ActionType): z.ZodTypeAny | null {
+  switch (action) {
+    case 'CREATE_JOURNAL':
+      return CreateJournalParams
+    case 'CREATE_CONTACT':
+    case 'UPDATE_CONTACT':
+      return ContactParams
+    case 'CREATE_INVOICE_DRAFT':
+      return InvoiceDraftParams
+    case 'GENERATE_RECURRING_DRAFT':
+      return RecurringGenerateParams
+    case 'MATCH_FEED_TRANSACTION':
+      return FeedMatchParams
+    case 'RECONCILE_ACCOUNT':
+      return ReconcileParams
+    case 'PROPOSE_RESTORE':
+      return RestoreParams
+    case 'PROPOSE_MERGE':
+      return MergeParams
+    case 'PROPOSE_REVERSE':
+      return ReverseParams
+    case 'PROPOSE_SEND_INVOICE':
+      return SendInvoiceParams
+    case 'OPEN_LEDGER':
+      return OpenLedgerParams
+    case 'APPLY_TEMPLATE':
+    case 'SYNC_FEED':
+    case 'IMPORT_FEED_CSV':
+    case 'LEARN_MERCHANT':
+    case 'EXPLAIN':
+    case 'PROPOSE_TAG_CLOSE':
+    case 'PROPOSE_CHARGE':
+    case 'PROPOSE_BULK_REVERSE':
+    case 'PROPOSE_IMPORT_BACKUP':
+    case 'PROPOSE_CREATE_ACCOUNT':
+    case 'PROPOSE_UPDATE_TAX_RATE':
+    case 'PROPOSE_UPDATE_SETTINGS':
+    case 'PROPOSE_USER_CHANGE':
+    case 'SUGGEST_ONLY':
+      // These either have no params or use loose fallback in IntentSchema
+      return z.record(z.string(), z.any())
+    default:
+      return null
+  }
+}

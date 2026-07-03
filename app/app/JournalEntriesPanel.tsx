@@ -233,7 +233,7 @@ export default function JournalEntriesPanel({ filterAccountId, branch = 'main', 
                        )}
                      </div>
                      <div className="flex items-center gap-3">
-                       <div className="text-zinc-500 font-mono text-xs">{new Date(entry.date).toISOString().split('T')[0]}</div>
+                        <div className="text-zinc-500 font-mono text-xs">{(typeof entry.date === 'string' ? entry.date : new Date(entry.date).toISOString()).slice(0, 10)}</div>
                         {/* Quick open full ledger for first account of this entry */}
                         {entry.lines[0]?.account?.code && (
                           <button
@@ -362,27 +362,30 @@ export default function JournalEntriesPanel({ filterAccountId, branch = 'main', 
                             <span className="ml-1 text-[9px] px-1 rounded bg-sky-900/30 text-sky-400 border border-sky-800">feed</span>
                           )}
                         </span>
-                          <span>
-                            {parseFloat(line.debit) > 0 && (
-                              <span className="text-emerald-400">
-                                +{format.number(parseFloat(line.debit), { style: 'currency', currency: 'EUR' })}
-                                {line.fxRateToBase != null && (
-                                  <span className="ml-1 text-[10px] text-emerald-500">→ {format.number(parseFloat(line.debit) * Number(line.fxRateToBase), { style: 'currency', currency: 'EUR' })}</span>
-                                )}
-                              </span>
-                            )}
-                            {parseFloat(line.credit) > 0 && (
-                              <span className="text-rose-400">
-                                -{format.number(parseFloat(line.credit), { style: 'currency', currency: 'EUR' })}
-                                {line.fxRateToBase != null && (
-                                  <span className="ml-1 text-[10px] text-rose-500">→ {format.number(parseFloat(line.credit) * Number(line.fxRateToBase), { style: 'currency', currency: 'EUR' })}</span>
-                                )}
-                              </span>
-                            )}
-                            {line.currency && line.currency !== 'EUR' && (
-                              <span className="ml-1 text-[10px] text-zinc-500">({line.currency})</span>
-                            )}
-                          </span>
+                           <span>
+                             {parseFloat(line.debit) > 0 && (
+                               <span className="text-emerald-400">
+                                 +{format.number(parseFloat(line.debit), { style: 'currency', currency: (line.currency || 'EUR').toUpperCase() })}
+                                 {line.currency && line.currency !== 'EUR' && (
+                                   <span className="ml-0.5 text-[10px] text-zinc-500">({line.currency})</span>
+                                 )}
+                                 {line.fxRateToBase != null && (
+                                   <span className="ml-1 text-[10px] text-emerald-500">→ {format.number(parseFloat(line.debit) * Number(line.fxRateToBase), { style: 'currency', currency: 'EUR' })}</span>
+                                 )}
+                               </span>
+                             )}
+                             {parseFloat(line.credit) > 0 && (
+                               <span className="text-rose-400">
+                                 -{format.number(parseFloat(line.credit), { style: 'currency', currency: (line.currency || 'EUR').toUpperCase() })}
+                                 {line.currency && line.currency !== 'EUR' && (
+                                   <span className="ml-0.5 text-[10px] text-zinc-500">({line.currency})</span>
+                                 )}
+                                 {line.fxRateToBase != null && (
+                                   <span className="ml-1 text-[10px] text-rose-500">→ {format.number(parseFloat(line.credit) * Number(line.fxRateToBase), { style: 'currency', currency: 'EUR' })}</span>
+                                 )}
+                               </span>
+                             )}
+                           </span>
                       </div>
                     ))}
                   </div>
@@ -402,11 +405,14 @@ export default function JournalEntriesPanel({ filterAccountId, branch = 'main', 
                        {/* FX metadata per line when present */}
                        {entry.lines.some(l => l.fxRateToBase != null) && (
                          <div className="pt-1 space-y-0.5">
-                           {entry.lines.filter(l => l.fxRateToBase != null).map(l => (
-                             <div key={l.id} className="text-[10px] text-emerald-400">
-                               fx {Number(l.fxRateToBase).toFixed(6)} via {l.fxSource || 'feed'} on {l.fxDate || 'n/a'}
-                             </div>
-                           ))}
+                            {entry.lines.filter(l => l.fxRateToBase != null).map(l => {
+                              const cleanDate = (l.fxDate || '').split('T')[0] || l.fxDate || 'n/a';
+                              return (
+                                <div key={l.id} className="text-[10px] text-emerald-400">
+                                  fx {Number(l.fxRateToBase).toFixed(6)} via {l.fxSource || 'MANUAL'} on {cleanDate}
+                                </div>
+                              );
+                            })}
                          </div>
                        )}
 

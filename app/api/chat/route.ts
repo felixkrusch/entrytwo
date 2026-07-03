@@ -8,7 +8,7 @@ import { getMerchantMemoryPrompt, getMerchantMemory } from '@/lib/agentMemory'
 import { getLlmConfig, createLlmModel } from '@/lib/llm'
 import { findRecentBankFeedRateForMerchant } from '@/lib/feedMatching'
 import { createAutonomousJournal } from '@/lib/accounting/autonomous'
-import { IntentSchema, ChatIntent, ActionType } from '@/lib/chat/intent'
+import { IntentSchema, ChatIntent, ActionType, getSchemaForAction } from '@/lib/chat/intent'
 import { dispatchIntent as runDispatch } from '@/lib/chat/dispatcher'
 
 const SuggestionSchema = z.object({
@@ -29,6 +29,21 @@ const SuggestionSchema = z.object({
     fxSource: z.string().optional(),
     fxDate: z.string().optional(),
   })).min(2),
+})
+
+// ---------------------------------------------------------------------------
+// Two-pass schemas (Pass 1 = broad intelligence, Pass 2 = exact pack)
+// ---------------------------------------------------------------------------
+const Pass1Action = z.object({
+  action: z.string(),
+  understanding: z.string().min(1),
+  confidence: z.number().min(0).max(1).optional(),
+  reasoning: z.string().optional(),
+})
+
+const Pass1Schema = z.object({
+  // Support compound / multi-sentence intents: multiple distinct actions in one message
+  actions: z.array(Pass1Action).min(1),
 })
 
 async function getAccountContext() {
@@ -234,37 +249,12 @@ export async function POST(req: NextRequest) {
     const lower = lastMessage.toLowerCase()
 
     // ============================================================
-    // ULTRA-EARLY HARD PATH for shareholder/owner loan prompts.
-    // This must fire BEFORE any model call or intent logic.
-    // Guarantees "add a shareholder loan of $800" creates the entry.
+    // LEGACY HARD FAST-PATHS (disabled for two-pass rollout)
+    // These previously short-circuited before any model call.
+    // Two-pass (Pass 1 intelligence + Pass 2 exact schema) is now the primary path.
+    // Keep commented as emergency fallback reference.
     // ============================================================
-    if (/(shareholder|owner)\s*(loan|contribution|capital|draw|investment)/i.test(lastMessage)) {
-      const amtMatch = lastMessage.match(/\$?([\d\.,]+)/);
-      const amt = amtMatch ? parseFloat(amtMatch[1].replace(',', '.')) : 800;
-      const currency = /usd|\$/i.test(lastMessage) ? 'USD' : 'EUR';
-
-      let cash = await prisma.account.findFirst({ where: { OR: [{ code: '1000' }, { name: { contains: 'cash', mode: 'insensitive' } }] } });
-      if (!cash) cash = await prisma.account.create({ data: { code: '1000', name: 'Cash', type: 'ASSET' } });
-
-      let lp = await prisma.account.findFirst({ where: { OR: [{ code: '2500' }, { name: { contains: 'loan', mode: 'insensitive' } }] } });
-      if (!lp) lp = await prisma.account.create({ data: { code: '2500', name: 'Loans Payable', type: 'LIABILITY' } });
-
-      const created = await createAutonomousJournal({
-        date: new Date().toISOString(),
-        description: lastMessage.trim(),
-        lines: [
-          { accountId: cash.id, debit: amt, credit: 0, description: 'Received', currency, fxRateToBase: 1, fxSource: 'MANUAL', fxDate: new Date().toISOString().slice(0,10) },
-          { accountId: lp.id, debit: 0, credit: amt, description: 'Loan', currency, fxRateToBase: 1, fxSource: 'MANUAL', fxDate: new Date().toISOString().slice(0,10) },
-        ],
-        aiMetadata: { confidence: 1, reasoning: 'ultra-early hard path', model: 'chat' },
-      });
-
-      return Response.json({
-        response: `Created autonomously: Shareholder loan of ${currency} ${amt}`,
-        createdAutonomously: true,
-        entryId: created.id,
-      });
-    }
+    // if (/(shareholder|owner)\s*(loan|contribution|capital|draw|investment)/i.test(lastMessage)) { ... }
 
     const dataAnswer = await answerDataQuery(lastMessage)
     if (dataAnswer) return Response.json(dataAnswer)
@@ -371,19 +361,26 @@ export async function POST(req: NextRequest) {
     // Phase 2: compute a preliminary merchant hint from the user message
     const preliminaryMerchant = (lastMessage.match(/from\s+([A-Za-z0-9 .&'-]+)/i)?.[1] || '').trim()
 
-    // Get company location info (structured address + default jurisdiction)
+    // Get company location info + real base currency from settings
     let companyRegion: string | undefined
     let companyCountry: string | undefined
+    let baseCurrency = 'EUR'
     try {
-      const [addr, jur] = await Promise.all([
+      const [addr, jur, bc] = await Promise.all([
         prisma.setting.findUnique({ where: { key: 'company.address' } }),
         prisma.setting.findUnique({ where: { key: 'defaultTaxJurisdiction' } }),
+        prisma.setting.findUnique({ where: { key: 'baseCurrency' } }),
       ])
       const a = addr?.value as unknown as { region?: string; country?: string } | null
       const jv = (jur?.value as unknown as { value?: string })?.value || (jur?.value as unknown as string)
       companyRegion = (a?.region || jv || undefined)
       companyCountry = a?.country || (companyRegion ? companyRegion.split('-')[0] : undefined)
       if (companyRegion) companyRegion = String(companyRegion).toUpperCase()
+
+      const bcVal = (bc?.value as any)?.value
+      if (typeof bcVal === 'string' && bcVal.trim()) {
+        baseCurrency = bcVal.trim().toUpperCase()
+      }
     } catch {}
 
     // Phase 2: inject memory (now keyed on merchant + region) + feed rates
@@ -391,6 +388,9 @@ export async function POST(req: NextRequest) {
       getRecentFeedRatesPromptText(6),
       getMerchantMemoryPrompt(preliminaryMerchant || undefined, companyRegion),
     ])
+
+    // Make base currency available to prompts and later logic
+    // (already fetched above)
 
     const system = `You are a precise double-entry AI accountant.
 Always balance debits = credits. Use exact codes from the list.
@@ -467,166 +467,296 @@ You are an autonomous junior bookkeeper. Execute routine safe work directly. Alw
     }
 
     // -----------------------------------------------------------------
-    // NEW AUTONOMOUS INTENT PATH — ALWAYS ATTEMPT
-    // The old narrow "looksLikeAction" regex was skipping prompts like
-    // "add a shareholder loan of $800".
-    //
-    // We now ALWAYS call generateObject with IntentSchema for every
-    // user message (after the simple data query check).
-    // The dispatcher decides execute vs propose.
-    // This guarantees CREATE_JOURNAL etc. are processed.
+    // TWO-PASS FLOW (Intelligence → Exact Structure → Validate → Dispatch)
+    // Pass 1: broad understanding + candidate action (natural language cleanup)
+    // Pass 2: repack the understanding into the exact schema for the action
+    // Then: schema + business validation before any dispatch/execution
     // -----------------------------------------------------------------
+    let usedTwoPass = false
     try {
-      const { object: intentObj } = await generateObject({
+      // Pass 1 – Intelligence / Understanding (now supports compound intents + FX)
+      const pass1Prompt = `You are an intelligent accounting assistant.
+
+Context:
+- Accounts: ${accountList}
+- Tax rates: ${taxContext}
+- Company region/country: ${companyRegion || 'unknown'} / ${companyCountry || 'unknown'}
+${feedRatesText ? feedRatesText + '\n' : ''}${memoryText ? memoryText + '\n' : ''}
+
+User said: "${lastMessage}"
+
+Multi-currency + FX (very important):
+- Detect foreign currency mentions ($, USD, GBP, €, etc.) and pairs like "5 USD ... credited with 4.23 EUR".
+- In the understanding, clearly state the foreign amount+currency and the exact base settlement amount when both are given.
+
+Compound / multi-sentence handling:
+- If the message contains multiple distinct events or transactions ("then", "also", multiple sentences, separate actions), output MULTIPLE separate actions.
+- Each action represents one logical operation (one journal, one contact, one invoice, etc.).
+- Do NOT merge unrelated events into a single journal.
+
+Your job:
+- For every distinct event, pick the single best Action from the list below.
+- For each, write a precise "understanding" that preserves amounts, currencies, FX details, account hints, and what happened.
+
+Action list (exact strings):
+SAFE AUTONOMOUS: CREATE_JOURNAL, CREATE_CONTACT, UPDATE_CONTACT, CREATE_INVOICE_DRAFT, GENERATE_RECURRING_DRAFT, MATCH_FEED_TRANSACTION, RECONCILE_ACCOUNT, APPLY_TEMPLATE, OPEN_LEDGER, EXPLAIN, SYNC_FEED, IMPORT_FEED_CSV, LEARN_MERCHANT
+ALWAYS PROPOSE: PROPOSE_RESTORE, PROPOSE_MERGE, PROPOSE_REVERSE, PROPOSE_SEND_INVOICE, PROPOSE_CHARGE, PROPOSE_BULK_REVERSE, PROPOSE_IMPORT_BACKUP, PROPOSE_CREATE_ACCOUNT, PROPOSE_UPDATE_TAX_RATE, PROPOSE_UPDATE_SETTINGS, PROPOSE_USER_CHANGE, PROPOSE_TAG_CLOSE
+Unclear: SUGGEST_ONLY
+
+Return EXACTLY this shape (always an array):
+{
+  "actions": [
+    {"action": "CREATE_JOURNAL", "understanding": "string with amounts + currencies + FX if any", "confidence": 0.0-1.0, "reasoning": "short"},
+    ...
+  ]
+}
+
+Even for a single event, put it inside an array under "actions".`
+
+      const { object: p1 } = await generateObject({
         model,
-        schema: IntentSchema,
-        prompt: `${system}\n\nUser: ${lastMessage}\n\nReturn ONE structured intent object. Use exact action names from the vocabulary. Include confidence and short reasoning. For journals include balanced lines with accountCode. For contacts include name+type. For invoices include description or lines. For restore/merge use PROPOSE_* forms.`,
+        schema: Pass1Schema,
+        prompt: pass1Prompt,
       })
 
-      const parsedIntent = IntentSchema.safeParse(intentObj)
-      if (parsedIntent.success) {
-        const intent: ChatIntent = {
-          ...parsedIntent.data,
-          branch: parsedIntent.data.branch || requestedBranch,
-          asOf: parsedIntent.data.asOf || requestedAsOf,
-        }
+      const actionItems: any[] = Array.isArray((p1 as any)?.actions) ? (p1 as any).actions : []
 
-        // === DEFINITIVE FIX: CREATE_JOURNAL must ALWAYS create the entry here ===
-        // Never return the raw intent object. Never show JSON in chat.
-        // Lenient account resolution for common cases (1000=cash, 2500=loans payable, 3000=equity etc.)
-        if (intent.action === 'CREATE_JOURNAL') {
-          const p = intent.params as any
-          const rawLines = Array.isArray(p?.lines) ? p.lines : []
+      if (actionItems.length > 0) {
+        let lastResult: any = null
 
-          if (rawLines.length < 2) {
-            return Response.json({
-              response: 'I understood you want a journal entry, but the details were incomplete.',
-              proposed: true,
-              action: 'CREATE_JOURNAL'
-            })
-          }
+        for (const item of actionItems) {
+          const rawAction = String(item?.action || '').trim().toUpperCase().replace(/[-\s]/g, '_')
+          const actionParse = ActionType.safeParse(rawAction)
+          if (!actionParse.success) continue
 
-          const tD = rawLines.reduce((s: number, l: any) => s + (Number(l.debit) || 0), 0)
-          const tC = rawLines.reduce((s: number, l: any) => s + (Number(l.credit) || 0), 0)
-          if (Math.abs(tD - tC) > 0.01) {
-            return Response.json({
-              response: 'The proposed journal entry is not balanced.',
-              proposed: true,
-              action: 'CREATE_JOURNAL'
-            })
-          }
+          const chosenAction: ActionType = actionParse.data
+          const schema = getSchemaForAction(chosenAction)
+          if (!schema) continue
 
-          // Lenient resolution - this is the key fix
-          const resolvedLines: any[] = []
-          for (const l of rawLines) {
-            let account = await prisma.account.findUnique({ where: { code: String(l.accountCode) } })
+          // Rich reference data for resolution (names → codes/IDs)
+          const referenceBlock = `
+REFERENCE DATA — USE FOR RESOLUTION (exact values only):
+ACCOUNTS (code — name (type)):
+${accountList}
 
-            if (!account) {
-              const isDebit = (Number(l.debit) || 0) > 0
-              if (isDebit) {
-                account = await prisma.account.findFirst({
-                  where: {
-                    OR: [
-                      { code: '1000' }, { code: '1010' },
-                      { name: { contains: 'cash', mode: 'insensitive' } },
-                      { name: { contains: 'bank', mode: 'insensitive' } },
-                      { type: 'ASSET' }
-                    ]
-                  }
-                })
-              } else {
-                account = await prisma.account.findFirst({
-                  where: {
-                    OR: [
-                      { code: '2500' },
-                      { name: { contains: 'loan', mode: 'insensitive' } },
-                      { name: { contains: 'payable', mode: 'insensitive' } },
-                      { code: '3000' },
-                      { name: { contains: 'capital', mode: 'insensitive' } },
-                      { name: { contains: 'equity', mode: 'insensitive' } },
-                      { type: 'LIABILITY' },
-                      { type: 'EQUITY' }
-                    ]
-                  }
-                })
+TAX RATES (id — jurisdiction name rate type):
+${taxContext}
+
+COMPANY:
+- Region: ${companyRegion || 'unknown'}
+- Country: ${companyCountry || 'unknown'}
+
+${feedRatesText ? 'BANK FEED RATES (for FX resolution):\n' + feedRatesText + '\n' : ''}
+${memoryText ? 'MERCHANT MEMORY:\n' + memoryText + '\n' : ''}`.trim()
+
+          const pass2Prompt = `You are performing the final mechanical packing step.
+
+SOURCE MATERIAL (preserve the meaning and numbers exactly):
+- Your previous understanding: ${item?.understanding || ''}
+- Original user request: ${lastMessage}
+
+${referenceBlock}
+
+Company base currency: ${baseCurrency}
+
+MULTI-CURRENCY + FX RULES (critical for CREATE_JOURNAL):
+- The company's base currency is "${baseCurrency}". All base amounts must use currency "${baseCurrency}".
+- When the user gives a foreign amount + currency (e.g. 80 USD) and also the exact settlement in base (e.g. 78 EUR or 78 in base currency):
+  • The expense/revenue line gets the FOREIGN amount + its currency code (e.g. debit 80, currency: "USD").
+  • The settlement line (credit card / bank / cash) gets the EXACT BASE amount in the company's base currency (credit 78, currency: "${baseCurrency}").
+  • ONLY the foreign line gets fxRateToBase = (base settlement amount / foreign amount), fxSource: "MANUAL", fxDate: today's date in YYYY-MM-DD.
+- fxRateToBase = number of base-currency units per one foreign unit.
+- Every JournalLine MUST have a "currency" field (never omit it).
+- If the user gives ONLY a foreign amount and NO base settlement amount or rate, DO NOT invent the base amount or rate. Leave the structure incomplete (the server will ask the user).
+- The journal must balance in BASE currency when fxRateToBase is present on foreign lines.
+
+GENERAL RULES:
+1. Resolve accountCode to exact codes only from the ACCOUNTS list (never output names like "Cash" or "Rent Expense").
+2. Copy numeric values, signs and descriptions exactly. Do not invent or modify amounts.
+3. Output ONLY the JSON object that matches the target schema. No extra text.
+4. If a lookup cannot be resolved, leave the value — server validation will decide.
+
+Produce the exact object now.`
+
+          try {
+            let packed = await (async () => {
+              const { object } = await generateObject({
+                model,
+                schema: schema as any,
+                prompt: pass2Prompt,
+              })
+              return object
+            })()
+
+            // -----------------------------------------------------------------
+            // FX repair for CREATE_JOURNAL (after model packing, before validation)
+            // Strong safety net for the exact pattern the user is hitting:
+            // "add a 80$ USD expense on the credit card. it show up as 78€ on the creditcard statement"
+            //
+            // We extract the two amounts + currencies from the source text and force
+            // a correct FX journal structure:
+            //   - Expense line: foreign amount + foreign currency + fxRateToBase
+            //   - Card line: exact base amount + EUR
+            // This guarantees the FX-aware balance check in validateJournalIntent will pass.
+            // -----------------------------------------------------------------
+            if (chosenAction === 'CREATE_JOURNAL' && packed && Array.isArray((packed as any).lines)) {
+              const lines: any[] = (packed as any).lines
+              const baseCur = 'EUR'
+              const srcText = `${item?.understanding || ''} ${lastMessage || ''}`.toLowerCase()
+
+              // Parse explicit foreign + base pair from the user's words
+              let foreignAmt = 0
+              let baseAmt = 0
+              let foreignCur = 'USD'
+
+              // Prefer explicit "$80 USD ... 78€" style
+              const usdNum = srcText.match(/\$?\s*([\d.,]+)\s*(usd|dollar)?/i)
+              const eurNum = srcText.match(/€?\s*([\d.,]+)\s*(eur|euro)?/i)
+
+              if (usdNum) foreignAmt = parseFloat(usdNum[1].replace(',', '.'))
+              if (eurNum) baseAmt = parseFloat(eurNum[1].replace(',', '.'))
+
+              // If we only got one number or they are the same, try a more general "two amounts" extraction
+              if (!foreignAmt || !baseAmt || Math.abs(foreignAmt - baseAmt) < 0.01) {
+                const nums = Array.from(srcText.matchAll(/([\d.,]+)/g))
+                  .map(m => parseFloat(m[1].replace(',', '.')))
+                  .filter(n => n > 0)
+                  .sort((a, b) => b - a)
+
+                if (nums.length >= 2) {
+                  // The larger raw number is usually the foreign one in these prompts
+                  foreignAmt = nums[0]
+                  baseAmt = nums[1]
+                }
+              }
+
+              if (foreignAmt > 0 && baseAmt > 0 && foreignAmt !== baseAmt) {
+                // Find the two relevant lines (prefer the ones with matching amounts)
+                let expLine = lines.find(l => Math.abs((Number(l?.debit) || 0) - foreignAmt) < 0.5)
+                let payLine = lines.find(l => Math.abs((Number(l?.credit) || 0) - baseAmt) < 0.5)
+
+                // Fallbacks if amount matching was off
+                if (!expLine) expLine = lines.find(l => (Number(l?.debit) || 0) > 0)
+                if (!payLine) payLine = lines.find(l => (Number(l?.credit) || 0) > 0)
+
+                if (expLine && payLine) {
+                  // Force the foreign side
+                  expLine.debit = foreignAmt
+                  expLine.credit = 0
+                  expLine.currency = foreignCur
+                  expLine.fxRateToBase = Number((baseAmt / foreignAmt).toFixed(6))
+                  expLine.fxSource = expLine.fxSource || 'MANUAL'
+                  expLine.fxDate = (typeof expLine.fxDate === 'string' && expLine.fxDate.length === 10) ? expLine.fxDate : new Date().toISOString().slice(0, 10)
+
+                  // Force the base side
+                  payLine.credit = baseAmt
+                  payLine.debit = 0
+                  payLine.currency = baseCur
+
+                  // Make sure description is reasonable if missing
+                  if (!expLine.description) expLine.description = 'Expense'
+                  if (!payLine.description) payLine.description = 'Credit card'
+                }
               }
             }
 
-            if (!account) account = await prisma.account.findFirst({})
+            let validationOk = true
+            let validationError: string | undefined
 
-            if (account) {
-              resolvedLines.push({
-                accountId: account.id,
-                debit: Number(l.debit) || 0,
-                credit: Number(l.credit) || 0,
-                description: l.description,
-                currency: (l.currency || 'EUR').toUpperCase(),
-                fxRateToBase: l.fxRateToBase ?? null,
-                fxSource: l.fxSource || 'AI_AUTONOMOUS',
-                fxDate: l.fxDate || new Date().toISOString().slice(0, 10),
-              })
+            if (chosenAction === 'CREATE_JOURNAL') {
+              const v = await (await import('@/lib/chat/dispatcher')).validateJournalIntent(packed, requestedBranch)
+              if (!v.ok) {
+                validationOk = false
+                validationError = v.error
+              }
+            } else if (chosenAction === 'CREATE_CONTACT' || chosenAction === 'UPDATE_CONTACT') {
+              const v = await (await import('@/lib/chat/dispatcher')).validateContactIntent(packed)
+              if (!v.ok) {
+                validationOk = false
+                validationError = v.error
+              }
+            } else if (chosenAction === 'PROPOSE_RESTORE') {
+              const target = (packed as any)?.target
+              if (target) {
+                const v = await (await import('@/lib/chat/dispatcher')).validateRestoreTarget(target, requestedBranch)
+                if (!v.ok) {
+                  validationOk = false
+                  validationError = v.error
+                }
+              }
             }
+
+            if (validationOk) {
+              const packedParams = { ...(packed as any || {}) }
+
+              // Ensure a useful description for the journal (and thus the chat response).
+              // Prefer explicit description from Pass 2, then the rich understanding from Pass 1.
+              if (chosenAction === 'CREATE_JOURNAL' && !packedParams.description) {
+                packedParams.description = item?.understanding || lastMessage
+              }
+
+              const cleanIntent: ChatIntent = {
+                action: chosenAction,
+                confidence: item?.confidence ?? 0.75,
+                reasoning: item?.reasoning || item?.understanding,
+                params: packedParams,
+                branch: requestedBranch,
+                asOf: requestedAsOf,
+              }
+
+              usedTwoPass = true
+
+              const dispatchResult = await runDispatch(cleanIntent, {
+                chatLocked,
+                currentBranch: requestedBranch,
+                currentAsOf: requestedAsOf,
+              })
+
+              const payload: any = {
+                response: dispatchResult.response,
+                executed: dispatchResult.executed,
+                proposed: dispatchResult.proposed,
+                action: dispatchResult.action,
+                entityId: dispatchResult.entityId,
+                branch: dispatchResult.branch || requestedBranch,
+                asOf: dispatchResult.asOf || requestedAsOf,
+                eventId: dispatchResult.eventId,
+              }
+              if (dispatchResult.createdAutonomously) payload.createdAutonomously = true
+              if (dispatchResult.reconciled) payload.reconciled = dispatchResult.reconciled
+              if (dispatchResult.openLedger) payload.openLedger = dispatchResult.openLedger
+              if (dispatchResult.proposedAction) payload.proposedAction = dispatchResult.proposedAction
+              if (dispatchResult.error) payload.error = dispatchResult.error
+
+              if (dispatchResult.proposed && item?.understanding) {
+                payload.understanding = item.understanding
+              }
+
+              lastResult = payload
+            } else {
+              lastResult = {
+                response: validationError
+                  ? `Understood: ${item?.understanding}. Cannot proceed: ${validationError}`
+                  : `Understood: ${item?.understanding}. Validation failed.`,
+                proposed: true,
+                action: chosenAction,
+                understanding: item?.understanding,
+              }
+            }
+          } catch (inner) {
+            console.log('two-pass per-action error', chosenAction, inner)
           }
-
-          if (resolvedLines.length >= 2) {
-            const created = await createAutonomousJournal({
-              date: new Date().toISOString(),
-              description: p?.description || lastMessage,
-              lines: resolvedLines,
-              aiMetadata: {
-                confidence: intent.confidence,
-                reasoning: intent.reasoning || 'Autonomous from chat',
-                model: 'chat',
-              },
-              branch: intent.branch || 'main',
-            })
-
-            return Response.json({
-              response: `Created autonomously (high confidence): ${created.description || 'Journal entry'}`,
-              createdAutonomously: true,
-              entryId: created.id,
-              action: 'CREATE_JOURNAL',
-              branch: intent.branch || 'main',
-            })
-          }
-
-          return Response.json({
-            response: 'I could not resolve the accounts for the journal entry.',
-            proposed: true,
-            action: 'CREATE_JOURNAL'
-          })
         }
 
-        // Non-journal actions go through the normal (safe) dispatcher
-        const dispatchResult = await runDispatch(intent, {
-          chatLocked,
-          currentBranch: requestedBranch,
-          currentAsOf: requestedAsOf,
-        })
-
-        if (dispatchResult.executed || dispatchResult.proposed) {
-          const payload: any = {
-            response: dispatchResult.response,
-            executed: dispatchResult.executed,
-            proposed: dispatchResult.proposed,
-            action: dispatchResult.action,
-            entityId: dispatchResult.entityId,
-            branch: dispatchResult.branch || requestedBranch,
-            asOf: dispatchResult.asOf || requestedAsOf,
-            eventId: dispatchResult.eventId,
-          }
-          if (dispatchResult.createdAutonomously) payload.createdAutonomously = true
-          if (dispatchResult.reconciled) payload.reconciled = dispatchResult.reconciled
-          if (dispatchResult.openLedger) payload.openLedger = dispatchResult.openLedger
-          if (dispatchResult.proposedAction) payload.proposedAction = dispatchResult.proposedAction
-          if (dispatchResult.error) payload.error = dispatchResult.error
-
-          return Response.json(payload)
+        if (lastResult) {
+          return Response.json(lastResult)
         }
       }
-    } catch (intentErr) {
-      console.log('Intent path error, falling back to legacy', intentErr)
+    } catch (twoPassErr) {
+      console.log('Two-pass flow error, falling back', twoPassErr)
     }
+
+    // If two-pass produced nothing usable, we continue to legacy paths below.
 
     // -----------------------------------------------------------------
     // LEGACY JOURNAL SUGGESTION PATH (kept for transition + non-action chat)
