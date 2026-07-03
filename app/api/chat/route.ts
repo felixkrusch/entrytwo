@@ -63,6 +63,16 @@ async function getTaxRatesContext() {
   }).join('\n')
 }
 
+async function getContactsContext() {
+  const contacts = await prisma.contact.findMany({
+    select: { id: true, name: true, type: true },
+    orderBy: { name: 'asc' },
+    take: 300,
+  })
+  if (!contacts.length) return 'No contacts yet.'
+  return contacts.map(c => `${c.name} (${c.type})`).join('\n')
+}
+
 async function getCurrentBalancesSummary() {
   const accounts = await prisma.account.findMany({ include: { journalLines: { include: { taxRate: true } } } })
   const summary: string[] = []
@@ -259,68 +269,8 @@ export async function POST(req: NextRequest) {
     const dataAnswer = await answerDataQuery(lastMessage)
     if (dataAnswer) return Response.json(dataAnswer)
 
-    // ============================================================
-    // HARD FAST-PATH for common "shareholder loan / owner contribution" style prompts.
-    // This guarantees that "add a shareholder loan of $800" (and similar natural language)
-    // ALWAYS creates a real journal entry, no matter what the general intent/model path does.
-    // ============================================================
-    const loanMatch = lastMessage.match(/(?:shareholder|owner)\s*(?:loan|contribution|capital|draw|investment|funds?)\s*(?:of\s*)?\$?([\d\.,]+)/i)
-                     || lastMessage.match(/add\s+(?:a\s+)?(?:shareholder|owner)\s*loan\s*(?:of\s*)?\$?([\d\.,]+)/i)
-                     || lastMessage.match(/loan\s*(?:from\s+(?:shareholder|owner))?\s*\$?([\d\.,]+)/i);
-
-    if (loanMatch) {
-      const amt = parseFloat(loanMatch[1].replace(',', '.')) || 800;
-      const currency = /usd|\$/i.test(lastMessage) ? 'USD' : 'EUR';
-
-      // Find or create sensible accounts
-      let cash = await prisma.account.findFirst({
-        where: { OR: [ { code: '1000' }, { name: { contains: 'cash', mode: 'insensitive' } }, { name: { contains: 'bank', mode: 'insensitive' } } ] }
-      });
-      if (!cash) cash = await prisma.account.create({ data: { code: '1000', name: 'Cash', type: 'ASSET' } });
-
-      let loansPayable = await prisma.account.findFirst({
-        where: { OR: [ { code: '2500' }, { name: { contains: 'loan', mode: 'insensitive' } }, { name: { contains: 'payable', mode: 'insensitive' } } ] }
-      });
-      if (!loansPayable) loansPayable = await prisma.account.create({ data: { code: '2500', name: 'Loans Payable', type: 'LIABILITY' } });
-
-      const created = await createAutonomousJournal({
-        date: new Date().toISOString(),
-        description: lastMessage.trim(),
-        lines: [
-          {
-            accountId: cash.id,
-            debit: amt,
-            credit: 0,
-            description: 'Shareholder loan received',
-            currency,
-            fxRateToBase: 1,
-            fxSource: 'MANUAL',
-            fxDate: new Date().toISOString().slice(0, 10),
-          },
-          {
-            accountId: loansPayable.id,
-            debit: 0,
-            credit: amt,
-            description: 'Shareholder loan',
-            currency,
-            fxRateToBase: 1,
-            fxSource: 'MANUAL',
-            fxDate: new Date().toISOString().slice(0, 10),
-          },
-        ],
-        aiMetadata: {
-          confidence: 0.99,
-          reasoning: 'Direct fast-path from chat for shareholder/owner loan',
-          model: 'chat',
-        },
-      });
-
-      return Response.json({
-        response: `Created autonomously: Shareholder loan of ${currency} ${amt}`,
-        createdAutonomously: true,
-        entryId: created.id,
-      });
-    }
+    // No more legacy fast-paths for journals/loans/invoices.
+    // All CREATE_* and similar actions MUST go through the two-pass AI flow.
 
     const llmConfig = getLlmConfig()
     const hasKey = !!(llmConfig.apiKey || process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.ANTHROPIC_API_KEY)
@@ -334,6 +284,7 @@ export async function POST(req: NextRequest) {
     const accountList = await getAccountContext()
     const balances = await getCurrentBalancesSummary()
     const taxContext = await getTaxRatesContext()
+    const contactsContext = await getContactsContext()
 
     // Git view context passed from client (for autonomous execution on correct branch/asOf)
     const requestedBranch = (body?.branch || 'main').toString()
@@ -450,22 +401,6 @@ Current view: branch=${requestedBranch}${requestedAsOf ? ` asOf=${requestedAsOf}
 You are an autonomous junior bookkeeper. Execute routine safe work directly. Always propose (never execute) anything destructive, money-moving, or that changes master data/config.
  `
 
-    // AI-first invoice detection (customer / client language)
-    const isCustomerInvoice = /invoice|bill/i.test(lower) && (/(client|customer|acme|corp|gmbh|ltd|inc|john|sarah)/i.test(lower) || !/from\s/i.test(lower))
-    if (isCustomerInvoice) {
-      const amtMatch = lastMessage.match(/(\d+[\.,]?\d*)/)
-      const amt = amtMatch ? parseFloat(amtMatch[1].replace(',', '.')) : undefined
-      const cur = /usd|\$/i.test(lastMessage) ? 'USD' : (/gbp|£/i.test(lastMessage) ? 'GBP' : 'EUR')
-      return Response.json({
-        response: `I'll create a customer invoice${amt ? ` for ${cur} ${amt}` : ''}.`,
-        createInvoice: {
-          amount: amt,
-          description: lastMessage,
-          currency: cur,
-        }
-      })
-    }
-
     // -----------------------------------------------------------------
     // TWO-PASS FLOW (Intelligence → Exact Structure → Validate → Dispatch)
     // Pass 1: broad understanding + candidate action (natural language cleanup)
@@ -481,7 +416,10 @@ Context:
 - Accounts: ${accountList}
 - Tax rates: ${taxContext}
 - Company region/country: ${companyRegion || 'unknown'} / ${companyCountry || 'unknown'}
-${feedRatesText ? feedRatesText + '\n' : ''}${memoryText ? memoryText + '\n' : ''}
+  ${feedRatesText ? feedRatesText + '\n' : ''}${memoryText ? memoryText + '\n' : ''}
+
+CONTACTS (exact names to use for contactName / contactId resolution):
+${contactsContext}
 
 User said: "${lastMessage}"
 
@@ -546,10 +484,13 @@ COMPANY:
 - Region: ${companyRegion || 'unknown'}
 - Country: ${companyCountry || 'unknown'}
 
-${feedRatesText ? 'BANK FEED RATES (for FX resolution):\n' + feedRatesText + '\n' : ''}
-${memoryText ? 'MERCHANT MEMORY:\n' + memoryText + '\n' : ''}`.trim()
+    ${feedRatesText ? 'BANK FEED RATES (for FX resolution):\n' + feedRatesText + '\n' : ''}
+    ${memoryText ? 'MERCHANT MEMORY:\n' + memoryText + '\n' : ''}
 
-          const pass2Prompt = `Please proofread the following fields for a contact.
+CONTACTS (exact names — resolve contactName / contactId from this list only):
+${contactsContext}`.trim()
+
+          const pass2Prompt = `You are packing an exact structured object for the action: ${chosenAction}.
 
 SOURCE MATERIAL:
 - Your previous understanding: ${item?.understanding || ''}
@@ -559,23 +500,16 @@ ${referenceBlock}
 
 Company base currency: ${baseCurrency}
 
-Output ONLY the exact JSON object that matches the target schema (no extra text).
+Use ONLY names/IDs that appear in the REFERENCE DATA above (ACCOUNTS, TAX RATES, CONTACTS).
 
-Proofread rules (apply exactly like the simple "please proofread" prompt):
-- Fix obvious casing and spacing only (first letter of each word upper, rest as user wrote).
-- Keep the user's spelling exactly (e.g. "COmpanz" stays "COmpanz", never change to "Company").
-- Properly title-case street, city, country.
-- Move any zip code (e.g. 37396) out of the city field into the street if needed.
-- Country: 2-3 letter codes stay uppercase (USA, UK, DE etc.).
+For CREATE_INVOICE_DRAFT:
+- Choose the exact contactName from the CONTACTS list that best matches the request (e.g. "ToT Company" must match a real name exactly or very closely).
+- Prefer exact or very close name match from the provided list. Do not invent a different company.
+- If lines are not provided, produce at least one line with description and unitPrice using the amount from the request.
+- Set currency to the currency mentioned by the user or default to ${baseCurrency}.
+- description should capture the service/item (e.g. "webdesign").
 
-Example input: "TNT COmpanz Inc., 1270 12th street, 37396 baltimore USA"
-Example output (schema fields):
-name: "TNT COmpanz Inc."
-addressStreet: "1270 12th Street, 37396"
-addressCity: "Baltimore"
-addressCountry: "USA"
-
-Produce the exact object now.`
+Output ONLY the exact JSON object matching the target schema. No extra text.`
 
           try {
             let packed = await (async () => {
@@ -586,6 +520,31 @@ Produce the exact object now.`
               })
               return object
             })()
+
+            // Post-Pass2 resolution for CREATE_INVOICE_DRAFT: guarantee the correct contact
+            // (exact name match from the contacts list provided to the model).
+            if (chosenAction === 'CREATE_INVOICE_DRAFT' && packed) {
+              const p: any = packed
+              if (!p.contactId && p.contactName) {
+                const name = String(p.contactName).trim()
+                let found = await prisma.contact.findFirst({ where: { name } })
+                if (!found) {
+                  found = await prisma.contact.findFirst({ where: { name: { equals: name, mode: 'insensitive' } } })
+                }
+                if (!found) {
+                  const candidates = await prisma.contact.findMany({ select: { id: true, name: true } })
+                  const lname = name.toLowerCase()
+                  const match = candidates.find(c => c.name.toLowerCase() === lname) ||
+                                candidates.find(c => c.name.toLowerCase().includes(lname)) ||
+                                candidates.find(c => lname.includes(c.name.toLowerCase()))
+                  if (match) found = { id: match.id, name: match.name } as any
+                }
+                if (found) {
+                  p.contactId = found.id
+                  p.contactName = found.name
+                }
+              }
+            }
 
             // -----------------------------------------------------------------
             // FX repair for CREATE_JOURNAL (after model packing, before validation)
@@ -683,6 +642,15 @@ Produce the exact object now.`
                   validationError = v.error
                 }
               }
+            } else if (chosenAction === 'CREATE_INVOICE_DRAFT') {
+              const v = await (await import('@/lib/chat/dispatcher')).validateInvoiceDraftIntent(packed)
+              if (!v.ok) {
+                validationOk = false
+                validationError = v.error
+              } else if (v.resolvedContactId) {
+                ;(packed as any).contactId = v.resolvedContactId
+                if (v.resolvedContactName) (packed as any).contactName = v.resolvedContactName
+              }
             }
 
             if (validationOk) {
@@ -760,7 +728,7 @@ Produce the exact object now.`
     // -----------------------------------------------------------------
     // LEGACY JOURNAL SUGGESTION PATH (kept for transition + non-action chat)
     // -----------------------------------------------------------------
-    const looksLikeTx = lower.match(/bought|paid|received|purchase|expense|revenue|supplies|software|client|services|capital|office|consult|bill|subscription|equipment|laptop|rent|salary|invoice|sale|record|post/)
+    const looksLikeTx = lower.match(/bought|paid|received|purchase|expense|revenue|supplies|software|client|services|capital|office|consult|bill|subscription|equipment|laptop|rent|salary|sale|record|post/)
     if (looksLikeTx) {
       try {
         const { object } = await generateObject({
@@ -1020,35 +988,6 @@ lines.push({ accountCode: debitCode, debit: taxAmt, description: `Tax ${deRate.n
     suggestion = {
       description: text || note,
       lines
-    }
-  } else if (isRevenue || /invoice|bill.*client|bill.*customer|send invoice/i.test(lower)) {
-    // Detect customer invoice language
-    const invoiceMatch = lower.match(/invoice|bill/i)
-    const customerHint = lower.includes('client') || lower.includes('customer') || lower.includes('acme') || lower.includes('corp') || lower.includes('gmbh') || /[A-Z][A-Za-z0-9&]+/.test(text)
-    if (invoiceMatch && customerHint) {
-      // Try to extract a plausible customer name (first capitalized token after "invoice" or "for")
-      const nameMatch = text.match(/(?:invoice|bill|for)\s+([A-Z][A-Za-z0-9&.\- ]{1,30})/i)
-      const contactName = nameMatch ? nameMatch[1].trim() : undefined
-
-      response = `I'll create a customer invoice for ~${amount}.`
-      // Return special createInvoice payload (no journal suggestion)
-      return {
-        response,
-        createInvoice: {
-          amount,
-          description: text,
-          currency,
-          contactName,
-        }
-      }
-    }
-    response = `Revenue ~${amount}. Debit ${bank}, credit ${revenue}.`
-    suggestion = {
-      description: text || 'Revenue',
-      lines: [
-        { accountCode: bank, debit: amount, description: 'Bank deposit', currency },
-        { accountCode: revenue, credit: amount, description: 'Revenue earned', currency }
-      ]
     }
   } else if (isEquity) {
     response = `Owner contribution ~${amount}.`

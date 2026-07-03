@@ -109,6 +109,36 @@ export async function validateContactIntent(params: any): Promise<{ ok: boolean;
   return { ok: true }
 }
 
+export async function validateInvoiceDraftIntent(params: any): Promise<{ ok: boolean; error?: string; resolvedContactId?: string; resolvedContactName?: string }> {
+  const desc = params?.description || (Array.isArray(params?.lines) && params.lines[0]?.description)
+  if (!desc || typeof desc !== 'string' || desc.trim().length < 2) {
+    return { ok: false, error: 'Invoice needs a description (or at least one line with description)' }
+  }
+  let contactId = params?.contactId
+  let contactName = params?.contactName
+  if (contactId) {
+    const c = await prisma.contact.findUnique({ where: { id: contactId } })
+    if (!c) return { ok: false, error: 'Provided contactId not found' }
+    return { ok: true, resolvedContactId: c.id, resolvedContactName: c.name }
+  }
+  if (contactName) {
+    let found = await prisma.contact.findFirst({ where: { name: contactName } })
+    if (!found) found = await prisma.contact.findFirst({ where: { name: { equals: contactName, mode: 'insensitive' } } })
+    if (!found) {
+      const all = await prisma.contact.findMany({ select: { id: true, name: true } })
+      const ln = contactName.toLowerCase()
+      const m = all.find(c => c.name.toLowerCase() === ln) || all.find(c => c.name.toLowerCase().includes(ln)) || all.find(c => ln.includes(c.name.toLowerCase()))
+      if (m) found = { id: m.id, name: m.name } as any
+    }
+    if (found) {
+      return { ok: true, resolvedContactId: found.id, resolvedContactName: found.name }
+    }
+    return { ok: false, error: `Contact "${contactName}" not found. Create the contact first or use an exact existing name.` }
+  }
+  // No contact info at all
+  return { ok: false, error: 'Invoice requires a contactName (or contactId) that matches an existing contact' }
+}
+
 export async function validateRestoreTarget(target: string, branchName = 'main'): Promise<{ ok: boolean; error?: string; eventId?: string }> {
   // Accept date (YYYY-MM-DD) or event id
   let ev = null
@@ -330,12 +360,11 @@ async function execCreateInvoiceDraft(intent: ChatIntent): Promise<DispatchResul
     return { proposed: true, action: intent.action, response: 'Invoice needs description or lines' }
   }
 
-  // Resolve contact if possible (best effort)
+  // Resolve contact strictly (must be from two-pass validation which already resolved exact name)
   let contactId = p.contactId
   if (!contactId && p.contactName) {
-    const found = await prisma.contact.findFirst({
-      where: { name: { contains: p.contactName, mode: 'insensitive' } },
-    })
+    let found = await prisma.contact.findFirst({ where: { name: p.contactName } })
+    if (!found) found = await prisma.contact.findFirst({ where: { name: { equals: p.contactName, mode: 'insensitive' } } })
     if (found) contactId = found.id
   }
 
@@ -358,10 +387,14 @@ async function execCreateInvoiceDraft(intent: ChatIntent): Promise<DispatchResul
   const taxAmount = 0 // drafts from chat start simple; tax can be added in UI
   const total = subtotal + taxAmount
 
+  if (!contactId) {
+    return { proposed: true, action: intent.action, response: 'Invoice requires a valid existing contact (contactName must resolve to an existing contact)' }
+  }
+
   const invoice = await prisma.invoice.create({
     data: {
       invoiceNumber: `INV-${new Date().getFullYear()}-${Math.floor(Math.random() * 90000) + 10000}`,
-      contactId: contactId || (await prisma.contact.findFirst())?.id || '',
+      contactId,
       status: 'DRAFT',
       currency,
       subtotal,
