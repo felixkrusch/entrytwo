@@ -1,6 +1,7 @@
 import { generateText } from 'ai'
 import { getLlmConfig, createLlmModel } from '@/lib/llm'
 import type { CompanyProfile } from '@/lib/companyProfile'
+import { MemoryVault } from '@/lib/memoryVault'
 
 interface AdvisoryContext {
   companyProfile: CompanyProfile
@@ -11,6 +12,7 @@ interface AdvisoryContext {
   memoryText?: string
   recentConversation?: Array<{ role: 'user' | 'assistant'; content: string }>
   attachmentsText?: string
+  vaultItems?: any[]
 }
 
 /**
@@ -72,17 +74,19 @@ ${accountList}
 Current balances (multi-currency shown in brackets when present):
 ${balances}
 
-${feedRatesText ? feedRatesText + '\n' : ''}
-${memoryText ? memoryText + '\n' : ''}
+  ${feedRatesText ? feedRatesText + '\n' : ''}
+  ${memoryText ? memoryText + '\n' : ''}
 
-${appKnowledge}
+  ${appKnowledge}
 
-Recent conversation context (use for continuity, do not repeat unnecessarily):
-${ctx.recentConversation ? ctx.recentConversation.map(m => `${m.role}: ${m.content}`).join('\n') : '(none)'}
+  Recent conversation context (use for continuity, do not repeat unnecessarily):
+  ${ctx.recentConversation ? ctx.recentConversation.map(m => `${m.role}: ${m.content}`).join('\n') : '(none)'}
 
-${ctx.attachmentsText ? 'Attached documents / extracted text:\n' + ctx.attachmentsText : ''}
+  ${ctx.attachmentsText ? 'Attached documents / extracted text:\n' + ctx.attachmentsText : ''}
 
-Answer the user's question helpfully and accurately.
+  ${ctx.vaultItems && ctx.vaultItems.length ? 'Memory Vault items (authoritative facts and learned knowledge):\n' + JSON.stringify(ctx.vaultItems, null, 2) : ''}
+
+  Answer the user's question helpfully and accurately.
 `.trim()
 }
 

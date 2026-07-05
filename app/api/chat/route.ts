@@ -10,6 +10,7 @@ import { ChatIntent, ActionType, getSchemaForAction } from '@/lib/chat/intent'
 import { dispatchIntent as runDispatch } from '@/lib/chat/dispatcher'
 import { generateAdvisoryResponse } from '@/lib/chat/advisory'
 import { decideChatMode } from '@/lib/chat/mode'
+import { MemoryVault } from '@/lib/memoryVault'
 import { writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 
@@ -182,6 +183,12 @@ export async function POST(req: NextRequest) {
     const companyRegion = companyProfile.region
     const companyCountry = companyProfile.country
     const baseCurrency = companyProfile.baseCurrency
+
+    // Seed authoritative facts into Memory Vault so advisory path always has them.
+    // This is the "app-provided facts" mechanism.
+    try {
+      await MemoryVault.ensureCompanyFacts(companyProfile)
+    } catch {}
 
     // Phase 2: inject memory (now keyed on merchant + region) + feed rates
     const [feedRatesText, memoryText] = await Promise.all([
@@ -607,6 +614,24 @@ Output ONLY the exact JSON object matching the target schema. No extra text.`
       attachmentsText = parts.join('\n\n')
     }
 
+    // Pull a small number of relevant Memory Vault items (company facts + recent learned items).
+    // This gives the LLM a way to "go into the vault and take what it needs".
+    let vaultItems: any[] = []
+    try {
+      const companyFacts = await Promise.all([
+        MemoryVault.get('company', 'company.region'),
+        MemoryVault.get('company', 'company.country'),
+        MemoryVault.get('company', 'company.baseCurrency'),
+        MemoryVault.get('company', 'company.defaultTaxJurisdiction'),
+      ])
+      vaultItems = companyFacts.filter(Boolean) as any[]
+
+      const recent = await MemoryVault.listByScope('company')
+      vaultItems.push(...recent.slice(0, 5))
+    } catch {
+      // Vault is best-effort.
+    }
+
     const advisoryCtx = {
       companyProfile,
       accountList,
@@ -616,6 +641,7 @@ Output ONLY the exact JSON object matching the target schema. No extra text.`
       memoryText,
       recentConversation: messages.slice(-8),
       attachmentsText,
+      vaultItems: vaultItems.length ? vaultItems : undefined,
     }
 
     const advisory = await generateAdvisoryResponse(lastMessage, advisoryCtx)

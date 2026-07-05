@@ -314,3 +314,23 @@ model FeedTransaction {
   @@index([status])
   @@index([date])
 }
+
+// Memory Vault — persistent structured agent memory.
+// The LLM (advisory path) can retrieve relevant items by key/scope.
+// Authoritative facts (company profile, tax setup) are seeded by the system.
+// Learned patterns and app knowledge can be added over time.
+model AgentMemory {
+  id        String   @id @default(uuid())
+  key       String   // e.g. "company.region", "merchant.acme.taxRate", "rule.always-bank-feed"
+  value     Json     // structured payload (can be string, object, array, etc.)
+  scope     String   // "company" | "merchant" | "user" | "global" | "tax" | "app" | ...
+  category  String?  // "fact" | "learned" | "preference" | "explanation" | ...
+  source    String?  // "system" | "ai" | "user"
+  metadata  Json?    // extra info (confidence, lastUsed, etc.)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([scope, key])
+  @@index([scope])
+  @@index([key])
+}
