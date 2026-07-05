@@ -13,6 +13,7 @@ import { decideChatMode } from '@/lib/chat/mode'
 import { MemoryVault } from '@/lib/memoryVault'
 import { writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
+// chatMode is sent as 'advisor' | 'execution' (string). We keep a local union for clarity.
 
 // ---------------------------------------------------------------------------
 // Two-pass schemas (Pass 1 = broad intelligence, Pass 2 = exact pack)
@@ -78,6 +79,7 @@ export async function POST(req: NextRequest) {
     // Support both JSON and multipart (for file attachments)
     let messages: any[] = []
     let chatLocked = false
+    let chatMode: 'advisor' | 'execution' | undefined
     let branch = 'main'
     let asOf: string | undefined
     let attachedFiles: Array<{ name: string; buffer: Buffer; savedPath: string; mimeType: string }> = []
@@ -91,6 +93,8 @@ export async function POST(req: NextRequest) {
         messages = msgStr ? JSON.parse(msgStr) : []
       } catch { messages = [] }
       chatLocked = form.get('chatLocked') === 'true'
+      const modeFromForm = (form.get('chatMode') as string | null)?.toLowerCase()
+      if (modeFromForm === 'advisor' || modeFromForm === 'execution') chatMode = modeFromForm
       branch = (form.get('branch') as string) || 'main'
       asOf = (form.get('asOf') as string) || undefined
 
@@ -117,6 +121,8 @@ export async function POST(req: NextRequest) {
       const jsonBody = await req.json()
       messages = jsonBody?.messages || []
       chatLocked = !!jsonBody?.chatLocked
+      const modeFromJson = (jsonBody?.chatMode as string | undefined)?.toLowerCase()
+      if (modeFromJson === 'advisor' || modeFromJson === 'execution') chatMode = modeFromJson
       branch = jsonBody?.branch || 'main'
       asOf = jsonBody?.asOf
 
@@ -126,9 +132,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Effective mode: explicit chatMode wins. Fallback to chatLocked (advisor) or execution.
+    const effectiveMode: 'advisor' | 'execution' = chatMode ?? (chatLocked ? 'advisor' : 'execution')
+
     const lastMessage = (messages[messages.length - 1]?.content || '').toString()
 
-    // All requests go through two-pass (or plain conversational stream).
+    // Requests go through an early lightweight mode decision first.
+    // Pure questions (tax, profit, hypotheticals, advice, explanations) bypass two-pass completely.
+    // Only clear executable commands go through the strict two-pass + validation path.
     // No legacy keyword heuristics.
 
     const llmConfig = getLlmConfig()
@@ -158,6 +169,9 @@ export async function POST(req: NextRequest) {
       ;(globalThis as any).__pendingDirectIntent = null
     }
     if (pendingDirectIntent && typeof pendingDirectIntent === 'object') {
+      if (effectiveMode === 'advisor') {
+        return Response.json({ response: 'Actions are disabled in advisor mode.' })
+      }
       try {
         const approvedIntent: ChatIntent = {
           ...pendingDirectIntent,
@@ -195,6 +209,80 @@ export async function POST(req: NextRequest) {
       getRecentFeedRatesPromptText(6),
       getMerchantMemoryPrompt(preliminaryMerchant || undefined, companyRegion),
     ])
+
+    // -----------------------------------------------------------------
+    // EXPLICIT MODE FROM CLIENT (primary control)
+    // 'advisor'  -> single generation, direct answer, no actions, no two-pass
+    // 'execution'-> strict two-pass + validation + dispatcher
+    // The icon toggle in the UI is the authoritative switch.
+    // -----------------------------------------------------------------
+    if (effectiveMode === 'advisor') {
+      let attachmentsText: string | undefined
+      if (attachedFiles.length > 0) {
+        const parts: string[] = []
+        for (const f of attachedFiles) {
+          if (f.mimeType.includes('pdf') || f.mimeType.startsWith('text/')) {
+            try {
+              if (f.mimeType.includes('pdf')) {
+                const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs')
+                if (pdfjs.GlobalWorkerOptions) {
+                  pdfjs.GlobalWorkerOptions.workerSrc = 'data:application/javascript,'
+                  pdfjs.GlobalWorkerOptions.workerPort = null
+                }
+                const task = pdfjs.getDocument({ data: new Uint8Array(f.buffer), disableWorker: true, workerPort: null, isEvalSupported: false, verbosity: 0 })
+                const doc = await task.promise
+                let txt = ''
+                for (let p = 1; p <= doc.numPages; p++) {
+                  const page = await doc.getPage(p)
+                  const c = await page.getTextContent()
+                  txt += (c.items || []).map((it: any) => it?.str || '').join(' ') + '\n'
+                }
+                await doc.destroy?.().catch(() => {})
+                parts.push(`[ATTACHMENT: ${f.name}]\n${txt.trim()}`)
+              } else {
+                parts.push(`[ATTACHMENT: ${f.name}]\n${f.buffer.toString('utf8')}`)
+              }
+            } catch {
+              parts.push(`[ATTACHMENT: ${f.name}] (could not read content)`)
+            }
+          } else {
+            parts.push(`[ATTACHMENT: ${f.name}] (binary file attached)`)
+          }
+        }
+        attachmentsText = parts.join('\n\n')
+      }
+
+      let vaultItems: any[] = []
+      try {
+        const companyFacts = await Promise.all([
+          MemoryVault.get('company', 'company.region'),
+          MemoryVault.get('company', 'company.country'),
+          MemoryVault.get('company', 'company.baseCurrency'),
+          MemoryVault.get('company', 'company.defaultTaxJurisdiction'),
+        ])
+        vaultItems = companyFacts.filter(Boolean) as any[]
+        const recent = await MemoryVault.listByScope('company')
+        vaultItems.push(...recent.slice(0, 5))
+      } catch {}
+
+      const advisoryCtx = {
+        companyProfile,
+        accountList,
+        taxContext,
+        balances,
+        feedRatesText,
+        memoryText,
+        recentConversation: messages.slice(-8),
+        attachmentsText,
+        vaultItems: vaultItems.length ? vaultItems : undefined,
+      }
+
+      const advisory = await generateAdvisoryResponse(lastMessage, advisoryCtx)
+      return Response.json(advisory)
+    }
+
+    // Execution mode continues below to the strict two-pass path.
+    // (The old system prompt below is only reached for execution intents.)
 
     const system = `You are a precise double-entry AI accountant.
 Always balance debits = credits. Use exact codes from the list.
@@ -234,12 +322,17 @@ SAFE AUTONOMOUS (execute immediately if confidence high and server validation pa
 CREATE_JOURNAL, APPLY_TEMPLATE, CREATE_CONTACT, UPDATE_CONTACT,
 CREATE_INVOICE_DRAFT, GENERATE_RECURRING_DRAFT,
 MATCH_FEED_TRANSACTION, SYNC_FEED, IMPORT_FEED_CSV,
-RECONCILE_ACCOUNT, LEARN_MERCHANT, OPEN_LEDGER, EXPLAIN
+RECONCILE_ACCOUNT, LEARN_MERCHANT, OPEN_LEDGER
 
 ALWAYS USE PROPOSE_* FORM (never auto-execute):
 PROPOSE_RESTORE, PROPOSE_MERGE, PROPOSE_REVERSE, PROPOSE_TAG_CLOSE,
 PROPOSE_SEND_INVOICE, PROPOSE_CHARGE, PROPOSE_BULK_REVERSE, PROPOSE_IMPORT_BACKUP,
 PROPOSE_CREATE_ACCOUNT, PROPOSE_UPDATE_TAX_RATE, PROPOSE_UPDATE_SETTINGS, PROPOSE_USER_CHANGE
+
+DO NOT OUTPUT ANY ACTION for pure questions:
+- "tell me the tax on 40k profit", "how much tax would I pay", "estimate corporate tax", "what if I move to Alberta"
+- Any tax/profit calculation, hypothetical, or "how does X work" question.
+These must produce ZERO actions so they go to the direct advisory answer (never forced through Pass 2).
 
 Examples:
 - "add shareholder loan of 800 USD" → {"action":"CREATE_JOURNAL","confidence":0.95,"params":{"description":"shareholder loan","lines":[{"accountCode":"1000","debit":800,"currency":"USD"},{"accountCode":"2500","credit":800,"currency":"USD"}]}}
@@ -255,10 +348,8 @@ You are an autonomous junior bookkeeper. Execute routine safe work directly. Alw
  `
 
     // -----------------------------------------------------------------
-    // TWO-PASS FLOW (Intelligence → Exact Structure → Validate → Dispatch)
-    // Pass 1: broad understanding + candidate action (natural language cleanup)
-    // Pass 2: repack the understanding into the exact schema for the action
-    // Then: schema + business validation before any dispatch/execution
+    // TWO-PASS FLOW — only executed when client icon is set to "execution".
+    // Pure questions are handled above when effectiveMode === 'advisor'.
     // -----------------------------------------------------------------
     try {
       // Pass 1 – Intelligence / Understanding (now supports compound intents + FX)
@@ -289,9 +380,21 @@ Your job:
 - For each, write a precise "understanding" that preserves amounts, currencies, FX details, account hints, and what happened.
 
 Action list (exact strings):
-SAFE AUTONOMOUS: CREATE_JOURNAL, CREATE_CONTACT, UPDATE_CONTACT, CREATE_INVOICE_DRAFT, GENERATE_RECURRING_DRAFT, MATCH_FEED_TRANSACTION, RECONCILE_ACCOUNT, APPLY_TEMPLATE, OPEN_LEDGER, EXPLAIN, SYNC_FEED, IMPORT_FEED_CSV, LEARN_MERCHANT
+SAFE AUTONOMOUS: CREATE_JOURNAL, CREATE_CONTACT, UPDATE_CONTACT, CREATE_INVOICE_DRAFT, GENERATE_RECURRING_DRAFT, MATCH_FEED_TRANSACTION, RECONCILE_ACCOUNT, APPLY_TEMPLATE, OPEN_LEDGER, SYNC_FEED, IMPORT_FEED_CSV, LEARN_MERCHANT
 ALWAYS PROPOSE: PROPOSE_RESTORE, PROPOSE_MERGE, PROPOSE_REVERSE, PROPOSE_SEND_INVOICE, PROPOSE_CHARGE, PROPOSE_BULK_REVERSE, PROPOSE_IMPORT_BACKUP, PROPOSE_CREATE_ACCOUNT, PROPOSE_UPDATE_TAX_RATE, PROPOSE_UPDATE_SETTINGS, PROPOSE_USER_CHANGE, PROPOSE_TAG_CLOSE
-Unclear: no action (do not output any action; just stream a normal chat response)
+Unclear / advisory / pure questions: NO ACTION (do not output any action)
+
+CRITICAL RULE — PURE QUESTIONS MUST PRODUCE ZERO ACTIONS:
+- Tax calculations, profit estimates, "how much tax on 40k", "what would I pay", "corporate tax in Germany/Alberta"
+- Hypotheticals ("if I move to Canada"), general advice, bookkeeping explanations, "how does the app work"
+- Any question that is NOT a direct command to CREATE, UPDATE, MATCH, RECONCILE, or PROPOSE a concrete change.
+
+For any of the above, output:
+{
+  "actions": []
+}
+
+Do NOT choose EXPLAIN or any other action for these. They must fall through to the direct advisory answer.
 
 Return EXACTLY this shape (always an array):
 {
@@ -573,12 +676,10 @@ Output ONLY the exact JSON object matching the target schema. No extra text.`
       console.log('Two-pass flow error, falling back', twoPassErr)
     }
 
-    // Explicit mode decision for dual-path architecture (Phase 2).
-    // If two-pass already returned a usable result, we returned above.
-    // Everything else (questions, tax advice, app questions, unclear intents) is advisory.
-    const mode = decideChatMode({ twoPassProducedResult: false })
-
-    // Advisory path (non-action questions, EXPLAIN, hypotheticals, "how does the app work", tax advice, etc.)
+    // Two-pass produced no executable action.
+    // In execution mode this means "the user asked something that is not a direct command".
+    // We still give a helpful direct answer using the advisory generator (single pass).
+    // The client icon controls whether the user *prefers* advisor or execution up front.
     let attachmentsText: string | undefined
     if (attachedFiles.length > 0) {
       const parts: string[] = []

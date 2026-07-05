@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Send, Paperclip, Mic, Lock, Unlock } from 'lucide-react'
+import { Send, Paperclip, Mic, Lock, Unlock, MessageCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useNewEntry, NewEntrySuggestion } from './NewEntryContext'
 import { useTranslations } from 'next-intl'
 import { useRouter } from 'next/navigation'
+import type { ChatMode } from '@/lib/chat/chatMode'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -49,23 +50,30 @@ export default function ChatPage() {
     lastChecked?: number
   } | null>(null)
 
-  // Chat Lock: when true, chat is advisory only. No create/modify/reverse actions allowed.
-  // This is a deliberate safety control (see docs for rationale).
-  const [isChatLocked, setIsChatLocked] = useState(() => {
+  // Chat mode: 'advisor' = single-pass direct answers (no actions)
+  // 'execution' = strict two-pass (create, propose, reconcile, etc.)
+  // Backward compat: if old 'chatLocked' is true, default to 'advisor'.
+  const [chatMode, setChatMode] = useState<ChatMode>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('chatLocked') === 'true'
+      const saved = localStorage.getItem('chatMode')
+      if (saved === 'advisor' || saved === 'execution') return saved
+      const legacyLocked = localStorage.getItem('chatLocked') === 'true'
+      return legacyLocked ? 'advisor' : 'execution'
     }
-    return false
+    return 'execution'
   })
 
-  // Persist lock state
-  const toggleChatLock = () => {
-    const next = !isChatLocked
-    setIsChatLocked(next)
+  const isAdvisor = chatMode === 'advisor'
+
+  const toggleChatMode = () => {
+    const next: ChatMode = chatMode === 'advisor' ? 'execution' : 'advisor'
+    setChatMode(next)
     if (typeof window !== 'undefined') {
-      localStorage.setItem('chatLocked', String(next))
+      localStorage.setItem('chatMode', next)
+      // keep legacy key in sync for panels that still read it
+      localStorage.setItem('chatLocked', String(next === 'advisor'))
     }
-    toast.success(next ? t('lockedToast') : t('unlockedToast'))
+    toast.success(next === 'advisor' ? t('advisorModeOn') : t('executionModeOn'))
   }
 
   // Hybrid LLM status:
@@ -148,7 +156,8 @@ export default function ChatPage() {
         // Send recent conversation context as JSON string (server will parse it)
         const ctx = newMessages.slice(-8).map(m => ({ role: m.role, content: m.content }))
         fd.append('messages', JSON.stringify(ctx))
-        fd.append('chatLocked', String(!!isChatLocked))
+        fd.append('chatMode', chatMode)
+        fd.append('chatLocked', String(chatMode === 'advisor')) // compat
         fd.append('branch', branch)
         if (asOf) fd.append('asOf', asOf)
 
@@ -164,7 +173,7 @@ export default function ChatPage() {
         res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: history, chatLocked: isChatLocked, branch, asOf })
+          body: JSON.stringify({ messages: history, chatMode, chatLocked: chatMode === 'advisor', branch, asOf })
         })
       }
 
@@ -372,16 +381,16 @@ export default function ChatPage() {
   }
 
   const handleSuggest = (suggestion?: NewEntrySuggestion) => {
-    if (isChatLocked) {
-      toast.error(t('lockedToast') || 'Chat is locked (advisory mode). Unlock to allow actions.')
+    if (isAdvisor) {
+      toast.error(t('lockedToast') || 'Chat is in advisor mode. Switch to execution to allow actions.')
       return
     }
     openNewEntry(suggestion)
   }
 
   const handleCreateInvoice = async (prefill?: { contactName?: string; amount?: number; description?: string; currency?: string }) => {
-    if (isChatLocked) {
-      toast.error(t('lockedToast') || 'Chat is locked (advisory mode). Unlock to allow actions.')
+    if (isAdvisor) {
+      toast.error(t('lockedToast') || 'Chat is in advisor mode. Switch to execution to allow actions.')
       return
     }
 
@@ -431,8 +440,8 @@ export default function ChatPage() {
 
   // Handle approval of a proposed autonomous action (destructive / high-impact)
   const handleApproveProposal = async (msg: any) => {
-    if (isChatLocked) {
-      toast.error(t('lockedToast') || 'Chat is locked.')
+    if (isAdvisor) {
+      toast.error(t('lockedToast') || 'Chat is in advisor mode.')
       return
     }
     const proposed = msg.proposedAction
@@ -661,12 +670,12 @@ export default function ChatPage() {
             <Mic className="w-5 h-5" />
           </button>
           <button
-            onClick={toggleChatLock}
-            className={`p-3 transition-colors ${isChatLocked ? 'text-amber-400 hover:text-amber-300' : 'text-zinc-400 hover:text-zinc-200'}`}
-            title={isChatLocked ? t('unlock') : t('lock')}
-            aria-label={isChatLocked ? t('unlock') : t('lock')}
+            onClick={toggleChatMode}
+            className={`p-3 transition-colors ${isAdvisor ? 'text-sky-400 hover:text-sky-300' : 'text-zinc-400 hover:text-zinc-200'}`}
+            title={isAdvisor ? 'Advisor mode (direct answers, no actions)' : 'Execution mode (create / propose / reconcile)'}
+            aria-label={isAdvisor ? 'Switch to execution mode' : 'Switch to advisor mode'}
           >
-            {isChatLocked ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
+            {isAdvisor ? <MessageCircle className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
           </button>
 
           <button
@@ -677,9 +686,9 @@ export default function ChatPage() {
             <Send className="w-5 h-5" />
           </button>
         </div>
-        {isChatLocked && (
-          <div className="mt-2 text-[11px] text-amber-400 text-center">
-            {t('lockedStatus')}
+        {isAdvisor && (
+          <div className="mt-2 text-[11px] text-sky-400 text-center">
+            Advisor mode — direct answers only. No actions will be created.
           </div>
         )}
       </div>

@@ -279,12 +279,13 @@ export default function JournalEntriesPanel({ filterAccountId, branch = 'main', 
                           <button
                             onClick={async (e) => {
                               e.stopPropagation()
-                              // Respect chat lock (advisory mode)
-                              if (typeof window !== 'undefined' && localStorage.getItem('chatLocked') === 'true') {
-                                toast.error(t('lockedToast') || 'Chat is locked (advisory mode).')
-                                return
-                              }
-                              if (!confirm(t('confirmReverse'))) return
+                               // Respect advisor mode (no destructive actions from UI when chat is in advisor mode)
+                               const cm = (typeof window !== 'undefined' ? localStorage.getItem('chatMode') : null) || (localStorage.getItem('chatLocked') === 'true' ? 'advisor' : 'execution')
+                               if (cm === 'advisor') {
+                                 toast.error(t('lockedToast') || 'Chat is in advisor mode.')
+                                 return
+                               }
+                               if (!confirm(t('confirmReverse'))) return
                               try {
                                 const branch = (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('branch') : null) || 'main'
                                 const res = await fetch('/api/journal-entries/reverse', {
@@ -306,12 +307,13 @@ export default function JournalEntriesPanel({ filterAccountId, branch = 'main', 
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
-                              // Respect chat lock (advisory mode)
-                              if (typeof window !== 'undefined' && localStorage.getItem('chatLocked') === 'true') {
-                                toast.error(t('lockedToast') || 'Chat is locked (advisory mode).')
-                                return
-                              }
-                              const lines = entry.lines.map(l => ({
+                               // Respect advisor mode (no destructive actions from UI when chat is in advisor mode)
+                               const cm2 = (typeof window !== 'undefined' ? localStorage.getItem('chatMode') : null) || (localStorage.getItem('chatLocked') === 'true' ? 'advisor' : 'execution')
+                               if (cm2 === 'advisor') {
+                                 toast.error(t('lockedToast') || 'Chat is in advisor mode.')
+                                 return
+                               }
+                               const lines = entry.lines.map(l => ({
                                 accountCode: l.account.code,
                                 debit: parseFloat(l.debit) || 0,
                                 credit: parseFloat(l.credit) || 0,
