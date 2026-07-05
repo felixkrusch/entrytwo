@@ -217,41 +217,8 @@ export async function POST(req: NextRequest) {
     // The icon toggle in the UI is the authoritative switch.
     // -----------------------------------------------------------------
     if (effectiveMode === 'advisor') {
-      let attachmentsText: string | undefined
-      if (attachedFiles.length > 0) {
-        const parts: string[] = []
-        for (const f of attachedFiles) {
-          if (f.mimeType.includes('pdf') || f.mimeType.startsWith('text/')) {
-            try {
-              if (f.mimeType.includes('pdf')) {
-                const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs')
-                if (pdfjs.GlobalWorkerOptions) {
-                  pdfjs.GlobalWorkerOptions.workerSrc = 'data:application/javascript,'
-                  pdfjs.GlobalWorkerOptions.workerPort = null
-                }
-                const task = pdfjs.getDocument({ data: new Uint8Array(f.buffer), disableWorker: true, workerPort: null, isEvalSupported: false, verbosity: 0 })
-                const doc = await task.promise
-                let txt = ''
-                for (let p = 1; p <= doc.numPages; p++) {
-                  const page = await doc.getPage(p)
-                  const c = await page.getTextContent()
-                  txt += (c.items || []).map((it: any) => it?.str || '').join(' ') + '\n'
-                }
-                await doc.destroy?.().catch(() => {})
-                parts.push(`[ATTACHMENT: ${f.name}]\n${txt.trim()}`)
-              } else {
-                parts.push(`[ATTACHMENT: ${f.name}]\n${f.buffer.toString('utf8')}`)
-              }
-            } catch {
-              parts.push(`[ATTACHMENT: ${f.name}] (could not read content)`)
-            }
-          } else {
-            parts.push(`[ATTACHMENT: ${f.name}] (binary file attached)`)
-          }
-        }
-        attachmentsText = parts.join('\n\n')
-      }
-
+      // Pure advisory: send raw attachments (PDF/image) directly to the LLM for text extraction.
+      // No local pdfjs or text extraction tools are used.
       let vaultItems: any[] = []
       try {
         const companyFacts = await Promise.all([
@@ -273,8 +240,25 @@ export async function POST(req: NextRequest) {
         feedRatesText,
         memoryText,
         recentConversation: messages.slice(-8),
-        attachmentsText,
+        attachmentsText: attachedFiles.length ? attachedFiles.map(f => `[ATTACHMENT: ${f.name} — raw file sent to model]`).join('\n') : undefined,
         vaultItems: vaultItems.length ? vaultItems : undefined,
+      }
+
+      if (attachedFiles.length > 0) {
+        const content: any[] = [
+          { type: 'text', text: lastMessage || 'Please analyze the attached document(s) for accounting purposes.' }
+        ]
+        for (const f of attachedFiles) {
+          if (f.mimeType.includes('pdf') || f.mimeType.startsWith('image/')) {
+            content.push({
+              type: 'file',
+              data: new Uint8Array(f.buffer),
+              mimeType: f.mimeType,
+            })
+          }
+        }
+        const advisory = await generateAdvisoryResponse(lastMessage || '', advisoryCtx, content)
+        return Response.json(advisory)
       }
 
       const advisory = await generateAdvisoryResponse(lastMessage, advisoryCtx)
@@ -406,10 +390,39 @@ Return EXACTLY this shape (always an array):
 
 Even for a single event, put it inside an array under "actions".`
 
+      // Pass 1 receives the raw PDF(s) (when present) so the LLM does the text extraction.
+      // No local pdfjs / text tools here. The document bytes go to the model.
+      // The resulting understanding(s) then flow into Pass 2 for exact schema packing.
+      let p1Options: any
+      if (attachedFiles.length > 0) {
+        const textInstruction = pass1Prompt +
+          `\n\nDOCUMENT(S) ATTACHED: One or more PDF or image files are attached to this request. ` +
+          `Read the attached document(s) directly to extract all transaction details: vendor/merchant, ` +
+          `invoice or reference numbers, dates (issue, due, service period), line items, descriptions, ` +
+          `amounts, currencies (original + any settlement), tax amounts/rates, totals, payment method hints ` +
+          `(e.g. "paid via credit card", "charged to card"), notes, etc. ` +
+          `Use both the user's text ("${lastMessage}") and the content of the attached document(s) to decide action(s) and write precise, rich "understanding" strings. ` +
+          `If the document indicates a credit-card or bank payment, capture that in the understanding so the journal can be recorded correctly.`
+
+        const content: any[] = [{ type: 'text', text: textInstruction }]
+        for (const f of attachedFiles) {
+          if (f.mimeType.includes('pdf') || f.mimeType.startsWith('image/')) {
+            content.push({
+              type: 'file',
+              data: new Uint8Array(f.buffer),
+              mimeType: f.mimeType,
+            })
+          }
+        }
+        p1Options = { messages: [{ role: 'user' as const, content }] }
+      } else {
+        p1Options = { prompt: pass1Prompt }
+      }
+
       const { object: p1 } = await generateObject({
         model,
         schema: Pass1Schema,
-        prompt: pass1Prompt,
+        ...p1Options,
       })
 
       const actionItems: any[] = Array.isArray((p1 as any)?.actions) ? (p1 as any).actions : []
@@ -691,37 +704,16 @@ Output ONLY the exact JSON object matching the target schema. No extra text.`
     // In execution mode this means "the user asked something that is not a direct command".
     // We still give a helpful direct answer using the advisory generator (single pass).
     // The client icon controls whether the user *prefers* advisor or execution up front.
+    //
+    // IMPORTANT: for attachments (PDFs/images), Pass 1 already saw the raw bytes.
+    // To be bulletproof we ALSO send the raw files here (single advisory generation) so
+    // the LLM can extract directly without any local pdfjs fallback.
     let attachmentsText: string | undefined
     if (attachedFiles.length > 0) {
       const parts: string[] = []
       for (const f of attachedFiles) {
-        if (f.mimeType.includes('pdf') || f.mimeType.startsWith('text/')) {
-          try {
-            if (f.mimeType.includes('pdf')) {
-              const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs')
-              if (pdfjs.GlobalWorkerOptions) {
-                pdfjs.GlobalWorkerOptions.workerSrc = 'data:application/javascript,'
-                pdfjs.GlobalWorkerOptions.workerPort = null
-              }
-              const task = pdfjs.getDocument({ data: new Uint8Array(f.buffer), disableWorker: true, workerPort: null, isEvalSupported: false, verbosity: 0 })
-              const doc = await task.promise
-              let txt = ''
-              for (let p = 1; p <= doc.numPages; p++) {
-                const page = await doc.getPage(p)
-                const c = await page.getTextContent()
-                txt += (c.items || []).map((it: any) => it?.str || '').join(' ') + '\n'
-              }
-              await doc.destroy?.().catch(() => {})
-              parts.push(`[ATTACHMENT: ${f.name}]\n${txt.trim()}`)
-            } else {
-              parts.push(`[ATTACHMENT: ${f.name}]\n${f.buffer.toString('utf8')}`)
-            }
-          } catch {
-            parts.push(`[ATTACHMENT: ${f.name}] (could not read content)`)
-          }
-        } else {
-          parts.push(`[ATTACHMENT: ${f.name}] (binary file attached)`)
-        }
+        // We still build a small textual placeholder so the advisory prompt can reference the attachments.
+        parts.push(`[ATTACHMENT: ${f.name} — raw file provided to model for text extraction]`)
       }
       attachmentsText = parts.join('\n\n')
     }
@@ -754,6 +746,26 @@ Output ONLY the exact JSON object matching the target schema. No extra text.`
       recentConversation: messages.slice(-8),
       attachmentsText,
       vaultItems: vaultItems.length ? vaultItems : undefined,
+    }
+
+    // If attachments exist, send the raw files to the advisory generation too (single call).
+    if (attachedFiles.length > 0) {
+      const advisoryPrompt = (lastMessage || 'Please analyze the attached document(s).') +
+        '\n\nAttached documents are provided as raw files to this call for text extraction (no local tools).'
+
+      const content: any[] = [{ type: 'text', text: advisoryPrompt }]
+      for (const f of attachedFiles) {
+        if (f.mimeType.includes('pdf') || f.mimeType.startsWith('image/')) {
+          content.push({
+            type: 'file',
+            data: new Uint8Array(f.buffer),
+            mimeType: f.mimeType,
+          })
+        }
+      }
+
+      const advisory = await generateAdvisoryResponse(advisoryPrompt, advisoryCtx, content)
+      return Response.json(advisory)
     }
 
     const advisory = await generateAdvisoryResponse(lastMessage, advisoryCtx)

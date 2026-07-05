@@ -98,10 +98,15 @@ ${balances}
  * Generates a clean advisory response for non-execution questions.
  * Uses a single generation with a proper advisory system prompt.
  * Returns a simple { response } object the client already knows how to render.
+ *
+ * If rawContent is provided (array of text + file parts), we send it as a multimodal message
+ * so the LLM performs text extraction directly from the attached PDF/image bytes.
+ * No local pdf parsing tools are used.
  */
 export async function generateAdvisoryResponse(
   userMessage: string,
-  context: AdvisoryContext
+  context: AdvisoryContext,
+  rawContent?: any[]
 ): Promise<{ response: string }> {
   const llmConfig = getLlmConfig()
   const model = createLlmModel(llmConfig)
@@ -109,6 +114,17 @@ export async function generateAdvisoryResponse(
   const system = buildAdvisorySystemPrompt(context)
 
   try {
+    if (rawContent && rawContent.length > 0) {
+      const { text } = await generateText({
+        model,
+        system,
+        messages: [{ role: 'user', content: rawContent }],
+      })
+      return {
+        response: text?.trim() || 'I understood the attached document(s) but could not generate a response.',
+      }
+    }
+
     const { text } = await generateText({
       model,
       system,
