@@ -25,7 +25,7 @@ interface AdvisoryContext {
  * - Know basic app concepts (so it can explain UI, flows, Git model, receipts, feeds, etc.)
  * - Always ground answers in the provided facts; never hallucinate tax rates or company data.
  */
-function buildAdvisorySystemPrompt(ctx: AdvisoryContext): string {
+export function buildAdvisorySystemPrompt(ctx: AdvisoryContext): string {
   const { companyProfile, accountList, taxContext, balances, feedRatesText, memoryText } = ctx
 
   const companyFacts = `
@@ -105,8 +105,7 @@ ${balances}
  */
 export async function generateAdvisoryResponse(
   userMessage: string,
-  context: AdvisoryContext,
-  rawContent?: any[]
+  context: AdvisoryContext
 ): Promise<{ response: string }> {
   const llmConfig = getLlmConfig()
   const model = createLlmModel(llmConfig)
@@ -114,17 +113,6 @@ export async function generateAdvisoryResponse(
   const system = buildAdvisorySystemPrompt(context)
 
   try {
-    if (rawContent && rawContent.length > 0) {
-      const { text } = await generateText({
-        model,
-        system,
-        messages: [{ role: 'user', content: rawContent }],
-      })
-      return {
-        response: text?.trim() || 'I understood the attached document(s) but could not generate a response.',
-      }
-    }
-
     const { text } = await generateText({
       model,
       system,

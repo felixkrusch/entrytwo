@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { streamText, generateObject } from 'ai'
+import { streamText, generateObject, generateText } from 'ai'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { getRecentFeedRatesPromptText } from '@/lib/recentFeedRates'
@@ -8,7 +8,7 @@ import { getLlmConfig, createLlmModel } from '@/lib/llm'
 import { getCompanyProfile } from '@/lib/companyProfile'
 import { ChatIntent, ActionType, getSchemaForAction } from '@/lib/chat/intent'
 import { dispatchIntent as runDispatch } from '@/lib/chat/dispatcher'
-import { generateAdvisoryResponse } from '@/lib/chat/advisory'
+import { generateAdvisoryResponse, buildAdvisorySystemPrompt } from '@/lib/chat/advisory'
 import { decideChatMode } from '@/lib/chat/mode'
 import { MemoryVault } from '@/lib/memoryVault'
 import { writeFile, mkdir } from 'fs/promises'
@@ -189,8 +189,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Phase 2: compute a preliminary merchant hint from the user message
-    const preliminaryMerchant = (lastMessage.match(/from\s+([A-Za-z0-9 .&'-]+)/i)?.[1] || '').trim()
+    // No server-side parsing for merchant hints (or anything else).
+    // Let the LLM handle extraction and reasoning from the provided context.
+    const preliminaryMerchant = ''
 
     // Authoritative company profile (single source for tax + context)
     const companyProfile = await getCompanyProfile()
@@ -217,8 +218,80 @@ export async function POST(req: NextRequest) {
     // The icon toggle in the UI is the authoritative switch.
     // -----------------------------------------------------------------
     if (effectiveMode === 'advisor') {
-      // Pure advisory: send raw attachments (PDF/image) directly to the LLM for text extraction.
-      // No local pdfjs or text extraction tools are used.
+      // Advisory mode: single main call.
+      // When files are attached, ALWAYS send the raw PDF/image bytes directly to the LLM
+      // in this primary call (no local extraction, no secondary calls with files).
+      // Same principle as execution Pass 1.
+      if (attachedFiles.length > 0) {
+        let vaultItems: any[] = []
+        try {
+          const companyFacts = await Promise.all([
+            MemoryVault.get('company', 'company.region'),
+            MemoryVault.get('company', 'company.country'),
+            MemoryVault.get('company', 'company.baseCurrency'),
+            MemoryVault.get('company', 'company.defaultTaxJurisdiction'),
+          ])
+          vaultItems = companyFacts.filter(Boolean) as any[]
+          const recent = await MemoryVault.listByScope('company')
+          vaultItems.push(...recent.slice(0, 5))
+        } catch {}
+
+        const advisoryCtx = {
+          companyProfile,
+          accountList,
+          taxContext,
+          balances,
+          feedRatesText,
+          memoryText,
+          recentConversation: messages.slice(-8),
+          vaultItems: vaultItems.length ? vaultItems : undefined,
+        }
+
+        const system = buildAdvisorySystemPrompt(advisoryCtx)
+
+        const textPart = `User question / instruction: ${lastMessage || '(no text, just analyze the document)'}
+
+The attached file(s) are raw PDF or image documents. Read them completely and directly (do not rely on any pre-extracted text).
+
+Extract all key facts from the document(s):
+- Merchant / vendor / issuer name
+- Document / invoice / reference number
+- Dates (issue, due, period)
+- Line items, quantities, prices
+- Amounts in original currency + any charged/settled amount and currency
+- Tax amounts/rates if shown
+- Totals
+- Payment method or status hints (e.g. "paid via credit card", "charged automatically")
+
+Then answer the user's question using the document content + the company context (tax rates, accounts, base currency, location, memory).
+
+Be precise. Quote numbers and details from the document. If the user asks for advice, bookkeeping impact, or tax implications, use the provided configured rates and accounts.
+
+If nothing actionable is clear, just give a clear analysis of what the document contains.`
+
+        const content: any[] = [{ type: 'text', text: textPart }]
+        for (const f of attachedFiles) {
+          if (f.mimeType.includes('pdf') || f.mimeType.startsWith('image/')) {
+            content.push({
+              type: 'file',
+              data: new Uint8Array(f.buffer),
+              mediaType: f.mimeType,
+              filename: f.name,
+            })
+          }
+        }
+
+        // Primary (and only) advisory call with raw file bytes.
+        const { text } = await generateText({
+          model,
+          system,
+          messages: [{ role: 'user', content }]
+        })
+
+        return Response.json({ response: text?.trim() || 'Document received and analyzed.' })
+      }
+
+      // No files: normal advisory text-only path
       let vaultItems: any[] = []
       try {
         const companyFacts = await Promise.all([
@@ -232,7 +305,7 @@ export async function POST(req: NextRequest) {
         vaultItems.push(...recent.slice(0, 5))
       } catch {}
 
-      const advisoryCtx = {
+      const advisory = await generateAdvisoryResponse(lastMessage, {
         companyProfile,
         accountList,
         taxContext,
@@ -240,28 +313,8 @@ export async function POST(req: NextRequest) {
         feedRatesText,
         memoryText,
         recentConversation: messages.slice(-8),
-        attachmentsText: attachedFiles.length ? attachedFiles.map(f => `[ATTACHMENT: ${f.name} — raw file sent to model]`).join('\n') : undefined,
         vaultItems: vaultItems.length ? vaultItems : undefined,
-      }
-
-      if (attachedFiles.length > 0) {
-        const content: any[] = [
-          { type: 'text', text: lastMessage || 'Please analyze the attached document(s) for accounting purposes.' }
-        ]
-        for (const f of attachedFiles) {
-          if (f.mimeType.includes('pdf') || f.mimeType.startsWith('image/')) {
-            content.push({
-              type: 'file',
-              data: new Uint8Array(f.buffer),
-              mimeType: f.mimeType,
-            })
-          }
-        }
-        const advisory = await generateAdvisoryResponse(lastMessage || '', advisoryCtx, content)
-        return Response.json(advisory)
-      }
-
-      const advisory = await generateAdvisoryResponse(lastMessage, advisoryCtx)
+      })
       return Response.json(advisory)
     }
 
@@ -336,8 +389,84 @@ You are an autonomous junior bookkeeper. Execute routine safe work directly. Alw
     // Pure questions are handled above when effectiveMode === 'advisor'.
     // -----------------------------------------------------------------
     try {
-      // Pass 1 – Intelligence / Understanding (now supports compound intents + FX)
-      const pass1Prompt = `You are an intelligent accounting assistant.
+      // Pass 1 – Intelligence / Understanding.
+      // The main call. When PDF or image files are attached, we send the raw bytes
+      // directly to the LLM (no local pdfjs, no pre-processing).
+      // Pass 1's job is to read the document + user text and produce rich understanding.
+      // It does NOT have to return structured actions.
+      // Structuring (if needed) happens in Pass 2 later.
+      // This path is used for both advisor mode and execution mode.
+
+      let actionItems: any[] = []
+
+      if (attachedFiles.length > 0) {
+        // RAW FILE PATH (Pass 1): send the PDF/image exactly as received.
+        // Grok 4.3 will extract the text accurately.
+        const extractionPrompt = `You are an intelligent accounting assistant.
+
+Context:
+- Accounts: ${accountList}
+- Tax rates: ${taxContext}
+- Company region/country: ${companyRegion || 'unknown'} / ${companyCountry || 'unknown'}
+  ${feedRatesText ? feedRatesText + '\n' : ''}${memoryText ? memoryText + '\n' : ''}
+
+CONTACTS (exact names to use for contactName / contactId resolution):
+${contactsContext}
+
+User said: "${lastMessage}"
+
+The attached file(s) are provided raw (PDF or image). Read them completely and accurately.
+Extract every relevant detail:
+- Merchant / vendor name, address, tax ID if present
+- Invoice / reference / document number
+- Dates (issue date, due date, service period)
+- Line items with description, quantity, unit price
+- Amounts in their original currency
+- Any settlement / charged amount and currency (especially for credit card or bank payments)
+- Tax amounts and rates
+- Totals
+- Payment method hints ("paid via credit card", "charged", "automatic payment", etc.)
+- Any other notes or identifiers
+
+Write a clear, complete, factual understanding that captures what the document is about.
+If the user mentioned "paid via credit card" or similar, include that.
+
+Output ONLY the understanding text. Do not output JSON or action names.`
+
+        const content: any[] = [{ type: 'text', text: extractionPrompt }]
+        for (const f of attachedFiles) {
+          if (f.mimeType.includes('pdf') || f.mimeType.startsWith('image/')) {
+            content.push({
+              type: 'file',
+              data: new Uint8Array(f.buffer),
+              mediaType: f.mimeType,
+              filename: f.name,
+            })
+          }
+        }
+
+        // Direct call with raw file bytes. This is the main intelligence call (Pass 1).
+        const { text: extracted } = await generateText({
+          model,
+          messages: [{ role: 'user', content }]
+        })
+
+        const understanding = (extracted || '').trim()
+        if (understanding) {
+          // We got good extraction from the raw file.
+          // For execution we will let the normal per-item logic run Pass 2 on it (to pack into schema).
+          // We represent it as a candidate CREATE_JOURNAL with the rich understanding.
+          // Pass 2 will turn the understanding into the exact structured object.
+          actionItems = [{
+            action: 'CREATE_JOURNAL',
+            understanding,
+            confidence: 0.85,
+            reasoning: 'Raw document provided in Pass 1'
+          }]
+        }
+      } else {
+        // No attachments: original behaviour (structured intelligence pass)
+        const pass1Prompt = `You are an intelligent accounting assistant.
 
 Context:
 - Accounts: ${accountList}
@@ -390,42 +519,13 @@ Return EXACTLY this shape (always an array):
 
 Even for a single event, put it inside an array under "actions".`
 
-      // Pass 1 receives the raw PDF(s) (when present) so the LLM does the text extraction.
-      // No local pdfjs / text tools here. The document bytes go to the model.
-      // The resulting understanding(s) then flow into Pass 2 for exact schema packing.
-      let p1Options: any
-      if (attachedFiles.length > 0) {
-        const textInstruction = pass1Prompt +
-          `\n\nDOCUMENT(S) ATTACHED: One or more PDF or image files are attached to this request. ` +
-          `Read the attached document(s) directly to extract all transaction details: vendor/merchant, ` +
-          `invoice or reference numbers, dates (issue, due, service period), line items, descriptions, ` +
-          `amounts, currencies (original + any settlement), tax amounts/rates, totals, payment method hints ` +
-          `(e.g. "paid via credit card", "charged to card"), notes, etc. ` +
-          `Use both the user's text ("${lastMessage}") and the content of the attached document(s) to decide action(s) and write precise, rich "understanding" strings. ` +
-          `If the document indicates a credit-card or bank payment, capture that in the understanding so the journal can be recorded correctly.`
-
-        const content: any[] = [{ type: 'text', text: textInstruction }]
-        for (const f of attachedFiles) {
-          if (f.mimeType.includes('pdf') || f.mimeType.startsWith('image/')) {
-            content.push({
-              type: 'file',
-              data: new Uint8Array(f.buffer),
-              mimeType: f.mimeType,
-            })
-          }
-        }
-        p1Options = { messages: [{ role: 'user' as const, content }] }
-      } else {
-        p1Options = { prompt: pass1Prompt }
+        const { object: p1 } = await generateObject({
+          model,
+          schema: Pass1Schema,
+          prompt: pass1Prompt,
+        })
+        actionItems = Array.isArray((p1 as any)?.actions) ? (p1 as any).actions : []
       }
-
-      const { object: p1 } = await generateObject({
-        model,
-        schema: Pass1Schema,
-        ...p1Options,
-      })
-
-      const actionItems: any[] = Array.isArray((p1 as any)?.actions) ? (p1 as any).actions : []
 
       if (actionItems.length > 0) {
         let lastResult: any = null
@@ -464,7 +564,7 @@ ${companyCountry || 'DE'}
 When the user says "change ... to Germany DE", "set country to DE", "update address to Germany", etc. for an existing contact name, you must output UPDATE_CONTACT (never CREATE_CONTACT) with the correct name and the new addressCountry.
 `.trim()
 
-          const pass2Prompt = `You are packing an exact structured object for the action: ${chosenAction}.
+          let pass2Prompt = `You are packing an exact structured object for the action: ${chosenAction}.
 
 SOURCE MATERIAL:
 - Your previous understanding: ${item?.understanding || ''}
@@ -490,7 +590,61 @@ For CREATE_CONTACT or UPDATE_CONTACT:
 
 Output ONLY the exact JSON object matching the target schema. No extra text.`
 
-          try {
+          // Pure LLM path for CREATE_JOURNAL when we have a rich understanding
+          // (from raw file in Pass 1, or from text-only Pass 1).
+          // Pass 2 prompt gives the model the complete understanding text + user note.
+          // Model must extract amounts/currencies/FX/merchant and emit the exact balanced journal.
+          // Zero server-side parsing, regex, or arithmetic for amounts/FX.
+          if (chosenAction === 'CREATE_JOURNAL' && item?.understanding) {
+            const fullUnderstanding = item.understanding
+            const today = new Date().toISOString().slice(0, 10)
+            pass2Prompt = `You are packing an exact CREATE_JOURNAL object.
+
+THE UNDERSTANDING BELOW IS THE COMPLETE, AUTHORITATIVE SOURCE (it came from the model reading the raw PDF/image bytes or the user's text). Treat it as ground truth. Extract every number, currency, merchant, reference, date, and line item from it literally.
+
+UNDERSTANDING (source of truth):
+${fullUnderstanding}
+
+User note / additional instruction (this may give the actual charged/paid amount in base currency):
+${lastMessage}
+
+Company base currency: ${baseCurrency}
+Use this date for fxDate: ${today}
+
+REFERENCE DATA (exact values only):
+ACCOUNTS:
+${accountList}
+
+TAX RATES:
+${taxContext}
+
+CONTACTS:
+${contactsContext}
+
+REQUIREMENTS:
+- Read the foreign amount + currency directly from the UNDERSTANDING (e.g. $10.00 USD or 30.00 USD).
+- Read the base amount the user actually paid/charged from the user note or understanding (e.g. 9€, 28€, "paid by credit card 9€").
+- Output a balanced journal:
+  - Debit line: expense/subscription/etc. for the foreign amount, with that currency, fxRateToBase = (base_paid / foreign_amount), fxSource="MANUAL", fxDate=${today}
+  - Credit line: the payment account (credit cards 2100 when "credit card" / "charged", or bank/cash) for the exact base amount in EUR.
+- After fxRateToBase, base-currency debits must equal base-currency credits (within 0.01).
+- Include description at top level and on lines. Include merchant if present in the understanding.
+- Use ONLY account codes and tax ids from the reference data above.
+
+Example of the required shape (numbers must come from the UNDERSTANDING + note, not this example):
+{
+  "description": "Kilo Balance Top Up - VWMYPIAT-0038",
+  "merchant": "Kilo Code",
+  "lines": [
+    { "accountCode": "6000", "debit": 10, "credit": 0, "currency": "USD", "fxRateToBase": 0.9, "fxSource": "MANUAL", "fxDate": "${today}", "description": "Kilo Balance Top Up" },
+    { "accountCode": "2100", "debit": 0, "credit": 9, "currency": "EUR", "description": "Credit card" }
+  ]
+}
+
+Return ONLY the JSON object for the schema. No extra text.`
+          }
+
+            try {
             let packed = await (async () => {
               const { object } = await generateObject({
                 model,
@@ -525,78 +679,9 @@ Output ONLY the exact JSON object matching the target schema. No extra text.`
               }
             }
 
-            // -----------------------------------------------------------------
-            // FX repair for CREATE_JOURNAL (after model packing, before validation)
-            // Strong safety net for the exact pattern the user is hitting:
-            // "add a 80$ USD expense on the credit card. it show up as 78€ on the creditcard statement"
-            //
-            // We extract the two amounts + currencies from the source text and force
-            // a correct FX journal structure:
-            //   - Expense line: foreign amount + foreign currency + fxRateToBase
-            //   - Card line: exact base amount + EUR
-            // This guarantees the FX-aware balance check in validateJournalIntent will pass.
-            // -----------------------------------------------------------------
-            if (chosenAction === 'CREATE_JOURNAL' && packed && Array.isArray((packed as any).lines)) {
-              const lines: any[] = (packed as any).lines
-              const baseCur = 'EUR'
-              const srcText = `${item?.understanding || ''} ${lastMessage || ''}`.toLowerCase()
-
-              // Parse explicit foreign + base pair from the user's words
-              let foreignAmt = 0
-              let baseAmt = 0
-              let foreignCur = 'USD'
-
-              // Prefer explicit "$80 USD ... 78€" style
-              const usdNum = srcText.match(/\$?\s*([\d.,]+)\s*(usd|dollar)?/i)
-              const eurNum = srcText.match(/€?\s*([\d.,]+)\s*(eur|euro)?/i)
-
-              if (usdNum) foreignAmt = parseFloat(usdNum[1].replace(',', '.'))
-              if (eurNum) baseAmt = parseFloat(eurNum[1].replace(',', '.'))
-
-              // If we only got one number or they are the same, try a more general "two amounts" extraction
-              if (!foreignAmt || !baseAmt || Math.abs(foreignAmt - baseAmt) < 0.01) {
-                const nums = Array.from(srcText.matchAll(/([\d.,]+)/g))
-                  .map(m => parseFloat(m[1].replace(',', '.')))
-                  .filter(n => n > 0)
-                  .sort((a, b) => b - a)
-
-                if (nums.length >= 2) {
-                  // The larger raw number is usually the foreign one in these prompts
-                  foreignAmt = nums[0]
-                  baseAmt = nums[1]
-                }
-              }
-
-              if (foreignAmt > 0 && baseAmt > 0 && foreignAmt !== baseAmt) {
-                // Find the two relevant lines (prefer the ones with matching amounts)
-                let expLine = lines.find(l => Math.abs((Number(l?.debit) || 0) - foreignAmt) < 0.5)
-                let payLine = lines.find(l => Math.abs((Number(l?.credit) || 0) - baseAmt) < 0.5)
-
-                // Fallbacks if amount matching was off
-                if (!expLine) expLine = lines.find(l => (Number(l?.debit) || 0) > 0)
-                if (!payLine) payLine = lines.find(l => (Number(l?.credit) || 0) > 0)
-
-                if (expLine && payLine) {
-                  // Force the foreign side
-                  expLine.debit = foreignAmt
-                  expLine.credit = 0
-                  expLine.currency = foreignCur
-                  expLine.fxRateToBase = Number((baseAmt / foreignAmt).toFixed(6))
-                  expLine.fxSource = expLine.fxSource || 'MANUAL'
-                  expLine.fxDate = (typeof expLine.fxDate === 'string' && expLine.fxDate.length === 10) ? expLine.fxDate : new Date().toISOString().slice(0, 10)
-
-                  // Force the base side
-                  payLine.credit = baseAmt
-                  payLine.debit = 0
-                  payLine.currency = baseCur
-
-                  // Make sure description is reasonable if missing
-                  if (!expLine.description) expLine.description = 'Expense'
-                  if (!payLine.description) payLine.description = 'Credit card'
-                }
-              }
-            }
-
+            // Pure LLM path only. No server-side amount/FX extraction or mutation.
+            // Pass 2 prompt contains the full raw-document understanding + user note.
+            // The model must produce the correct balanced journal (or we fall back to proposal).
             let validationOk = true
             let validationError: string | undefined
 
@@ -678,6 +763,14 @@ Output ONLY the exact JSON object matching the target schema. No extra text.`
 
               lastResult = payload
             } else {
+              // On validation failure (e.g. FX balance), still surface as a PROPOSAL
+              // so the journal editor opens as a last fallback for the user to correct
+              // amounts, currencies, fxRateToBase, accounts, etc. manually.
+              const packedParams = { ...(packed as any || {}) }
+              if (chosenAction === 'CREATE_JOURNAL' && !packedParams.description) {
+                packedParams.description = item?.understanding || lastMessage
+              }
+
               lastResult = {
                 response: validationError
                   ? `Understood: ${item?.understanding}. Cannot proceed: ${validationError}`
@@ -685,6 +778,8 @@ Output ONLY the exact JSON object matching the target schema. No extra text.`
                 proposed: true,
                 action: chosenAction,
                 understanding: item?.understanding,
+                params: packedParams,
+                proposedAction: { type: chosenAction, params: packedParams },
               }
             }
           } catch (inner) {
@@ -700,76 +795,12 @@ Output ONLY the exact JSON object matching the target schema. No extra text.`
       console.log('Two-pass flow error, falling back', twoPassErr)
     }
 
-    // Two-pass produced no executable action.
-    // In execution mode this means "the user asked something that is not a direct command".
-    // We still give a helpful direct answer using the advisory generator (single pass).
-    // The client icon controls whether the user *prefers* advisor or execution up front.
-    //
-    // IMPORTANT: for attachments (PDFs/images), Pass 1 already saw the raw bytes.
-    // To be bulletproof we ALSO send the raw files here (single advisory generation) so
-    // the LLM can extract directly without any local pdfjs fallback.
-    let attachmentsText: string | undefined
-    if (attachedFiles.length > 0) {
-      const parts: string[] = []
-      for (const f of attachedFiles) {
-        // We still build a small textual placeholder so the advisory prompt can reference the attachments.
-        parts.push(`[ATTACHMENT: ${f.name} — raw file provided to model for text extraction]`)
-      }
-      attachmentsText = parts.join('\n\n')
-    }
-
-    // Pull a small number of relevant Memory Vault items (company facts + recent learned items).
-    // This gives the LLM a way to "go into the vault and take what it needs".
-    let vaultItems: any[] = []
-    try {
-      const companyFacts = await Promise.all([
-        MemoryVault.get('company', 'company.region'),
-        MemoryVault.get('company', 'company.country'),
-        MemoryVault.get('company', 'company.baseCurrency'),
-        MemoryVault.get('company', 'company.defaultTaxJurisdiction'),
-      ])
-      vaultItems = companyFacts.filter(Boolean) as any[]
-
-      const recent = await MemoryVault.listByScope('company')
-      vaultItems.push(...recent.slice(0, 5))
-    } catch {
-      // Vault is best-effort.
-    }
-
-    const advisoryCtx = {
-      companyProfile,
-      accountList,
-      taxContext,
-      balances,
-      feedRatesText,
-      memoryText,
-      recentConversation: messages.slice(-8),
-      attachmentsText,
-      vaultItems: vaultItems.length ? vaultItems : undefined,
-    }
-
-    // If attachments exist, send the raw files to the advisory generation too (single call).
-    if (attachedFiles.length > 0) {
-      const advisoryPrompt = (lastMessage || 'Please analyze the attached document(s).') +
-        '\n\nAttached documents are provided as raw files to this call for text extraction (no local tools).'
-
-      const content: any[] = [{ type: 'text', text: advisoryPrompt }]
-      for (const f of attachedFiles) {
-        if (f.mimeType.includes('pdf') || f.mimeType.startsWith('image/')) {
-          content.push({
-            type: 'file',
-            data: new Uint8Array(f.buffer),
-            mimeType: f.mimeType,
-          })
-        }
-      }
-
-      const advisory = await generateAdvisoryResponse(advisoryPrompt, advisoryCtx, content)
-      return Response.json(advisory)
-    }
-
-    const advisory = await generateAdvisoryResponse(lastMessage, advisoryCtx)
-    return Response.json(advisory)
+    // No executable action produced by the main call.
+    // The main intelligence call (Pass 1) already received any attached PDF/image raw.
+    // No secondary/fallback LLM calls with files. Redundant broken paths removed.
+    return Response.json({
+      response: 'Understood. No accounting action was required from the provided information.'
+    })
   } catch (e) {
     console.error('chat error', e)
     return Response.json({ response: 'Chat temporarily unavailable.' })
