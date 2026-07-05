@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { getRecentFeedRatesPromptText } from '@/lib/recentFeedRates'
 import { getMerchantMemoryPrompt } from '@/lib/agentMemory'
 import { getLlmConfig, createLlmModel } from '@/lib/llm'
+import { getCompanyProfile } from '@/lib/companyProfile'
 import { ChatIntent, ActionType, getSchemaForAction } from '@/lib/chat/intent'
 import { dispatchIntent as runDispatch } from '@/lib/chat/dispatcher'
 import { writeFile, mkdir } from 'fs/promises'
@@ -174,36 +175,17 @@ export async function POST(req: NextRequest) {
     // Phase 2: compute a preliminary merchant hint from the user message
     const preliminaryMerchant = (lastMessage.match(/from\s+([A-Za-z0-9 .&'-]+)/i)?.[1] || '').trim()
 
-    // Get company location info + real base currency from settings
-    let companyRegion: string | undefined
-    let companyCountry: string | undefined
-    let baseCurrency = 'EUR'
-    try {
-      const [addr, jur, bc] = await Promise.all([
-        prisma.setting.findUnique({ where: { key: 'company.address' } }),
-        prisma.setting.findUnique({ where: { key: 'defaultTaxJurisdiction' } }),
-        prisma.setting.findUnique({ where: { key: 'baseCurrency' } }),
-      ])
-      const a = addr?.value as unknown as { region?: string; country?: string } | null
-      const jv = (jur?.value as unknown as { value?: string })?.value || (jur?.value as unknown as string)
-      companyRegion = (a?.region || jv || undefined)
-      companyCountry = a?.country || (companyRegion ? companyRegion.split('-')[0] : undefined)
-      if (companyRegion) companyRegion = String(companyRegion).toUpperCase()
-
-      const bcVal = (bc?.value as any)?.value
-      if (typeof bcVal === 'string' && bcVal.trim()) {
-        baseCurrency = bcVal.trim().toUpperCase()
-      }
-    } catch {}
+    // Authoritative company profile (single source for tax + context)
+    const companyProfile = await getCompanyProfile()
+    const companyRegion = companyProfile.region
+    const companyCountry = companyProfile.country
+    const baseCurrency = companyProfile.baseCurrency
 
     // Phase 2: inject memory (now keyed on merchant + region) + feed rates
     const [feedRatesText, memoryText] = await Promise.all([
       getRecentFeedRatesPromptText(6),
       getMerchantMemoryPrompt(preliminaryMerchant || undefined, companyRegion),
     ])
-
-    // Make base currency available to prompts and later logic
-    // (already fetched above)
 
     const system = `You are a precise double-entry AI accountant.
 Always balance debits = credits. Use exact codes from the list.
