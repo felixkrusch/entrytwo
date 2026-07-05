@@ -18,6 +18,7 @@ import LedgerView from './LedgerView'
 import GitModelBootstrap from './GitModelBootstrap'
 import GitModelControls from './GitModelControls'
 import BooksViewIndicator from './BooksViewIndicator'
+import toast from 'react-hot-toast'
 import ReceiptsPanel from './ReceiptsPanel'
 import { useTranslations } from 'next-intl'
 import { ErrorBoundary } from '../components/ErrorBoundary'
@@ -49,7 +50,7 @@ function AppContent({ children }: { children: ReactNode }) {
 
   const rawView = searchParams?.get('view')
   const hasAccountParam = !!(searchParams?.get('accountCode') || searchParams?.get('account'))
-  const view = (rawView as 'dashboard' | 'contacts' | 'invoicing' | 'reports' | 'ledger' | 'receipts') ?? (hasAccountParam ? 'ledger' : 'dashboard')
+  const view = (rawView as 'dashboard' | 'contacts' | 'invoicing' | 'reports' | 'ledger' | 'receipts' | 'journal' | 'history') ?? (hasAccountParam ? 'ledger' : 'dashboard')
   const ledgerAccountCode = searchParams?.get('accountCode') || searchParams?.get('account') || undefined
 
   // Git Model for Accounting: branch + asOf (point in time / branch view)
@@ -201,10 +202,9 @@ function AppContent({ children }: { children: ReactNode }) {
 
                 <SummaryBar />
 
-                {/* Git Model for Accounting controls: branch / asOf / reconcile / restore */}
-                <ErrorBoundary>
-                  <GitModelControls />
-                </ErrorBoundary>
+                {/* Git Model controls (branch selector, asOf, recent commits, reconcile, merge, tag, etc.)
+                    are ONLY available in the dedicated Git view: /app?view=history
+                    All other views still honor ?branch and ?asOf from the URL if present. */}
 
                 {/* Live dashboard main grid:
                     - lg: 3 columns for the primary live sections
@@ -223,9 +223,18 @@ function AppContent({ children }: { children: ReactNode }) {
                     </ErrorBoundary>
                   </div>
 
-                  <div className="lg:col-span-3 xl:col-span-6">
-                    <ErrorBoundary><JournalEntriesPanel filterAccountId={selectedAccount?.code} branch={currentBranch} asOf={asOf} /></ErrorBoundary>
-                  </div>
+                   <div className="lg:col-span-3 xl:col-span-6">
+                     {/* Dashboard shows only the 5 most recent entries. Full journal with pagination is at ?view=journal */}
+                     <ErrorBoundary>
+                       <JournalEntriesPanel
+                         filterAccountId={selectedAccount?.code}
+                         branch={currentBranch}
+                         asOf={asOf}
+                         limit={5}
+                         showPagination={false}
+                       />
+                     </ErrorBoundary>
+                   </div>
 
                   <div className="lg:col-span-3 xl:col-span-3">
                     <ErrorBoundary><ReportsPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} branch={currentBranch} asOf={asOf} /></ErrorBoundary>
@@ -235,15 +244,8 @@ function AppContent({ children }: { children: ReactNode }) {
                     <ErrorBoundary><ProfitLossPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} branch={currentBranch} asOf={asOf} /></ErrorBoundary>
                   </div>
 
-                  <div className="lg:col-span-3 xl:col-span-6">
-                     <div className="mb-2 flex items-center justify-between">
-                       <div>
-                         <div className="text-sm font-medium">Commit History</div>
-                         <div className="text-[10px] text-zinc-500">All changes as immutable commits (journal entries + branch/merge/tag/rollback). GitHub-style list.</div>
-                       </div>
-                     </div>
-                     <ErrorBoundary><AuditLogPanel /></ErrorBoundary>
-                   </div>
+                   {/* Commit history moved to its own view (?view=history) and to the Settings dropdown.
+                       We no longer embed the full AuditLogPanel on the dashboard. */}
 
                   <div className="lg:col-span-3 xl:col-span-3">
                     <ErrorBoundary><TemplatesPanel /></ErrorBoundary>
@@ -260,29 +262,72 @@ function AppContent({ children }: { children: ReactNode }) {
               </>
             )}
 
-{view === 'contacts' && (
-               <ContactsContent />
-              )}
+ {view === 'contacts' && (
+                <ContactsContent />
+               )}
 
               {view === 'invoicing' && (
                  <InvoicingPanel />
                )}
 
-               {view === 'reports' && (
-                 <ReportsContent />
-               )}
-
-                {view === 'ledger' && ledgerAccountCode && (
-                  <LedgerView accountCode={ledgerAccountCode} branch={currentBranch} asOf={asOf} />
+                {view === 'reports' && (
+                  <ReportsContent />
                 )}
 
-                {view === 'ledger' && !ledgerAccountCode && (
-                  <div className="text-sm text-zinc-400">No account selected for ledger.</div>
-                )}
+                 {view === 'ledger' && ledgerAccountCode && (
+                   <LedgerView accountCode={ledgerAccountCode} branch={currentBranch} asOf={asOf} />
+                 )}
 
-                {view === 'receipts' && (
-                  <ReceiptsPanel />
-                )}
+                 {view === 'ledger' && !ledgerAccountCode && (
+                   <div className="text-sm text-zinc-400">No account selected for ledger.</div>
+                 )}
+
+                 {view === 'receipts' && (
+                   <ReceiptsPanel />
+                 )}
+
+                 {/* Full journal view (all entries, with pagination). 5 most recent stay on dashboard. */}
+                 {view === 'journal' && (
+                   <div className="p-4">
+                     <div className="mb-4">
+                       <h1 className="text-xl font-semibold">Journal</h1>
+                       <p className="text-xs text-zinc-500 mt-1">All journal entries with pagination.</p>
+                     </div>
+                     <ErrorBoundary>
+                       <JournalEntriesPanel
+                         filterAccountId={selectedAccount?.code}
+                         branch={currentBranch}
+                         asOf={asOf}
+                         showPagination={true}
+                       />
+                     </ErrorBoundary>
+                   </div>
+                 )}
+
+                   {/* Dedicated Git view: full Git Model controls + complete commit history */}
+                   {view === 'history' && (
+                     <div className="p-4 space-y-6">
+                       <div>
+                         <h1 className="text-xl font-semibold">Commit History</h1>
+                         <p className="text-xs text-zinc-500 mt-1">
+                           Branching, point-in-time views, reconcile, merge, tagging, and the full immutable commit log.
+                         </p>
+                       </div>
+
+                       {/* The complete Git toolbar (branch, asOf, recent commits, reconcile, merge, tag, etc.) */}
+                       <ErrorBoundary>
+                         <GitModelControls />
+                       </ErrorBoundary>
+
+                       {/* Full commit history list */}
+                       <div>
+                         <div className="mb-2 text-sm font-medium text-zinc-300">Commits</div>
+                         <ErrorBoundary>
+                           <AuditLogPanel />
+                         </ErrorBoundary>
+                       </div>
+                     </div>
+                   )}
              </div>
         </div>
       </div>
@@ -334,11 +379,12 @@ function ContactsContent() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'CUSTOMER' | 'VENDOR'>('ALL')
-  const [currentPage, setCurrentPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
   const [showForm, setShowForm] = useState(false)
   const [editingContact, setEditingContact] = useState<ContactItem | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  // Quick stats like InvoicingPanel
+  const [stats, setStats] = useState<{ total: number; customers: number; vendors: number }>({ total: 0, customers: 0, vendors: 0 })
   
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
@@ -357,8 +403,7 @@ function ContactsContent() {
     setLoading(true)
     try {
       const params = new URLSearchParams({
-        page: currentPage.toString(),
-        limit: '20',
+        limit: '100',
       })
       if (search) params.set('search', search)
       if (typeFilter !== 'ALL') params.set('type', typeFilter)
@@ -366,15 +411,21 @@ function ContactsContent() {
       const res = await fetch(`/api/contacts?${params}`)
       if (res.ok) {
         const data = await res.json()
-        setContacts(data.contacts || [])
-        setTotalPages(data.pages || 1)
+        const list: ContactItem[] = data.contacts || []
+        setContacts(list)
+
+        // Compute stats (like InvoicingPanel)
+        const total = list.length
+        const customers = list.filter(c => c.type === 'CUSTOMER').length
+        const vendors = list.filter(c => c.type === 'VENDOR').length
+        setStats({ total, customers, vendors })
       }
     } catch {
       // ignore
     } finally {
       setLoading(false)
     }
-  }, [search, typeFilter, currentPage])
+  }, [search, typeFilter])
 
   useEffect(() => {
     void fetchContacts()
@@ -491,7 +542,18 @@ function ContactsContent() {
   const deleteContact = async (contactId: string, e?: React.MouseEvent) => {
     e?.stopPropagation()
     if (!confirm('Delete this contact? This cannot be undone if they have related entries.')) return
-    await fetch(`/api/contacts/${contactId}`, { method: 'DELETE' })
+    try {
+      const res = await fetch(`/api/contacts/${contactId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        toast.error(err.error || 'Failed to delete contact')
+        return
+      }
+      toast.success('Contact deleted')
+    } catch {
+      toast.error('Failed to delete contact')
+      return
+    }
     setShowForm(false)
     resetForm()
     void fetchContacts()
@@ -506,19 +568,88 @@ function ContactsContent() {
     })
   }, [contacts, search, typeFilter])
 
+  // Listen for chat-triggered "open contact form in focus"
+  useEffect(() => {
+    const handler = (e: any) => {
+      const detail = e?.detail || {}
+      if (detail.id) {
+        const found = contacts.find(c => c.id === detail.id)
+        if (found) {
+          populateForm(found)
+          // scroll the form into view and focus
+          setTimeout(() => {
+            const formEl = document.getElementById('contact-form-section')
+            formEl?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            const nameInput = formEl?.querySelector('input') as HTMLInputElement | null
+            nameInput?.focus()
+            nameInput?.select()
+          }, 60)
+        } else {
+          // not in current page, still open form with partial data
+          resetForm()
+          if (detail.prefill?.name) setNewName(detail.prefill.name)
+          setShowForm(true)
+          setTimeout(() => {
+            const formEl = document.getElementById('contact-form-section')
+            formEl?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            const nameInput = formEl?.querySelector('input') as HTMLInputElement | null
+            nameInput?.focus()
+          }, 80)
+        }
+      } else if (detail.prefill) {
+        resetForm()
+        if (detail.prefill.name) setNewName(detail.prefill.name)
+        setShowForm(true)
+        setTimeout(() => {
+          const formEl = document.getElementById('contact-form-section')
+          formEl?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          const nameInput = formEl?.querySelector('input') as HTMLInputElement | null
+          nameInput?.focus()
+        }, 80)
+      }
+    }
+    window.addEventListener('open-contact-form', handler as any)
+    return () => window.removeEventListener('open-contact-form', handler as any)
+  }, [contacts])
+
   const toggleExpand = (id: string) => {
     setExpandedId(expandedId === id ? null : id)
   }
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold">Contacts</h1>
-        <p className="text-xs text-zinc-500 mt-1">
-          Manage customers and vendors.
-        </p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold">Contacts</h1>
+          <p className="text-xs text-zinc-500 mt-1">
+            Manage customers and vendors.
+          </p>
+        </div>
+        <button
+          onClick={() => { setShowForm(true); resetForm(); setEditingContact(null); }}
+          className="px-3 py-1.5 rounded bg-emerald-500 text-black font-medium text-sm hover:bg-emerald-400"
+        >
+          Add Contact
+        </button>
       </div>
 
+      {/* Quick stats (mirrors InvoicingPanel) */}
+      <div className="mb-5 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+          <div className="text-[10px] text-zinc-400">Total</div>
+          <div className="text-lg font-semibold tabular-nums mt-0.5">{stats.total}</div>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+          <div className="text-[10px] text-emerald-400">Customers</div>
+          <div className="text-lg font-semibold tabular-nums mt-0.5 text-emerald-400">{stats.customers}</div>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+          <div className="text-[10px] text-amber-400">Vendors</div>
+          <div className="text-lg font-semibold tabular-nums mt-0.5 text-amber-400">{stats.vendors}</div>
+        </div>
+      </div>
+
+      {/* Filters row (search + type). "Add Contact" is now top-right like "New Invoice" */}
       <div className="flex items-center gap-3 mb-4">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
@@ -539,138 +670,11 @@ function ContactsContent() {
           <option value="CUSTOMER">Customers</option>
           <option value="VENDOR">Vendors</option>
         </select>
-        <button
-          onClick={() => { setShowForm(true); resetForm(); setEditingContact(null); }}
-          className="flex items-center px-3 py-1.5 rounded bg-emerald-500 text-black font-medium text-sm hover:bg-emerald-400"
-        >
-          Add Contact
-        </button>
       </div>
 
-      {loading ? (
-        <div className="text-zinc-500">Loading...</div>
-      ) : filteredContacts.length === 0 ? (
-        <div className="text-zinc-500">No contacts yet.</div>
-      ) : (
-        <div className="space-y-2">
-           {filteredContacts.map(contact => (
-             <div
-               key={contact.id}
-               className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 hover:border-zinc-700 transition-colors cursor-pointer"
-               onClick={() => toggleExpand(contact.id)}
-             >
-               <div className="flex items-start justify-between">
-                 <div>
-                   <div className="font-medium">{contact.name}</div>
-                   <div className="flex items-center gap-2 mt-1 text-xs">
-                     <span className={`px-2 py-0.5 rounded ${
-                       contact.type === 'CUSTOMER' 
-                         ? 'bg-emerald-950 text-emerald-400' 
-                         : 'bg-amber-950 text-amber-400'
-                     }`}>
-                       {contact.type === 'CUSTOMER' ? 'Customer' : 'Vendor'}
-                     </span>
-                     {contact.entryCount > 0 && (
-                       <span className="text-zinc-500">{contact.entryCount} entries</span>
-                     )}
-                   </div>
-                   {contact.email && (
-                     <a href={`mailto:${contact.email}`} className="text-xs text-blue-400 hover:underline mt-1 block" onClick={e => e.stopPropagation()}>
-                       {contact.email}
-                     </a>
-                   )}
-                   {contact.phone && (
-                     <span className="text-xs text-zinc-400 mt-1 block">{contact.phone}</span>
-                   )}
-                   {formatAddress(contact) && (
-                     <span className="text-xs text-zinc-500 mt-1 block" onClick={e => e.stopPropagation()}>
-                       {formatAddress(contact)}
-                     </span>
-                   )}
-                   {contact.website && (
-                     <a href={contact.website} className="text-xs text-blue-400 hover:underline mt-1 block" onClick={e => e.stopPropagation()} target="_blank" rel="noopener noreferrer">
-                       {contact.website}
-                     </a>
-                   )}
-                   {contact.taxId && (
-                     <span className="text-xs text-zinc-400 mt-1 block">Tax: {contact.taxId}</span>
-                   )}
-                 </div>
-                 <div className="flex flex-col items-end gap-1">
-                   {contact.taxId && (
-                     <button
-                       onClick={e => { e.stopPropagation(); void validateVat(contact.taxId!) }}
-                       className="text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                       title="Validate VAT"
-                     >
-                       Verify VAT
-                     </button>
-                   )}
-                   {contact.vatValidated !== undefined && (
-                     <span className={`text-xs ${contact.vatValid ? 'text-emerald-400' : 'text-rose-400'}`} title={contact.vatValid ? 'VAT valid' : 'VAT invalid'} onClick={e => e.stopPropagation()}>
-                       {contact.vatValid ? '✓' : '✗'}
-                     </span>
-                   )}
-                 </div>
-               </div>
-
-               {/* Inline accordion details (no modal) */}
-               {expandedId === contact.id && (
-                 <div className="mt-4 border-t border-zinc-800 pt-4 text-sm" onClick={e => e.stopPropagation()}>
-                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-xs text-zinc-300">
-                     {contact.email && <div>Email: <a href={`mailto:${contact.email}`} className="text-blue-400 hover:underline">{contact.email}</a></div>}
-                     {contact.phone && <div>Phone: {contact.phone}</div>}
-                     {contact.taxId && <div>Tax ID: {contact.taxId}</div>}
-                     {contact.website && <div>Website: <a href={contact.website} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">{contact.website}</a></div>}
-                     {formatAddress(contact) && <div className="sm:col-span-2">Address: {formatAddress(contact)}</div>}
-                     <div>Entries: {contact.entryCount}</div>
-                     <div>Type: {contact.type}</div>
-                   </div>
-                   <div className="mt-3 flex flex-wrap gap-2">
-                     <button
-                       onClick={() => { populateForm(contact); setShowForm(true); setExpandedId(null) }}
-                       className="px-3 py-1 text-xs rounded bg-emerald-700"
-                     >
-                       Edit Contact
-                     </button>
-                     <button
-                       onClick={(e) => { e.stopPropagation(); void deleteContact(contact.id, e); }}
-                       className="px-3 py-1 text-xs rounded bg-rose-900 text-rose-200"
-                     >
-                       Delete
-                     </button>
-                   </div>
-                 </div>
-               )}
-             </div>
-           ))}
-        </div>
-      )}
-
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 mt-6">
-          <button
-            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-            className="px-3 py-1 rounded bg-zinc-800 text-zinc-300 disabled:opacity-50"
-          >
-            Prev
-          </button>
-          <span className="text-sm text-zinc-500">
-            Page {currentPage} of {totalPages}
-          </span>
-          <button
-            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages}
-            className="px-3 py-1 rounded bg-zinc-800 text-zinc-300 disabled:opacity-50"
-          >
-            Next
-          </button>
-        </div>
-      )}
-
+      {/* Contact form (rendered above the list when open, exactly like the invoice create/edit form) */}
       {showForm && (
-        <div className="mb-8 border border-zinc-700 rounded-lg p-4 bg-zinc-950">
+        <div id="contact-form-section" className="mb-8 border border-zinc-700 rounded-lg p-4 bg-zinc-950">
           <div className="flex items-center justify-between mb-4">
             <div className="font-medium">{editingContact ? 'Edit Contact' : 'Add Contact'}</div>
             <button onClick={() => { setShowForm(false); resetForm() }} className="text-2xl leading-none px-2 text-zinc-400 hover:text-rose-400" aria-label="Close">×</button>
@@ -826,6 +830,110 @@ function ContactsContent() {
           </div>
         </div>
       )}
+
+      {/* Contact list (accordion rows like invoices; form above when open) */}
+      {loading ? (
+        <div className="text-zinc-500">Loading...</div>
+      ) : filteredContacts.length === 0 ? (
+        <div className="text-zinc-500 p-4">No contacts yet. Click "Add Contact" above.</div>
+      ) : (
+        <div className="space-y-2">
+           {filteredContacts.map(contact => (
+             <div
+               key={contact.id}
+               className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 hover:border-zinc-700 transition-colors cursor-pointer"
+               onClick={() => toggleExpand(contact.id)}
+             >
+               <div className="flex items-start justify-between">
+                 <div>
+                   <div className="font-medium">{contact.name}</div>
+                   <div className="flex items-center gap-2 mt-1 text-xs">
+                     <span className={`px-2 py-0.5 rounded ${
+                       contact.type === 'CUSTOMER' 
+                         ? 'bg-emerald-950 text-emerald-400' 
+                         : 'bg-amber-950 text-amber-400'
+                     }`}>
+                       {contact.type === 'CUSTOMER' ? 'Customer' : 'Vendor'}
+                     </span>
+                     {contact.entryCount > 0 && (
+                       <span className="text-zinc-500">{contact.entryCount} entries</span>
+                     )}
+                   </div>
+                   {contact.email && (
+                     <a href={`mailto:${contact.email}`} className="text-xs text-blue-400 hover:underline mt-1 block" onClick={e => e.stopPropagation()}>
+                       {contact.email}
+                     </a>
+                   )}
+                   {contact.phone && (
+                     <span className="text-xs text-zinc-400 mt-1 block">{contact.phone}</span>
+                   )}
+                   {formatAddress(contact) && (
+                     <span className="text-xs text-zinc-500 mt-1 block" onClick={e => e.stopPropagation()}>
+                       {formatAddress(contact)}
+                     </span>
+                   )}
+                   {contact.website && (
+                     <a href={contact.website} className="text-xs text-blue-400 hover:underline mt-1 block" onClick={e => e.stopPropagation()} target="_blank" rel="noopener noreferrer">
+                       {contact.website}
+                     </a>
+                   )}
+                   {contact.taxId && (
+                     <span className="text-xs text-zinc-400 mt-1 block">Tax: {contact.taxId}</span>
+                   )}
+                 </div>
+                 <div className="flex flex-col items-end gap-1">
+                   {contact.taxId && (
+                     <button
+                       onClick={e => { e.stopPropagation(); void validateVat(contact.taxId!) }}
+                       className="text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                       title="Validate VAT"
+                     >
+                       Verify VAT
+                     </button>
+                   )}
+                   {contact.vatValidated !== undefined && (
+                     <span className={`text-xs ${contact.vatValid ? 'text-emerald-400' : 'text-rose-400'}`} title={contact.vatValid ? 'VAT valid' : 'VAT invalid'} onClick={e => e.stopPropagation()}>
+                       {contact.vatValid ? '✓' : '✗'}
+                     </span>
+                   )}
+                 </div>
+               </div>
+
+               {/* Inline accordion details (no modal) */}
+               {expandedId === contact.id && (
+                 <div className="mt-4 border-t border-zinc-800 pt-4 text-sm" onClick={e => e.stopPropagation()}>
+                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-xs text-zinc-300">
+                     {contact.email && <div>Email: <a href={`mailto:${contact.email}`} className="text-blue-400 hover:underline">{contact.email}</a></div>}
+                     {contact.phone && <div>Phone: {contact.phone}</div>}
+                     {contact.taxId && <div>Tax ID: {contact.taxId}</div>}
+                     {contact.website && <div>Website: <a href={contact.website} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">{contact.website}</a></div>}
+                     {formatAddress(contact) && <div className="sm:col-span-2">Address: {formatAddress(contact)}</div>}
+                     <div>Entries: {contact.entryCount}</div>
+                     <div>Type: {contact.type}</div>
+                   </div>
+                   <div className="mt-3 flex flex-wrap gap-2">
+                     <button
+                       onClick={() => { populateForm(contact); setShowForm(true); setExpandedId(null) }}
+                       className="px-3 py-1 text-xs rounded bg-emerald-700"
+                     >
+                       Edit Contact
+                     </button>
+                     <button
+                       onClick={(e) => { e.stopPropagation(); void deleteContact(contact.id, e); }}
+                       className="px-3 py-1 text-xs rounded bg-rose-900 text-rose-200"
+                     >
+                       Delete
+                     </button>
+                   </div>
+                 </div>
+               )}
+             </div>
+           ))}
+        </div>
+      )}
+
+
+
     </div>
   )
 }

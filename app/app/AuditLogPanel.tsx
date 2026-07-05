@@ -83,7 +83,7 @@ export default function AuditLogPanel() {
       )}
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div>
-          <div className="text-sm font-medium text-zinc-200">Commit History</div>
+          <div className="text-sm font-medium text-zinc-200">Commits</div>
           <div className="text-[10px] text-zinc-500">
             GitHub-style list of every commit. SHA = stable id. Every journal entry + branch/merge/tag/rollback/AI action is a commit.
             <span className="ml-1 text-emerald-400">main</span> = official protected books. Other branches = safe experiments.

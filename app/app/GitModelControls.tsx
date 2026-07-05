@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 
 interface Branch {
   id: string
@@ -575,23 +576,15 @@ export default function GitModelControls() {
           {asOf && <> • asOf: <span className="text-zinc-300">{asOf.length > 16 ? asOf.slice(0, 8) + '…' : asOf}</span></>}
         </span>
 
-        <button
-          onClick={() => {
-            // Scroll to or focus the audit log (commit history) on the page
-            const el = document.querySelector('[data-audit-log]') || document.querySelector('.mt-8')
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-            else {
-              // fallback: open dashboard which contains the history
-              const p = new URLSearchParams(searchParams?.toString() || '')
-              p.set('view', 'dashboard')
-              router.push(`/app?${p.toString()}`)
-            }
-          }}
-          className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 hover:bg-zinc-800"
-          title="Open the full commit history (GitHub-style list of all commits)"
-        >
-          View full commit history
-        </button>
+        { (searchParams.get('view') || '').toLowerCase() !== 'history' && (
+          <Link
+            href="/app?view=history"
+            className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 hover:bg-zinc-800"
+            title="Open the full commit history (GitHub-style list of all commits)"
+          >
+            View full commit history
+          </Link>
+        )}
       </div>
     </div>
   )

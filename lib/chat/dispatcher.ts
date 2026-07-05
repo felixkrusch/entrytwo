@@ -331,7 +331,14 @@ async function execCreateContact(intent: ChatIntent): Promise<DispatchResult> {
       phone: p.phone,
       addressStreet: p.addressStreet,
       addressCity: p.addressCity,
+      addressState: p.addressState,
+      addressZip: p.addressZip,
       addressCountry: p.addressCountry,
+      addressLine2: p.addressLine2,
+      taxId: p.taxId,
+      website: p.website,
+      currency: p.currency,
+      notes: p.notes,
     },
   })
 
@@ -350,6 +357,68 @@ async function execCreateContact(intent: ChatIntent): Promise<DispatchResult> {
     action: intent.action,
     response: `Created contact autonomously: ${contact.name}`,
     entityId: contact.id,
+    createdAutonomously: true,
+  }
+}
+
+async function execUpdateContact(intent: ChatIntent): Promise<DispatchResult> {
+  const p = intent.params as any
+  if (!p?.name || typeof p.name !== 'string') {
+    return { proposed: true, action: intent.action, response: 'Contact name is required to identify which contact to update' }
+  }
+
+  // Resolve existing contact by name (exact, then case-insensitive, then contains)
+  let found = await prisma.contact.findFirst({ where: { name: p.name } })
+  if (!found) found = await prisma.contact.findFirst({ where: { name: { equals: p.name, mode: 'insensitive' } } })
+  if (!found) {
+    const all = await prisma.contact.findMany({ select: { id: true, name: true } })
+    const ln = p.name.toLowerCase()
+    const m = all.find(c => c.name.toLowerCase() === ln) ||
+              all.find(c => c.name.toLowerCase().includes(ln)) ||
+              all.find(c => ln.includes(c.name.toLowerCase()))
+    if (m) found = await prisma.contact.findUnique({ where: { id: m.id } })
+  }
+
+  if (!found) {
+    // Fall back to create if nothing matches
+    return execCreateContact(intent)
+  }
+
+  const updateData: any = {}
+  if (p.email !== undefined) updateData.email = p.email
+  if (p.type !== undefined) updateData.type = p.type || found.type
+  if (p.phone !== undefined) updateData.phone = p.phone
+  if (p.addressStreet !== undefined) updateData.addressStreet = p.addressStreet
+  if (p.addressCity !== undefined) updateData.addressCity = p.addressCity
+  if (p.addressState !== undefined) updateData.addressState = p.addressState
+  if (p.addressZip !== undefined) updateData.addressZip = p.addressZip
+  if (p.addressCountry !== undefined) updateData.addressCountry = p.addressCountry
+  if (p.addressLine2 !== undefined) updateData.addressLine2 = p.addressLine2
+  if (p.taxId !== undefined) updateData.taxId = p.taxId
+  if (p.website !== undefined) updateData.website = p.website
+  if (p.currency !== undefined) updateData.currency = p.currency
+  if (p.notes !== undefined) updateData.notes = p.notes
+
+  const updated = await prisma.contact.update({
+    where: { id: found.id },
+    data: updateData,
+  })
+
+  await prisma.event.create({
+    data: {
+      eventType: 'CONTACT_UPDATED' as any,
+      entityType: 'Contact',
+      entityId: updated.id,
+      payload: { name: updated.name, source: 'AI_AUTONOMOUS', fields: Object.keys(updateData) },
+      createdBy: null,
+    },
+  })
+
+  return {
+    executed: true,
+    action: intent.action,
+    response: `Updated contact: ${updated.name}`,
+    entityId: updated.id,
     createdAutonomously: true,
   }
 }
@@ -796,8 +865,9 @@ export async function dispatchIntent(intent: ChatIntent, ctx: DispatchContext): 
         return await execApplyTemplate(intent, branch)
 
       case 'CREATE_CONTACT':
-      case 'UPDATE_CONTACT':
         return await execCreateContact(intent)
+      case 'UPDATE_CONTACT':
+        return await execUpdateContact(intent)
 
       case 'CREATE_INVOICE_DRAFT':
         return await execCreateInvoiceDraft(intent)

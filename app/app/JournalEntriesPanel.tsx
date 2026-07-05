@@ -38,9 +38,17 @@ export interface JournalEntriesPanelProps {
   filterAccountId?: string
   branch?: string
   asOf?: string
+  limit?: number            // if provided, show only this many most recent (for dashboard)
+  showPagination?: boolean  // show page controls (for full journal view)
 }
 
-export default function JournalEntriesPanel({ filterAccountId, branch = 'main', asOf }: JournalEntriesPanelProps) {
+export default function JournalEntriesPanel({
+  filterAccountId,
+  branch = 'main',
+  asOf,
+  limit,
+  showPagination = true,
+}: JournalEntriesPanelProps) {
   const { openNewEntry } = useNewEntry()
   const t = useTranslations('app.panels.journal')
   const format = useFormatter()
@@ -53,11 +61,27 @@ export default function JournalEntriesPanel({ filterAccountId, branch = 'main', 
   const [expandAll, setExpandAll] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
+  // Pagination (only used when showPagination is true and no limit is passed)
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const pageSize = 25
+
   const fetchEntries = () => {
     const params = new URLSearchParams()
     if (filterAccountId) params.set('accountCode', filterAccountId)
     if (branch) params.set('branch', branch)
     if (asOf) params.set('asOf', asOf)
+
+    // When a hard limit is provided (dashboard "5 recent"), we still ask the API for a larger page
+    // and then slice client-side so we always get the freshest N.
+    // When showPagination is true we use normal server pagination.
+    if (limit && !showPagination) {
+      params.set('limit', String(Math.max(limit, 100)))
+      params.set('page', '1')
+    } else if (showPagination) {
+      params.set('limit', String(pageSize))
+      params.set('page', String(page))
+    }
 
     fetch(`/api/journal-entries?${params.toString()}`)
       .then(res => {
@@ -65,8 +89,18 @@ export default function JournalEntriesPanel({ filterAccountId, branch = 'main', 
         return res.json()
       })
       .then(data => {
-        if (Array.isArray(data)) setEntries(data)
-        else if (data && Array.isArray(data.entries)) setEntries(data.entries)
+        let list: JournalEntry[] = []
+        if (Array.isArray(data)) list = data
+        else if (data && Array.isArray(data.entries)) list = data.entries
+
+        if (limit && !showPagination) {
+          // Keep only the most recent N (API returns newest first with date:desc)
+          setEntries(list.slice(0, limit))
+        } else {
+          setEntries(list)
+        }
+
+        if (data && typeof data.totalPages === 'number') setTotalPages(data.totalPages || 1)
       })
       .catch(() => {
         setError('Could not load journal entries')
@@ -108,7 +142,7 @@ export default function JournalEntriesPanel({ filterAccountId, branch = 'main', 
       mounted = false
       window.removeEventListener('journal-updated', handler)
     }
-  }, [])
+  }, [filterAccountId, branch, asOf, limit, showPagination, page])
 
   const filteredEntries = filterAccountId
     ? entries.filter(entry =>

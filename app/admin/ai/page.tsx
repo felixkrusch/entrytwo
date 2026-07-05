@@ -3,6 +3,10 @@
 import { useEffect, useState } from 'react'
 import { PROVIDERS } from '@/lib/providers'
 
+// Force this route to be fully dynamic. Prevents Next.js from attempting static prerender at build time
+// (the page does a client-side fetch and must never be statically generated).
+export const dynamic = 'force-dynamic'
+
 interface LlmConfigStatus {
   provider: string
   model: string

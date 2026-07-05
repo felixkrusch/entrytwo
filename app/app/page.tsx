@@ -63,6 +63,23 @@ export default function ChatPage() {
     return 'execution'
   })
 
+  // Chat scroll refs and auto-follow (standard chat app behaviour like GPT/Grok)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const autoScrollRef = useRef(true)
+
+  const scrollToBottom = (force = false) => {
+    if (!force && !autoScrollRef.current) return
+    requestAnimationFrame(() => {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' })
+      } else if (scrollContainerRef.current) {
+        const el = scrollContainerRef.current
+        el.scrollTop = el.scrollHeight
+      }
+    })
+  }
+
   const isAdvisor = chatMode === 'advisor'
 
   const toggleChatMode = () => {
@@ -73,7 +90,7 @@ export default function ChatPage() {
       // keep legacy key in sync for panels that still read it
       localStorage.setItem('chatLocked', String(next === 'advisor'))
     }
-    toast.success(next === 'advisor' ? t('advisorModeOn') : t('executionModeOn'))
+    toast.success(next === 'advisor' ? 'Switched to advisor mode' : 'Switched to execution mode')
   }
 
   // Hybrid LLM status:
@@ -121,6 +138,7 @@ export default function ChatPage() {
     const userMessage: Message = { role: 'user', content: input }
     const newMessages = [...messages, userMessage]
     setMessages(newMessages)
+    scrollToBottom(true)
     const current = input
     setInput('')
     setIsLoading(true)
@@ -132,6 +150,7 @@ export default function ChatPage() {
       content: '',
       isStreaming: true
     }])
+    scrollToBottom(true)
 
     try {
       const history = newMessages.slice(-8).map(m => ({
@@ -224,6 +243,7 @@ export default function ChatPage() {
               }
               return updated
             })
+            scrollToBottom(true)
           }
         }
       } else {
@@ -296,6 +316,25 @@ export default function ChatPage() {
           }
           return updated
         })
+        scrollToBottom(true)
+
+        // When chat just created or updated a contact, open the form in the contacts view in focus
+        const act = (d.action || '').toString().toUpperCase()
+        if (act === 'CREATE_CONTACT' || act === 'UPDATE_CONTACT') {
+          const cid = d.entityId
+          ;(window as any).__pendingContactForm = {
+            id: cid,
+            prefill: { name: (d.response || '').replace(/^(Created|Updated) contact.*?:\s*/i, '').trim() }
+          }
+          setTimeout(() => {
+            router.push('/app?view=contacts')
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('open-contact-form', {
+                detail: (window as any).__pendingContactForm
+              }))
+            }, 140)
+          }, 40)
+        }
 
         // For journal proposals, open the entry modal directly (user expectation for "showing as proposal")
         if (isCreateJournalProposal && synthesizedSuggestion) {
@@ -340,16 +379,17 @@ export default function ChatPage() {
       }))
       toast.error(tToasts('chatError') || 'Chat service unavailable, using local fallback.')
       const { response } = generateErrorResponse(current)
-      setMessages(prev => {
-        const updated = [...prev]
-        if (updated[streamingMsgIndex]) {
-          updated[streamingMsgIndex] = {
-            role: 'assistant',
-            content: response
+        setMessages(prev => {
+          const updated = [...prev]
+          if (updated[streamingMsgIndex]) {
+            updated[streamingMsgIndex] = {
+              role: 'assistant',
+              content: response
+            }
           }
-        }
-        return updated
-      })
+          return updated
+        })
+        scrollToBottom(true)
 
       // Local fallback path: also support ledger navigation hints
       const pending = (window as any).__pendingLedger
@@ -370,6 +410,7 @@ export default function ChatPage() {
         }
         return updated
       })
+      scrollToBottom(true)
     }
   }
 
@@ -535,9 +576,31 @@ export default function ChatPage() {
     }
   }
 
+  // Always force scroll to bottom on assistant content (standard chat behaviour + explicit "always" requirement)
+  const forceScrollToLatest = () => {
+    autoScrollRef.current = true
+    scrollToBottom(true)
+  }
+
+  // Attach scroll listener to pause auto-follow only if user deliberately scrolled far up
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const onScroll = () => {
+      const threshold = 120
+      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold
+      autoScrollRef.current = isNearBottom
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [])
+
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-auto p-6 pb-1 flex flex-col">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-auto p-6 pb-1 flex flex-col"
+      >
         {/* Messages fill the space above */}
         <div className="flex-1 space-y-6">
           {messages.map((msg, i) => (
@@ -609,10 +672,11 @@ export default function ChatPage() {
                   )}
               </div>
             </div>
-          ))}
-        </div>
+           ))}
+         </div>
+         <div ref={messagesEndRef} />
 
-        {/* Pending attachment filenames (yellow, small, stacked) shown just above LLM indicator */}
+         {/* Pending attachment filenames (yellow, small, stacked) shown just above LLM indicator */}
         {pendingAttachments.length > 0 && (
           <div className="mt-auto mb-px text-[10px] text-amber-400 leading-tight">
             {pendingAttachments.map((a, i) => (
@@ -669,14 +733,14 @@ export default function ChatPage() {
           <button className="p-3 text-zinc-400 hover:text-zinc-200 transition-colors">
             <Mic className="w-5 h-5" />
           </button>
-          <button
-            onClick={toggleChatMode}
-            className={`p-3 transition-colors ${isAdvisor ? 'text-sky-400 hover:text-sky-300' : 'text-zinc-400 hover:text-zinc-200'}`}
-            title={isAdvisor ? 'Advisor mode (direct answers, no actions)' : 'Execution mode (create / propose / reconcile)'}
-            aria-label={isAdvisor ? 'Switch to execution mode' : 'Switch to advisor mode'}
-          >
-            {isAdvisor ? <MessageCircle className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
-          </button>
+           <button
+             onClick={toggleChatMode}
+             className={`p-3 transition-colors ${isAdvisor ? 'text-sky-400 hover:text-sky-300' : 'text-zinc-400 hover:text-zinc-200'}`}
+             title={isAdvisor ? 'Advisor mode (direct answers, no actions)' : 'Execution mode (create / propose / reconcile)'}
+             aria-label={isAdvisor ? 'Switch to execution mode' : 'Switch to advisor mode'}
+           >
+             <MessageCircle className="w-5 h-5" />
+           </button>
 
           <button
             onClick={sendMessage}

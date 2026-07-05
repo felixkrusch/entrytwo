@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { Suspense } from 'react'
 import TopBar from '@/app/app/TopBar'
 
 const navItems = [
@@ -12,6 +13,7 @@ const navItems = [
   { href: '/admin/ai', label: 'AI / LLM Provider' },
   { href: '/admin/backup', label: 'Backup & Export' },
   { href: '/admin/bank-feeds', label: 'Bank Feeds' },
+  { href: '/app?view=history', label: 'Commit History' },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -19,7 +21,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="h-screen flex flex-col bg-zinc-950 text-zinc-200">
-      <TopBar showSettings={true} />
+      <Suspense fallback={<div className="h-11 border-b border-zinc-800 bg-zinc-950" />}>
+        <TopBar showSettings={true} />
+      </Suspense>
 
       <div className="flex flex-1 min-h-0">
         {/* Left sidebar menu */}

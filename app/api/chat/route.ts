@@ -443,7 +443,13 @@ COMPANY:
     ${memoryText ? 'MERCHANT MEMORY:\n' + memoryText + '\n' : ''}
 
 CONTACTS (exact names — resolve contactName / contactId from this list only):
-${contactsContext}`.trim()
+${contactsContext}
+
+COMPANY DEFAULT COUNTRY (use this as the default addressCountry for contacts unless the user explicitly says a different country):
+${companyCountry || 'DE'}
+
+When the user says "change ... to Germany DE", "set country to DE", "update address to Germany", etc. for an existing contact name, you must output UPDATE_CONTACT (never CREATE_CONTACT) with the correct name and the new addressCountry.
+`.trim()
 
           const pass2Prompt = `You are packing an exact structured object for the action: ${chosenAction}.
 
@@ -463,6 +469,11 @@ For CREATE_INVOICE_DRAFT:
 - If lines are not provided, produce at least one line with description and unitPrice using the amount from the request.
 - Set currency to the currency mentioned by the user or default to ${baseCurrency}.
 - description should capture the service/item (e.g. "webdesign").
+
+For CREATE_CONTACT or UPDATE_CONTACT:
+- When the user says "change", "update", "set country to", "edit" + a name → use UPDATE_CONTACT with that exact name.
+- Always include addressCountry as a 2-letter ISO code when an address country is mentioned.
+- Prefer the company's default country when no other country is mentioned.
 
 Output ONLY the exact JSON object matching the target schema. No extra text.`
 

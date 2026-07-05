@@ -73,27 +73,20 @@ export default function BooksViewIndicator() {
         <span className="text-[10px] text-emerald-400 font-mono">commit {shortCommit}</span>
       )}
 
-      <button
-        onClick={() => {
-          const params = new URLSearchParams(searchParams?.toString() || '')
-          params.set('view', 'dashboard')
-          const targetUrl = `/app?${params.toString()}`
-
-          // If already on dashboard, try to scroll smoothly to the commit history
-          if (pathname === '/app' && !params.get('view')) {
-            const el = document.querySelector('[data-audit-log]') as HTMLElement | null
-            if (el) {
-              el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-              return
-            }
-          }
-          router.push(targetUrl)
-        }}
-        className="ml-1 text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
-        title="Open full commit history (GitHub-style list of commits)"
-      >
-        Browse commit history
-      </button>
+      {(searchParams?.get('view') || '').toLowerCase() !== 'history' && (
+        <button
+          onClick={() => {
+            const params = new URLSearchParams(searchParams?.toString() || '')
+            params.set('view', 'history')
+            params.delete('accountCode')
+            router.push(`/app?${params.toString()}`)
+          }}
+          className="ml-1 text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+          title="Open full commit history (GitHub-style list of commits)"
+        >
+          Browse commit history
+        </button>
+      )}
 
       {/* Quick tag action for the currently viewed state */}
       <button

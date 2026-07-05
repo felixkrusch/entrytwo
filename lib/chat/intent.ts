@@ -74,7 +74,14 @@ export const ContactParams = z.object({
   phone: z.string().optional(),
   addressStreet: z.string().optional(),
   addressCity: z.string().optional(),
-  addressCountry: z.string().optional(),
+  addressState: z.string().optional(),
+  addressZip: z.string().optional(),
+  addressCountry: z.string().optional(), // ISO 3166-1 alpha-2 e.g. "DE"
+  addressLine2: z.string().optional(),
+  taxId: z.string().optional(),
+  website: z.string().optional(),
+  currency: z.string().optional(),
+  notes: z.string().optional(),
 })
 
 export const InvoiceDraftParams = z.object({
