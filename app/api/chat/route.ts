@@ -9,6 +9,7 @@ import { getCompanyProfile } from '@/lib/companyProfile'
 import { ChatIntent, ActionType, getSchemaForAction } from '@/lib/chat/intent'
 import { dispatchIntent as runDispatch } from '@/lib/chat/dispatcher'
 import { generateAdvisoryResponse } from '@/lib/chat/advisory'
+import { decideChatMode } from '@/lib/chat/mode'
 import { writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 
@@ -565,8 +566,12 @@ Output ONLY the exact JSON object matching the target schema. No extra text.`
       console.log('Two-pass flow error, falling back', twoPassErr)
     }
 
-    // No executable action from two-pass → treat as advisory / explanatory question.
-    // Use the dedicated advisory generator (clean prose, grounded with company profile + vault-ready context).
+    // Explicit mode decision for dual-path architecture (Phase 2).
+    // If two-pass already returned a usable result, we returned above.
+    // Everything else (questions, tax advice, app questions, unclear intents) is advisory.
+    const mode = decideChatMode({ twoPassProducedResult: false })
+
+    // Advisory path (non-action questions, EXPLAIN, hypotheticals, "how does the app work", tax advice, etc.)
     let attachmentsText: string | undefined
     if (attachedFiles.length > 0) {
       const parts: string[] = []
