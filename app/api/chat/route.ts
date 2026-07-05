@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { getRecentFeedRatesPromptText } from '@/lib/recentFeedRates'
 import { getMerchantMemoryPrompt } from '@/lib/agentMemory'
 import { getLlmConfig, createLlmModel } from '@/lib/llm'
-import { IntentSchema, ChatIntent, ActionType, getSchemaForAction } from '@/lib/chat/intent'
+import { ChatIntent, ActionType, getSchemaForAction } from '@/lib/chat/intent'
 import { dispatchIntent as runDispatch } from '@/lib/chat/dispatcher'
 import { writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
@@ -69,159 +69,6 @@ async function getCurrentBalancesSummary() {
   return summary.join('\n') || 'No activity yet.'
 }
 
-async function getReversedEntryIds(): Promise<Set<string>> {
-  const events = await prisma.event.findMany({
-    where: { eventType: 'JOURNAL_ENTRY_REVERSED' },
-    take: 100,
-  })
-  const ids = new Set<string>()
-  events.forEach(e => {
-    const pid = (e.payload as { originalId?: string } | null)?.originalId
-    if (pid) ids.add(pid)
-  })
-  return ids
-}
-
-async function answerDataQuery(text: string) {
-  const lower = text.toLowerCase()
-
-  // === Reverse command (smart: skip already-reversed) ===
-  if (lower.includes('reverse')) {
-    const reversedIds = await getReversedEntryIds()
-    const last = await prisma.journalEntry.findFirst({
-      where: {
-        AND: [
-          { description: { not: { startsWith: 'Reversal of' } } },
-          { id: { notIn: Array.from(reversedIds) } }
-        ]
-      },
-      orderBy: { createdAt: 'desc' },
-      include: { lines: { include: { account: true } } }
-    })
-    if (last) {
-      const revLines = last.lines.map(l => ({
-        accountCode: l.account.code,
-        debit: Number(l.credit),
-        credit: Number(l.debit),
-        description: `Reversal of ${last.description || 'entry'}`
-      }))
-      return {
-        response: `Reversing "${last.description || 'Entry'}" (${new Date(last.date).toISOString().slice(0,10)}). Review in the modal and create to post the reversal.`,
-        suggestion: {
-          description: `Reversal of ${last.description || 'entry'}`,
-          lines: revLines,
-          reversingOriginalId: last.id
-        }
-      }
-    }
-    return { response: 'No unreversed journal entries found.' }
-  }
-
-  // === Fast data queries ===
-  if ((lower.includes('cash') || lower.includes('1000')) && (lower.includes('balance') || lower.includes('how much') || lower.includes('what') || lower.includes('current') || lower.includes('have'))) {
-    const cash = await prisma.account.findUnique({ where: { code: '1000' }, include: { journalLines: true } })
-    const bal = cash ? cash.journalLines.reduce((s, l) => s + Number(l.debit) - Number(l.credit), 0) : 0
-    return { response: `Cash (1000) balance: $${bal.toFixed(2)}` }
-  }
-
-  if ((lower.includes('bank') || lower.includes('1100')) && (lower.includes('balance') || lower.includes('how much'))) {
-    const bank = await prisma.account.findUnique({ where: { code: '1100' }, include: { journalLines: { include: { taxRate: true } } } })
-    const bal = bank ? bank.journalLines.reduce((s, l) => s + Number(l.debit) - Number(l.credit), 0) : 0
-    return { response: `Bank Account (1100) balance: $${bal.toFixed(2)}` }
-  }
-
-  if (lower.includes('net') || lower.includes('profit') || lower.includes('how much did i make') || lower.includes('earnings') || lower.includes('p&l') || lower.includes('income')) {
-    const accounts = await prisma.account.findMany({ include: { journalLines: true } })
-    let rev = 0, exp = 0
-    accounts.forEach(a => {
-      const b = a.journalLines.reduce((s, l) => {
-        if (a.type === 'REVENUE') return s + Number(l.credit) - Number(l.debit)
-        if (a.type === 'EXPENSE') return s + Number(l.debit) - Number(l.credit)
-        return s
-      }, 0)
-      if (a.type === 'REVENUE') rev += b
-      if (a.type === 'EXPENSE') exp += b
-    })
-    const net = rev - exp
-    return { response: `Revenue: $${rev.toFixed(2)}\nExpenses: $${exp.toFixed(2)}\nNet Income: $${net.toFixed(2)}` }
-  }
-
-  if (lower.includes('recent') || lower.includes('last entry') || lower.includes('last few') || lower.includes('last transaction') || lower.includes('show me') || lower.includes('what did i') || lower.includes('list entry') || lower.includes('latest') || lower.includes('show entries')) {
-    const recent = await prisma.journalEntry.findMany({
-      orderBy: { date: 'desc' },
-      take: 6,
-      include: { lines: { include: { account: { select: { code: true } }, taxRate: { select: { jurisdiction: true, rate: true } } } } }
-    })
-    const text = recent.map(e => {
-      const total = e.lines.reduce((s, l) => s + Number(l.debit), 0)
-      const taxNote = e.lines.some(l => l.taxRate) ? ' (+tax)' : ''
-      return `• ${e.description || 'Entry'} — $${total.toFixed(0)}${taxNote} (${new Date(e.date).toISOString().slice(0,10)})`
-    }).join('\n')
-    return { response: `Recent journal entries:\n${text}` }
-  }
-
-  if (lower.includes('total asset') || (lower.includes('how much') && lower.includes('asset'))) {
-    const assets = await prisma.account.findMany({ where: { type: 'ASSET' }, include: { journalLines: true } })
-    let total = 0
-    assets.forEach(a => { total += a.journalLines.reduce((s, l) => s + Number(l.debit) - Number(l.credit), 0) })
-    return { response: `Total assets: $${total.toFixed(2)}` }
-  }
-
-  if (lower.includes('biggest') && (lower.includes('expense') || lower.includes('spend') || lower.includes('cost'))) {
-    const exps = await prisma.account.findMany({ where: { type: 'EXPENSE' }, include: { journalLines: true } })
-    const withBal = exps.map(a => ({ name: a.name, bal: a.journalLines.reduce((s, l) => s + Number(l.debit) - Number(l.credit), 0) }))
-      .sort((a, b) => b.bal - a.bal)
-    if (withBal[0]) return { response: `Biggest expense so far: ${withBal[0].name} ($${withBal[0].bal.toFixed(2)})` }
-  }
-
-  if (lower.includes('total revenue') || lower.includes('how much revenue')) {
-    const rev = await prisma.account.findMany({ where: { type: 'REVENUE' }, include: { journalLines: true } })
-    let total = 0
-    rev.forEach(a => { total += a.journalLines.reduce((s, l) => s + Number(l.credit) - Number(l.debit), 0) })
-    return { response: `Total revenue recorded: $${total.toFixed(2)}` }
-  }
-
-  const accountMatch = lower.match(/(?:balance|how much).*?(\d{4}|[a-z ]{3,})/i)
-  if (accountMatch) {
-    const q = accountMatch[1].trim()
-    const acc = await prisma.account.findFirst({
-      where: { OR: [{ code: q }, { name: { contains: q, mode: 'insensitive' } }] },
-      include: { journalLines: true }
-    })
-    if (acc) {
-      const bal = acc.journalLines.reduce((s, l) => s + Number(l.debit) - Number(l.credit), 0)
-      return { response: `${acc.name} (${acc.code}) balance: $${bal.toFixed(2)}` }
-    }
-  }
-
-  if (lower.includes('list account') || lower.includes('show chart') || lower.includes('what accounts')) {
-    const accs = await prisma.account.findMany({ orderBy: { code: 'asc' } })
-    return { response: `Accounts: ${accs.map(a => `${a.code} ${a.name}`).join(', ')}` }
-  }
-
-  // Payables
-  if (lower.includes('owe') || lower.includes('payable') || lower.includes('supplier') || lower.includes('creditor')) {
-    const ap = await prisma.account.findFirst({
-      where: { OR: [{ code: '2000' }, { name: { contains: 'payable', mode: 'insensitive' } }] },
-      include: { journalLines: true }
-    })
-    const bal = ap ? ap.journalLines.reduce((s, l) => s + Number(l.credit) - Number(l.debit), 0) : 0
-    return { response: `Accounts Payable: $${bal.toFixed(2)} (amount you currently owe)` }
-  }
-
-  // Receivables
-  if (lower.includes('receivable') || lower.includes('customers owe') || lower.includes('who owes me')) {
-    const ar = await prisma.account.findFirst({
-      where: { OR: [{ code: '1200' }, { name: { contains: 'receivable', mode: 'insensitive' } }] },
-      include: { journalLines: true }
-    })
-    const bal = ar ? ar.journalLines.reduce((s, l) => s + Number(l.debit) - Number(l.credit), 0) : 0
-    return { response: `Accounts Receivable: $${bal.toFixed(2)} (money owed to you)` }
-  }
-
-  return null
-}
-
 export async function POST(req: NextRequest) {
   try {
     // Support both JSON and multipart (for file attachments)
@@ -276,13 +123,9 @@ export async function POST(req: NextRequest) {
     }
 
     const lastMessage = (messages[messages.length - 1]?.content || '').toString()
-    const lower = lastMessage.toLowerCase()
 
-    const dataAnswer = await answerDataQuery(lastMessage)
-    if (dataAnswer) return Response.json(dataAnswer)
-
-    // No more legacy fast-paths for journals/loans/invoices.
-    // All CREATE_* and similar actions MUST go through the two-pass AI flow.
+    // All requests go through two-pass (or plain conversational stream).
+    // No legacy keyword heuristics.
 
     const llmConfig = getLlmConfig()
     const hasKey = !!(llmConfig.apiKey || process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.ANTHROPIC_API_KEY)
