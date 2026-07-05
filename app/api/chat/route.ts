@@ -8,6 +8,7 @@ import { getLlmConfig, createLlmModel } from '@/lib/llm'
 import { getCompanyProfile } from '@/lib/companyProfile'
 import { ChatIntent, ActionType, getSchemaForAction } from '@/lib/chat/intent'
 import { dispatchIntent as runDispatch } from '@/lib/chat/dispatcher'
+import { generateAdvisoryResponse } from '@/lib/chat/advisory'
 import { writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 
@@ -251,7 +252,6 @@ You are an autonomous junior bookkeeper. Execute routine safe work directly. Alw
     // Pass 2: repack the understanding into the exact schema for the action
     // Then: schema + business validation before any dispatch/execution
     // -----------------------------------------------------------------
-    let usedTwoPass = false
     try {
       // Pass 1 – Intelligence / Understanding (now supports compound intents + FX)
       const pass1Prompt = `You are an intelligent accounting assistant.
@@ -515,8 +515,6 @@ Output ONLY the exact JSON object matching the target schema. No extra text.`
                 asOf: requestedAsOf,
               }
 
-              usedTwoPass = true
-
               const dispatchResult = await runDispatch(cleanIntent, {
                 chatLocked,
                 currentBranch: requestedBranch,
@@ -567,19 +565,14 @@ Output ONLY the exact JSON object matching the target schema. No extra text.`
       console.log('Two-pass flow error, falling back', twoPassErr)
     }
 
-    // Legacy suggestion path removed. Two-pass is the only path for structured actions.
-    // Non-action messages fall through to plain stream below.
-
-    // If we have attached files, inject their content into the prompt so the LLM can read them.
-    let promptForStream = lastMessage
+    // No executable action from two-pass → treat as advisory / explanatory question.
+    // Use the dedicated advisory generator (clean prose, grounded with company profile + vault-ready context).
+    let attachmentsText: string | undefined
     if (attachedFiles.length > 0) {
       const parts: string[] = []
       for (const f of attachedFiles) {
-        // Only text-extractable things we care about right now: PDFs and plain text.
-        // For images we just tell the model we attached a file (vision not enabled here).
         if (f.mimeType.includes('pdf') || f.mimeType.startsWith('text/')) {
           try {
-            // Use the same robust pdfjs path for PDFs that we use elsewhere.
             if (f.mimeType.includes('pdf')) {
               const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs')
               if (pdfjs.GlobalWorkerOptions) {
@@ -606,12 +599,22 @@ Output ONLY the exact JSON object matching the target schema. No extra text.`
           parts.push(`[ATTACHMENT: ${f.name}] (binary file attached)`)
         }
       }
-      promptForStream = `${lastMessage}\n\n${parts.join('\n\n')}`
+      attachmentsText = parts.join('\n\n')
     }
 
-    // For non-transactions, stream the response
-    const result = await streamText({ model, system, prompt: promptForStream })
-    return result.toTextStreamResponse()
+    const advisoryCtx = {
+      companyProfile,
+      accountList,
+      taxContext,
+      balances,
+      feedRatesText,
+      memoryText,
+      recentConversation: messages.slice(-8),
+      attachmentsText,
+    }
+
+    const advisory = await generateAdvisoryResponse(lastMessage, advisoryCtx)
+    return Response.json(advisory)
   } catch (e) {
     console.error('chat error', e)
     return Response.json({ response: 'Chat temporarily unavailable.' })
