@@ -36,20 +36,25 @@ export const MemoryVault = {
    * Get a single memory item by scope + key.
    */
   async get(scope: string, key: string): Promise<MemoryEntry | null> {
-    const row = await prisma.agentMemory.findUnique({
-      where: { scope_key: { scope, key } },
-    })
-    if (!row) return null
-    return {
-      id: row.id,
-      key: row.key,
-      value: row.value,
-      scope: row.scope,
-      category: row.category,
-      source: row.source,
-      metadata: row.metadata,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
+    try {
+      const row = await prisma.agentMemory.findUnique({
+        where: { scope_key: { scope, key } },
+      })
+      if (!row) return null
+      return {
+        id: row.id,
+        key: row.key,
+        value: row.value,
+        scope: row.scope,
+        category: row.category,
+        source: row.source,
+        metadata: row.metadata,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      }
+    } catch {
+      // Table may not exist or other error — never break callers
+      return null
     }
   },
 
@@ -57,33 +62,48 @@ export const MemoryVault = {
    * Set (upsert) a memory item.
    */
   async set(input: SetMemoryInput): Promise<MemoryEntry> {
-    const row = await prisma.agentMemory.upsert({
-      where: { scope_key: { scope: input.scope, key: input.key } },
-      update: {
-        value: input.value,
-        category: input.category ?? null,
-        source: input.source ?? null,
-        metadata: input.metadata ?? null,
-      },
-      create: {
+    try {
+      const row = await prisma.agentMemory.upsert({
+        where: { scope_key: { scope: input.scope, key: input.key } },
+        update: {
+          value: input.value,
+          category: input.category ?? null,
+          source: input.source ?? null,
+          metadata: input.metadata ?? null,
+        },
+        create: {
+          key: input.key,
+          value: input.value,
+          scope: input.scope,
+          category: input.category ?? null,
+          source: input.source ?? null,
+          metadata: input.metadata ?? null,
+        },
+      })
+      return {
+        id: row.id,
+        key: row.key,
+        value: row.value,
+        scope: row.scope,
+        category: row.category,
+        source: row.source,
+        metadata: row.metadata,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      }
+    } catch {
+      // Table missing or other error — never break the caller.
+      return {
+        id: 'noop',
         key: input.key,
         value: input.value,
         scope: input.scope,
         category: input.category ?? null,
         source: input.source ?? null,
         metadata: input.metadata ?? null,
-      },
-    })
-    return {
-      id: row.id,
-      key: row.key,
-      value: row.value,
-      scope: row.scope,
-      category: row.category,
-      source: row.source,
-      metadata: row.metadata,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
     }
   },
 

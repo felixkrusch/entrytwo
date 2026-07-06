@@ -3,9 +3,12 @@ import { generateText, generateObject } from 'ai'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { getRecentFeedRatesPromptText } from '@/lib/recentFeedRates'
-import { getMerchantMemoryPrompt } from '@/lib/agentMemory'
+// Note: getMerchantMemoryPrompt and MemoryVault are intentionally not used here
+// to avoid pre-loading everything and to prevent AgentMemory table errors
+// until the user runs `npx prisma db push`.
 import { getLlmConfig, createLlmModel } from '@/lib/llm'
 import { getCompanyProfile } from '@/lib/companyProfile'
+import { getVisibleJournalEntryIds, getVisibleJournalEntryIdsAtPoint } from '@/lib/accounting/ancestry'
 import { ActionType } from '@/lib/chat/intent'
 import {
   validateJournalIntent,
@@ -13,183 +16,124 @@ import {
   validateInvoiceDraftIntent,
   validateRestoreTarget,
 } from '@/lib/chat/validation'
-import { MemoryVault } from '@/lib/memoryVault'
+import { isSafeAutonomous } from '@/lib/chat/intent'
+// MemoryVault (AgentMemory) is intentionally not called from chat.
+// Trillion gets the full conversation history + live ledger state every turn.
+// She can reason freely and only emits structured actions when she decides to mutate data.
+// All safety (lock, validation, proposals) is enforced on the server.
 import { createAutonomousJournal } from '@/lib/accounting/autonomous'
 import { recordCommitOnBranch } from '@/lib/accounting/commit'
 import { EventType } from '@prisma/client'
-import { writeFile, mkdir } from 'fs/promises'
+import { writeFile, mkdir, readFile } from 'fs/promises'
 import { join } from 'path'
+import { loadOrCreateThread, appendToThread, getContextForModel, ChatTurn } from '@/lib/chatThreadStore'
 
 /**
- * Master + Specialist architecture (hard cut).
- * - Full session history is sent.
- * - Single master call.
- * - One global lock (chatLocked).
- * - When locked: everything that would mutate becomes a proposal.
- * - Strict JSON only when the model decides to act.
+ * Trillion chat (proper context management).
+ * - Client sends only the *new* user message + threadId.
+ * - Server owns the authoritative thread (lib/chatThreadStore).
+ * - On each call we send a bounded recent window to the model (not the entire history).
+ * - Model reasons freely (generateText). Structured actions only when it emits valid JSON per the reference.
+ * - All safety (lock, validation, master data, proposals, Git execution) stays on the server.
  */
 
-const ActionEnvelope = z.object({
-  action: ActionType,
-  params: z.record(z.string(), z.any()).optional(),
-  confidence: z.number().min(0).max(1).optional(),
-  reasoning: z.string().optional(),
-})
+// Extraction helper: the model now reasons freely (generateText + full history).
+// When it wants to act, it emits one clean JSON action (or inside a ```json fence).
+// We extract it here. Server validation + policy still apply.
+function tryExtractAction(text: string): { action: ActionType; params?: any; confidence?: number; reasoning?: string } | null {
+  if (!text) return null
 
-const MasterResponse = z.discriminatedUnion('type', [
-  z.object({
-    type: z.literal('text'),
-    response: z.string(),
-  }),
-  z.object({
-    type: z.literal('action'),
-    action: ActionType,
-    params: z.record(z.string(), z.any()).optional(),
-    confidence: z.number().min(0).max(1).optional(),
-    reasoning: z.string().optional(),
-  }),
-])
+  // 1. Fenced code block (preferred)
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fence && fence[1]) {
+    try {
+      const obj = JSON.parse(fence[1].trim())
+      if (obj && typeof obj.action === 'string') {
+        const parsed = ActionType.safeParse(obj.action)
+        if (parsed.success) return obj
+      }
+    } catch {}
+  }
 
-async function getAccountContext() {
-  const accounts = await prisma.account.findMany({
-    select: { code: true, name: true, type: true },
-    orderBy: { code: 'asc' },
-  })
-  return accounts.map(a => `${a.code} — ${a.name} (${a.type})`).join('\n')
-}
+  // 2. First JSON object that contains an "action" field
+  const jsonish = text.match(/\{[\s\S]*?"action"\s*:\s*"[^"]+"[\s\S]*?\}/)
+  if (jsonish) {
+    try {
+      const obj = JSON.parse(jsonish[0])
+      if (obj && typeof obj.action === 'string') {
+        const parsed = ActionType.safeParse(obj.action)
+        if (parsed.success) return obj
+      }
+    } catch {}
+  }
 
-async function getTaxRatesContext() {
-  const rates = await prisma.taxRate.findMany({ orderBy: [{ jurisdiction: 'asc' }, { rate: 'desc' }] })
-  if (!rates.length) return 'No tax rates configured.'
-  return rates.map(r => {
-    const pct = (Number(r.rate) * 100).toFixed(0)
-    return `${r.jurisdiction} — ${r.name} rate=${pct}% type=${r.taxType}`
-  }).join('\n')
-}
-
-async function getContactsContext() {
-  const contacts = await prisma.contact.findMany({
-    select: { id: true, name: true, type: true },
-    orderBy: { name: 'asc' },
-    take: 300,
-  })
-  if (!contacts.length) return 'No contacts yet.'
-  return contacts.map(c => `${c.name} (${c.type})`).join('\n')
-}
-
-async function getCurrentBalancesSummary() {
-  const accounts = await prisma.account.findMany({ include: { journalLines: { include: { taxRate: true } } } })
-  const summary: string[] = []
-  accounts.forEach(a => {
-    const bal = a.journalLines.reduce((s, l) => s + Number(l.debit) - Number(l.credit), 0)
-    if (Math.abs(bal) > 0.01) {
-      const taxNote = a.journalLines.some(l => l.taxRate) ? ' (tax applied)' : ''
-      const curSet = new Set(a.journalLines.map(l => l.currency || 'EUR'))
-      const curNote = Array.from(curSet).filter(c => c !== 'EUR').length ? ` [${Array.from(curSet).join(',')}]` : ''
-      summary.push(`${a.code} ${a.name}: $${bal.toFixed(2)}${taxNote}${curNote}`)
-    }
-  })
-  return summary.join('\n') || 'No activity yet.'
+  return null
 }
 
 function buildMasterSystemPrompt(ctx: {
   companyProfile: any
-  accountList: string
-  taxContext: string
-  contactsContext: string
-  balances: string
-  feedRatesText?: string
-  memoryText?: string
-  vaultItems?: any[]
   chatLocked: boolean
   branch: string
   asOf?: string
+  financialSnapshot?: string
+  actionReference: string
 }): string {
-  const { companyProfile, accountList, taxContext, contactsContext, balances, feedRatesText, memoryText, vaultItems, chatLocked, branch, asOf } = ctx
+  const { companyProfile, chatLocked, branch, asOf, financialSnapshot, actionReference } = ctx
 
   const lockRule = chatLocked
-    ? 'CHAT IS CURRENTLY LOCKED. You may discuss, explain, and PROPOSE actions, but you must NOT execute anything. Every potential mutation (journal, invoice, contact, etc.) must be returned as a proposal so the user can confirm it explicitly.'
-    : 'Chat lock is open. You may autonomously execute safe routine actions when you have high confidence and the data validates cleanly. Destructive, financial-moving, or master-data actions must still be proposed.'
+    ? 'CHAT IS CURRENTLY LOCKED. You may discuss and propose changes, but you must NOT execute anything without explicit user confirmation. The server will force proposals when locked.'
+    : 'Chat lock is open. You may autonomously execute safe actions after validation.'
 
-  const actionCatalog = `
-Available actions (exact strings). When you decide to act, output the "action" form below with precise params.
+  const snapshotSection = `\n\nLive ledger state (branch=${branch}${asOf ? ` asOf=${asOf}` : ''}):\n${financialSnapshot || '(no journal lines yet in this view)'}\n`
 
-CREATE_JOURNAL
-  params: { description?: string, date?: string, lines: [{ accountCode: string, debit: number, credit: number, description?: string, currency?: string, fxRateToBase?: number|null, fxSource?: string|null, fxDate?: string|null, taxRateId?: string|null, contactId?: string|null }], ... }
+  const referenceSection = actionReference
+    ? `\n\n=== ACTION REFERENCE (study this for exact shapes when you decide to act) ===\n${actionReference}\n=== END REFERENCE ===\n`
+    : ''
 
-CREATE_CONTACT | UPDATE_CONTACT
-  params: { name: string, type?: 'CUSTOMER'|'VENDOR', email?, phone?, addressStreet?, addressCity?, addressState?, addressZip?, addressCountry? (ISO2), ... }
+  return `You are Trillion, the accounting companion inside entrytwo.
 
-CREATE_INVOICE_DRAFT | GENERATE_RECURRING_DRAFT
-  params: { contactName or contactId, description, amount?, currency?, lines?: [...] }
+You are direct, practical, and maximally helpful. You have the full conversation history.
 
-MATCH_FEED_TRANSACTION, RECONCILE_ACCOUNT, APPLY_TEMPLATE, SYNC_FEED, OPEN_LEDGER, etc.
-
-PROPOSE_* forms (always propose):
-PROPOSE_RESTORE, PROPOSE_MERGE, PROPOSE_REVERSE, PROPOSE_SEND_INVOICE, PROPOSE_CREATE_ACCOUNT, PROPOSE_UPDATE_TAX_RATE, ...
-
-When you want to perform an action, respond with structured output (type=action).
-Otherwise respond with normal text (type=text).
-`.trim()
-
-  return `You are the master accounting agent for entrytwo — a real double-entry system with Git-style immutable history (branches, events, restores).
-
-You have the full conversation history. Think like a competent, careful junior accountant who can also explain the software.
-
-Core facts (authoritative — never hallucinate these):
-- Base currency: ${companyProfile.baseCurrency}
-- Country / Region: ${companyProfile.country || 'unknown'} / ${companyProfile.region || 'unknown'}
-- Default tax jurisdiction: ${companyProfile.defaultTaxJurisdiction || 'unknown'}
+This app contains the complete financial records for the company (the "map"):
+- Company profile, base currency, country/region, tax jurisdiction
+- Live balances, chart of accounts, full journal history, contacts, invoices, tax rates, bank feeds, branches, and point-in-time views
 
 Current view: branch=${branch}${asOf ? ` asOf=${asOf}` : ''}
 
 ${lockRule}
+${snapshotSection}
 
-${actionCatalog}
+Use the live data above for any question about this company's actual numbers, accounts, balances, transactions, or documents.
 
-Configured accounts:
-${accountList}
+For general tax rules, laws, rates in a country, or anything that is not specific to this company's own configured records, check current external sources.
 
-Configured tax rates:
-${taxContext}
+When you need to create or change records (journal, contact, invoice, etc.), output **exactly one** clean JSON action object using the shapes from the ACTION REFERENCE below. You can put it in a fenced \`\`\`json block or as plain JSON. The server will parse, validate, and respect the lock.
 
-Contacts (use exact names):
-${contactsContext}
+Otherwise just answer normally in clear text.
 
-Current balances (multi-currency shown in brackets):
-${balances}
+${referenceSection}
 
-${feedRatesText ? feedRatesText + '\n' : ''}
-${memoryText ? memoryText + '\n' : ''}
-
-${vaultItems && vaultItems.length ? 'Memory Vault facts:\n' + JSON.stringify(vaultItems, null, 2) + '\n' : ''}
-
-Rules:
-- Always balance debits = credits after FX conversion to base.
-- Use real account codes and contact names from the lists above.
-- Bank/credit card feed rates are authoritative when available.
-- When the lock is closed, every actionable change must be a proposal.
-- Output either plain helpful text or a single precise action object.
-- Never mutate master data (accounts, tax rates, settings, users) from chat.
+Bank/credit card feed rates are authoritative for FX when available.
+Never mutate master data (accounts, tax rates, settings, users) from chat.
+Normal conversation → normal text. Real actions → one JSON action object.
 `.trim()
 }
 
 export async function POST(req: NextRequest) {
   try {
-    let messages: any[] = []
+    let userMessage = ''
     let chatLocked = false
     let branch = 'main'
     let asOf: string | undefined
+    let incomingThreadId: string | undefined
     let attachedFiles: Array<{ name: string; buffer: Buffer; savedPath: string; mimeType: string }> = []
 
     const contentType = req.headers.get('content-type') || ''
 
     if (contentType.includes('multipart/form-data')) {
       const form = await req.formData()
-      try {
-        const msgStr = form.get('messages') as string | null
-        messages = msgStr ? JSON.parse(msgStr) : []
-      } catch { messages = [] }
+      userMessage = (form.get('message') as string) || ''
+      incomingThreadId = (form.get('threadId') as string) || undefined
       chatLocked = form.get('chatLocked') === 'true'
       branch = (form.get('branch') as string) || 'main'
       asOf = (form.get('asOf') as string) || undefined
@@ -218,17 +162,21 @@ export async function POST(req: NextRequest) {
       }
     } else {
       const jsonBody = await req.json()
-      messages = jsonBody?.messages || []
+      userMessage = jsonBody?.message || ''
+      incomingThreadId = jsonBody?.threadId
       chatLocked = !!jsonBody?.chatLocked
       branch = jsonBody?.branch || 'main'
       asOf = jsonBody?.asOf
 
-      // Direct approved proposal
+      // Direct approved proposal (bypass normal chat flow)
       if (jsonBody?.approvedAction && typeof jsonBody.approvedAction === 'object') {
         const approved = jsonBody.approvedAction
-        // Re-validate and execute (lock is ignored on explicit confirm from UI, but we still enforce policy)
         return await handleApprovedAction(approved, { branch, asOf })
       }
+    }
+
+    if (!userMessage.trim() && attachedFiles.length === 0) {
+      return Response.json({ response: 'No message provided.' })
     }
 
     const llmConfig = getLlmConfig()
@@ -239,123 +187,133 @@ export async function POST(req: NextRequest) {
 
     const model = createLlmModel(llmConfig)
 
-    const [
-      accountList,
-      taxContext,
-      contactsContext,
-      balances,
-      companyProfile,
-      feedRatesText,
-      memoryText,
-    ] = await Promise.all([
-      getAccountContext(),
-      getTaxRatesContext(),
-      getContactsContext(),
-      getCurrentBalancesSummary(),
-      getCompanyProfile(),
-      getRecentFeedRatesPromptText(6),
-      getMerchantMemoryPrompt(undefined, undefined),
-    ])
+    // Trillion gets the full conversation + live data every turn.
+    // She reasons freely. Structured actions only when she decides to mutate.
+    // Safety (lock, validation, proposals) is enforced here on the server.
+    const companyProfile = await getCompanyProfile()
 
-    let vaultItems: any[] = []
+    // Load the single reference the model should study for exact action shapes.
+    let actionReference = ''
     try {
-      const facts = await Promise.all([
-        MemoryVault.get('company', 'company.region'),
-        MemoryVault.get('company', 'company.country'),
-        MemoryVault.get('company', 'company.baseCurrency'),
-        MemoryVault.get('company', 'company.defaultTaxJurisdiction'),
-      ])
-      vaultItems = facts.filter(Boolean) as any[]
-      const recent = await MemoryVault.listByScope('company')
-      vaultItems.push(...recent.slice(0, 5))
+      const refPath = join(process.cwd(), 'docs', 'LLM-Action-Reference.md')
+      actionReference = await readFile(refPath, 'utf8')
     } catch {}
 
-    // Seed vault (authoritative facts)
-    try { await MemoryVault.ensureCompanyFacts(companyProfile) } catch {}
+    // Always build live balances for the current Git view (branch + asOf).
+    // This is the "map" — she reads what she needs.
+    async function buildLiveBalancesSummary(b: string, point?: string): Promise<string> {
+      const visibleEntryIds = point
+        ? await getVisibleJournalEntryIdsAtPoint(point)
+        : await getVisibleJournalEntryIds((await prisma.accountingBranch.findUnique({ where: { name: b } }))?.headEventId)
+
+      const restrict = visibleEntryIds.length > 0
+      const where: any = restrict ? { journalEntryId: { in: visibleEntryIds } } : {}
+
+      const accounts = await prisma.account.findMany({
+        orderBy: { code: 'asc' },
+        include: { journalLines: { where, select: { debit: true, credit: true } } }
+      })
+
+      const lines: string[] = []
+      for (const a of accounts) {
+        let bal = 0
+        for (const l of a.journalLines) {
+          const d = Number(l.debit)
+          const c = Number(l.credit)
+          if (['ASSET', 'EXPENSE'].includes(a.type)) bal += d - c
+          else bal += c - d
+        }
+        const bStr = bal.toFixed(2)
+        lines.push(`${a.code} ${a.name} (${a.type}): ${bStr}`)
+      }
+      return lines.join('\n')
+    }
+
+    let financialSnapshot = ''
+    try {
+      financialSnapshot = await buildLiveBalancesSummary(branch, asOf)
+    } catch {}
 
     const system = buildMasterSystemPrompt({
       companyProfile,
-      accountList,
-      taxContext,
-      contactsContext,
-      balances,
-      feedRatesText,
-      memoryText,
-      vaultItems: vaultItems.length ? vaultItems : undefined,
       chatLocked,
       branch,
       asOf,
+      financialSnapshot: financialSnapshot || undefined,
+      actionReference,
     })
 
-    const lastUserMessage = messages[messages.length - 1]?.content || ''
+    // Server owns the authoritative thread.
+    // Client only ever sends the *new* user turn + threadId.
+    const { thread } = loadOrCreateThread(incomingThreadId)
 
-    // Build multimodal user content if files are present
-    const userContent: any[] = []
-
-    if (attachedFiles.length > 0) {
-      userContent.push({
-        type: 'text',
-        text: `User message: ${lastUserMessage || '(no text, analyze the attached document)'}\n\nThe attached files are raw PDFs or images. Read them directly and completely.`,
+    // Record the new user message on the server thread.
+    if (userMessage || attachedFiles.length > 0) {
+      appendToThread(thread.id, {
+        role: 'user',
+        content: userMessage || (attachedFiles.length ? '[attachment(s)]' : '')
       })
-      for (const f of attachedFiles) {
-        if (f.mimeType.includes('pdf') || f.mimeType.startsWith('image/')) {
-          userContent.push({
-            type: 'file',
-            data: new Uint8Array(f.buffer),
-            mediaType: f.mimeType,
-            filename: f.name,
-          })
-        }
+    }
+
+    // Build a sane context window for this LLM call.
+    // Real systems do NOT send the entire ever-growing history on every request.
+    const contextTurns = getContextForModel(thread, 40)
+
+    // Prepare messages for the model.
+    const llmMessages: any[] = contextTurns.map((turn, idx) => {
+      const isLast = idx === contextTurns.length - 1
+      const attachFilesHere = isLast && attachedFiles.length > 0 && turn.role === 'user'
+
+      if (attachFilesHere) {
+        const parts: any[] = attachedFiles.map(f =>
+          f.mimeType?.startsWith('image/')
+            ? { type: 'image', image: f.buffer }
+            : { type: 'file', data: f.buffer, mimeType: f.mimeType }
+        )
+        if (turn.content) parts.push({ type: 'text', text: turn.content })
+        return { role: turn.role, content: parts }
       }
-    } else {
-      userContent.push({ type: 'text', text: lastUserMessage || '' })
-    }
+      return { role: turn.role, content: turn.content || '' }
+    })
 
-    // Single master call
-    let masterResult: any
+    // Call the model with the windowed context.
+    let assistantText = ''
     try {
-      const { object } = await generateObject({
-        model,
-        schema: MasterResponse,
-        system,
-        messages: [{ role: 'user', content: userContent }],
-      })
-      masterResult = object
-    } catch (err) {
-      // Fallback to plain text generation if structured fails
-      const { text } = await generateText({
-        model,
-        system,
-        messages: [{ role: 'user', content: userContent }],
-      })
-      masterResult = { type: 'text', response: text || 'Understood.' }
+      const { text } = await generateText({ model, system, messages: llmMessages })
+      assistantText = text || ''
+    } catch {
+      assistantText = 'Chat temporarily unavailable.'
     }
 
-    // If the master chose to act
-    if (masterResult.type === 'action') {
-      const action = masterResult.action as ActionType
-      const params = masterResult.params || {}
-      const confidence = masterResult.confidence ?? 0.8
-      const reasoning = masterResult.reasoning
+    // Does the model want to perform an action?
+    const extracted = tryExtractAction(assistantText)
 
-      // Policy gates
+    if (extracted && extracted.action) {
+      // Persist a compact record of the decision on the thread.
+      appendToThread(thread.id, {
+        role: 'assistant',
+        content: extracted.reasoning || `Action: ${extracted.action}`
+      })
+
+      const action = extracted.action as ActionType
+      const params = extracted.params || {}
+      const confidence = extracted.confidence ?? 0.8
+      const reasoning = extracted.reasoning
+
+      // Server-side policy and validation (unchanged).
       if (isMasterDataAction(action)) {
         return Response.json({
           response: 'Master data changes cannot be performed from chat.',
           proposed: true,
           action,
           params,
+          threadId: thread.id,
         })
       }
 
-      const isDestructiveOrHighImpact = [
-        'PROPOSE_RESTORE', 'PROPOSE_MERGE', 'PROPOSE_REVERSE',
-        'PROPOSE_SEND_INVOICE', 'PROPOSE_CHARGE',
-      ].includes(action)
+      const isDestructive = ['PROPOSE_RESTORE','PROPOSE_MERGE','PROPOSE_REVERSE','PROPOSE_SEND_INVOICE','PROPOSE_CHARGE'].includes(action)
 
-      let forceProposal = chatLocked || isDestructiveOrHighImpact || confidence < 0.85
-
-      // Domain validation
+      // Validation first (needed for both proposal and execute paths)
       let validationOk = true
       let validationError: string | undefined
       let resolved: any = {}
@@ -384,51 +342,60 @@ export async function POST(req: NextRequest) {
         if (v.eventId) resolved.eventId = v.eventId
       }
 
-      if (!validationOk) {
-        forceProposal = true
-      }
+      const isSafe = isSafeAutonomous(action)
 
-      const finalActionPayload = {
-        action,
-        params: { ...params, ...resolved },
-        confidence,
-        reasoning,
-        branch,
-        asOf,
-      }
+      // "No more babysitting":
+      // Safe autonomous actions execute directly when lock is open + validation passed.
+      // Only force proposal for safe actions on lock, destructive, or validation failure.
+      let forceProposal = chatLocked || isDestructive || !validationOk || !isSafe
+
+      const finalPayload = { action, params: { ...params, ...resolved }, confidence, reasoning, branch, asOf }
 
       if (forceProposal) {
+        // Clean proposal message for the user.
+        let proposalText = `I can do that as a proposal.`
+        if (action === 'CREATE_CONTACT' && params?.name) {
+          proposalText = `Create contact "${params.name}"?`
+        } else if (action === 'CREATE_JOURNAL') {
+          proposalText = `Create this journal entry?`
+        }
+
         return Response.json({
           response: validationError
-            ? `Understood. Cannot proceed automatically: ${validationError}. Showing as proposal.`
-            : `Proposal: ${action}`,
+            ? `Understood. Cannot proceed automatically: ${validationError}.`
+            : proposalText,
           proposed: true,
           action,
-          params: finalActionPayload.params,
-          proposedAction: finalActionPayload,
+          params: finalPayload.params,
+          proposedAction: finalPayload,
           understanding: reasoning,
+          threadId: thread.id,
         })
       }
 
-      // Attempt autonomous execution
+      // Execute directly (no proposal, no confidence gate for safe actions)
       try {
-        const result = await executeAction(action, finalActionPayload.params, { branch, asOf })
-        return Response.json(result)
-      } catch (execErr: any) {
+        const execResult = await executeAction(action, finalPayload.params, { branch, asOf })
+        return Response.json({ ...execResult, threadId: thread.id })
+      } catch (e: any) {
         return Response.json({
-          response: `Execution failed: ${execErr?.message || execErr}. Showing as proposal.`,
+          response: `Execution failed: ${e?.message || e}.`,
           proposed: true,
           action,
-          params: finalActionPayload.params,
-          proposedAction: finalActionPayload,
-          error: String(execErr?.message || execErr),
+          params: finalPayload.params,
+          proposedAction: finalPayload,
+          error: String(e?.message || e),
+          threadId: thread.id,
         })
       }
     }
 
-    // Plain text response
+    // Normal text answer. Record it on the server thread.
+    appendToThread(thread.id, { role: 'assistant', content: assistantText || 'Understood.' })
+
     return Response.json({
-      response: masterResult.response || 'Understood.',
+      response: assistantText || 'Understood.',
+      threadId: thread.id,
     })
   } catch (e) {
     console.error('chat error', e)
@@ -599,6 +566,8 @@ async function executeAction(action: ActionType, params: any, ctx: { branch: str
 async function handleApprovedAction(approved: any, ctx: { branch: string; asOf?: string }) {
   try {
     const result = await executeAction(approved.action, approved.params || {}, ctx)
+    // Note: for approved actions we don't have the thread here.
+    // Client will keep using its stored threadId for subsequent chat turns.
     return Response.json(result)
   } catch (e: any) {
     return Response.json({

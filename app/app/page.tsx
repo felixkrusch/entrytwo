@@ -34,6 +34,16 @@ export default function ChatPage() {
   ])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+
+  // Server-managed thread ID for proper context preservation.
+  // Client only sends the new user message + threadId.
+  // Server stores the full thread and returns the ID.
+  const [threadId, setThreadId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('chatThreadId') || null
+    }
+    return null
+  })
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Filenames of files attached in this chat turn (display only, shown above LLM indicator).
@@ -159,14 +169,16 @@ export default function ChatPage() {
       ;(window as any).__pendingAttachments = []
       setPendingAttachments([])
 
-      // FULL session history — no artificial truncation
-      const fullHistory = newMessages.map(m => ({ role: m.role, content: m.content }))
+      // Proper context management: send ONLY the new user message + threadId.
+      // Server owns the full thread and will append + call the LLM with appropriate context.
+      const userMessageText = current
 
       // Build FormData if we have attachments, otherwise plain JSON
       let res: Response
       if (pending.length > 0) {
         const fd = new FormData()
-        fd.append('messages', JSON.stringify(fullHistory))
+        fd.append('message', userMessageText)
+        if (threadId) fd.append('threadId', threadId)
         fd.append('chatLocked', String(chatLocked))
         fd.append('branch', branch)
         if (asOf) fd.append('asOf', asOf)
@@ -181,7 +193,13 @@ export default function ChatPage() {
         res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: fullHistory, chatLocked, branch, asOf })
+          body: JSON.stringify({
+            message: userMessageText,
+            threadId: threadId || undefined,
+            chatLocked,
+            branch,
+            asOf,
+          })
         })
       }
 
@@ -311,6 +329,14 @@ export default function ChatPage() {
           }
           return updated
         })
+
+        // Persist server-assigned threadId for next turns (context is now server-managed)
+        if (data?.threadId && typeof data.threadId === 'string') {
+          setThreadId(data.threadId)
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('chatThreadId', data.threadId)
+          }
+        }
         scrollToBottom(true)
 
         // When chat just created or updated a contact, open the form in the contacts view in focus
@@ -486,17 +512,19 @@ export default function ChatPage() {
       const branch = sp.get('branch') || 'main'
       const asOf = sp.get('asOf') || undefined
 
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: `APPROVE ${proposed.type}` }],
-          chatLocked, // send current lock state (server will still force re-validation)
-          branch,
-          asOf,
-          approvedAction: { action: proposed.type, params: proposed.params },
-        }),
-      })
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            // For approvals we send the decision via approvedAction.
+            // We still pass threadId so the server can associate it with the ongoing conversation if needed.
+            threadId: threadId || undefined,
+            chatLocked,
+            branch,
+            asOf,
+            approvedAction: { action: proposed.type, params: proposed.params },
+          }),
+        })
       const data = await res.json()
       if (data?.executed) {
         toast.success('Action executed after confirmation.')

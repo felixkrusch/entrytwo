@@ -4,7 +4,7 @@
     "subtitle": "AI Accountant • Phase 0/1",
     "chat": {
       "subtitle": "AI Accountant • Phase 0/1",
-      "welcome": "Hello! I'm your AI accountant. Try: 'bought office supplies for 85' or 'client paid 1200'.",
+      "welcome": "Hello! I am Trillion your AI accountant? How can I help you?",
       "placeholder": "e.g. bought laptop for 1299 • client paid 800 • reverse last entry • cash balance?",
       "thinking": "Thinking...",
       "createEntry": "Create journal entry →",
