@@ -1,12 +1,11 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Send, Paperclip, Mic, Lock, Unlock, MessageCircle } from 'lucide-react'
+import { Send, Paperclip, Mic, Lock, Unlock } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useNewEntry, NewEntrySuggestion } from './NewEntryContext'
 import { useTranslations } from 'next-intl'
 import { useRouter } from 'next/navigation'
-import type { ChatMode } from '@/lib/chat/chatMode'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -50,18 +49,28 @@ export default function ChatPage() {
     lastChecked?: number
   } | null>(null)
 
-  // Chat mode: 'advisor' = single-pass direct answers (no actions)
-  // 'execution' = strict two-pass (create, propose, reconcile, etc.)
-  // Backward compat: if old 'chatLocked' is true, default to 'advisor'.
-  const [chatMode, setChatMode] = useState<ChatMode>(() => {
+  // Single global lock.
+  // false = unlocked (autonomous actions allowed when confident + validation passes)
+  // true  = locked (chat can propose, but every execution requires explicit user confirmation)
+  const [chatLocked, setChatLocked] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('chatMode')
-      if (saved === 'advisor' || saved === 'execution') return saved
-      const legacyLocked = localStorage.getItem('chatLocked') === 'true'
-      return legacyLocked ? 'advisor' : 'execution'
+      const saved = localStorage.getItem('chatLocked')
+      if (saved === 'true') return true
+      if (saved === 'false') return false
     }
-    return 'execution'
+    return false // default unlocked
   })
+
+  const toggleChatLock = () => {
+    const next = !chatLocked
+    setChatLocked(next)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('chatLocked', String(next))
+      // legacy compat for any panels that still read it
+      localStorage.setItem('chatMode', next ? 'advisor' : 'execution')
+    }
+    toast.success(next ? 'Chat locked — proposals only' : 'Chat unlocked — autonomous actions enabled when confident')
+  }
 
   // Chat scroll refs and auto-follow (standard chat app behaviour like GPT/Grok)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -78,19 +87,6 @@ export default function ChatPage() {
         el.scrollTop = el.scrollHeight
       }
     })
-  }
-
-  const isAdvisor = chatMode === 'advisor'
-
-  const toggleChatMode = () => {
-    const next: ChatMode = chatMode === 'advisor' ? 'execution' : 'advisor'
-    setChatMode(next)
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('chatMode', next)
-      // keep legacy key in sync for panels that still read it
-      localStorage.setItem('chatLocked', String(next === 'advisor'))
-    }
-    toast.success(next === 'advisor' ? 'Switched to advisor mode' : 'Switched to execution mode')
   }
 
   // Hybrid LLM status:
@@ -153,11 +149,6 @@ export default function ChatPage() {
     scrollToBottom(true)
 
     try {
-      const history = newMessages.slice(-8).map(m => ({
-        role: m.role,
-        content: m.content
-      }))
-
       // Pass current Git view (branch / asOf) so autonomous actions respect the viewed state
       const sp = new URLSearchParams(window.location.search)
       const branch = sp.get('branch') || 'main'
@@ -168,22 +159,20 @@ export default function ChatPage() {
       ;(window as any).__pendingAttachments = []
       setPendingAttachments([])
 
+      // FULL session history — no artificial truncation
+      const fullHistory = newMessages.map(m => ({ role: m.role, content: m.content }))
+
       // Build FormData if we have attachments, otherwise plain JSON
       let res: Response
       if (pending.length > 0) {
         const fd = new FormData()
-        // Send recent conversation context as JSON string (server will parse it)
-        const ctx = newMessages.slice(-8).map(m => ({ role: m.role, content: m.content }))
-        fd.append('messages', JSON.stringify(ctx))
-        fd.append('chatMode', chatMode)
-        fd.append('chatLocked', String(chatMode === 'advisor')) // compat
+        fd.append('messages', JSON.stringify(fullHistory))
+        fd.append('chatLocked', String(chatLocked))
         fd.append('branch', branch)
         if (asOf) fd.append('asOf', asOf)
 
-        // Append files + their server paths (server can save them again or just use paths)
         pending.forEach((p, idx) => {
           fd.append('file', p.file, p.file.name)
-          // also pass the already-saved public path so it can be linked to created entries
           fd.append(`savedPath_${idx}`, p.savedPath)
         })
 
@@ -192,7 +181,7 @@ export default function ChatPage() {
         res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: history, chatMode, chatLocked: chatMode === 'advisor', branch, asOf })
+          body: JSON.stringify({ messages: fullHistory, chatLocked, branch, asOf })
         })
       }
 
@@ -428,16 +417,16 @@ export default function ChatPage() {
   }
 
   const handleSuggest = (suggestion?: NewEntrySuggestion) => {
-    if (isAdvisor) {
-      toast.error(t('lockedToast') || 'Chat is in advisor mode. Switch to execution to allow actions.')
+    if (chatLocked) {
+      toast.error(t('lockedToast') || 'Chat is locked. Proposals only — confirm to execute.')
       return
     }
     openNewEntry(suggestion)
   }
 
   const handleCreateInvoice = async (prefill?: { contactName?: string; amount?: number; description?: string; currency?: string }) => {
-    if (isAdvisor) {
-      toast.error(t('lockedToast') || 'Chat is in advisor mode. Switch to execution to allow actions.')
+    if (chatLocked) {
+      toast.error(t('lockedToast') || 'Chat is locked. Proposals only — confirm to execute.')
       return
     }
 
@@ -487,10 +476,8 @@ export default function ChatPage() {
 
   // Handle approval of a proposed autonomous action (destructive / high-impact)
   const handleApproveProposal = async (msg: any) => {
-    if (isAdvisor) {
-      toast.error(t('lockedToast') || 'Chat is in advisor mode.')
-      return
-    }
+    // Always allow explicit confirmation, even when locked.
+    // The server will still re-validate everything.
     const proposed = msg.proposedAction
     if (!proposed) return
 
@@ -504,11 +491,10 @@ export default function ChatPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [{ role: 'user', content: `APPROVE ${proposed.type}` }],
-          chatLocked: false,
+          chatLocked, // send current lock state (server will still force re-validation)
           branch,
           asOf,
-          // Send the original intent back with approved flag
-          intent: { action: proposed.type, params: proposed.params, approved: true, confidence: 1.0, branch },
+          approvedAction: { action: proposed.type, params: proposed.params },
         }),
       })
       const data = await res.json()
@@ -740,13 +726,13 @@ export default function ChatPage() {
             <Mic className="w-5 h-5" />
           </button>
            <button
-             onClick={toggleChatMode}
-             className={`p-3 transition-colors ${isAdvisor ? 'text-sky-400 hover:text-sky-300' : 'text-zinc-400 hover:text-zinc-200'}`}
-             title={isAdvisor ? 'Advisor mode (direct answers, no actions)' : 'Execution mode (create / propose / reconcile)'}
-             aria-label={isAdvisor ? 'Switch to execution mode' : 'Switch to advisor mode'}
-           >
-             <MessageCircle className="w-5 h-5" />
-           </button>
+              onClick={toggleChatLock}
+              className={`p-3 transition-colors ${chatLocked ? 'text-sky-400 hover:text-sky-300' : 'text-zinc-400 hover:text-zinc-200'}`}
+              title={chatLocked ? 'Chat is locked (proposals only — click to unlock)' : 'Chat is unlocked (autonomous actions when confident — click to lock)'}
+              aria-label={chatLocked ? 'Unlock chat' : 'Lock chat'}
+            >
+              {chatLocked ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
+            </button>
 
           <button
             onClick={sendMessage}
@@ -756,9 +742,9 @@ export default function ChatPage() {
             <Send className="w-5 h-5" />
           </button>
         </div>
-        {isAdvisor && (
+        {chatLocked && (
           <div className="mt-2 text-[11px] text-sky-400 text-center">
-            Advisor mode — direct answers only. No actions will be created.
+            Chat locked — proposals only. Confirm to execute any action.
           </div>
         )}
       </div>

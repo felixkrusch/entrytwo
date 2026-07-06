@@ -296,16 +296,16 @@ export default function JournalEntriesPanel({
                          {/* Git-model navigation via BooksViewIndicator + ledger; no per-row "view at this commit" button. */}
                       {!isReversal && !hasBeenReversed && (
                         <>
-                          <button
-                            onClick={async (e) => {
-                              e.stopPropagation()
-                               // Respect advisor mode (no destructive actions from UI when chat is in advisor mode)
-                               const cm = (typeof window !== 'undefined' ? localStorage.getItem('chatMode') : null) || (localStorage.getItem('chatLocked') === 'true' ? 'advisor' : 'execution')
-                               if (cm === 'advisor') {
-                                 toast.error(t('lockedToast') || 'Chat is in advisor mode.')
-                                 return
-                               }
-                               if (!confirm(t('confirmReverse'))) return
+                           <button
+                             onClick={async (e) => {
+                               e.stopPropagation()
+                                // When chat is globally locked, block quick destructive actions from lists too (proposals via chat only)
+                                const locked = (typeof window !== 'undefined') && localStorage.getItem('chatLocked') === 'true'
+                                if (locked) {
+                                  toast.error(t('lockedToast') || 'Chat is locked. Use chat proposals + confirm.')
+                                  return
+                                }
+                                if (!confirm(t('confirmReverse'))) return
                               try {
                                 const branch = (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('branch') : null) || 'main'
                                 const res = await fetch('/api/journal-entries/reverse', {
@@ -324,15 +324,14 @@ export default function JournalEntriesPanel({
                           >
                             {t('reverse')}
                           </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                               // Respect advisor mode (no destructive actions from UI when chat is in advisor mode)
-                               const cm2 = (typeof window !== 'undefined' ? localStorage.getItem('chatMode') : null) || (localStorage.getItem('chatLocked') === 'true' ? 'advisor' : 'execution')
-                               if (cm2 === 'advisor') {
-                                 toast.error(t('lockedToast') || 'Chat is in advisor mode.')
-                                 return
-                               }
+                           <button
+                             onClick={(e) => {
+                               e.stopPropagation()
+                                const locked = (typeof window !== 'undefined') && localStorage.getItem('chatLocked') === 'true'
+                                if (locked) {
+                                  toast.error(t('lockedToast') || 'Chat is locked. Use chat proposals + confirm.')
+                                  return
+                                }
                                const lines = entry.lines.map(l => ({
                                 accountCode: l.account.code,
                                 debit: parseFloat(l.debit) || 0,
