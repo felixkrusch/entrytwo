@@ -274,7 +274,9 @@ export default function ChatPage() {
                 fxSource: l.fxSource,
                 fxDate: l.fxDate,
                 taxRateId: l.taxRateId,
-              })) : []
+              })) : [],
+              // carry uploaded invoice/receipt so the journal entry can be linked to it
+              sourcePdfPath: p?.sourcePdfPath || (d as any)?.sourcePdfPath || undefined,
             }
           }
         }
@@ -312,6 +314,10 @@ export default function ChatPage() {
               ...(navigate ? { navigate } : {}),
               // Preserve proposedAction for non-journal cases (restore/merge/...)
               ...(d?.proposedAction && !isCreateJournalProposal ? { proposedAction: d.proposedAction } : {})
+            }
+            // also surface sourcePdfPath on the message for proposals that don't go through the suggestion path
+            if ((d as any)?.sourcePdfPath && updated[streamingMsgIndex]) {
+              ;(updated[streamingMsgIndex] as any).sourcePdfPath = (d as any).sourcePdfPath
             }
           }
           return updated

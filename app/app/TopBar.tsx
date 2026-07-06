@@ -17,6 +17,7 @@ export default function TopBar({ showSettings = false }: TopBarProps) {
 
   const navItems = [
     { name: 'Finances', view: 'dashboard', icon: CreditCard },
+    { name: 'Ledger', view: 'ledger', icon: FileText },
     { name: 'Invoicing', view: 'invoicing', icon: FileText },
     { name: 'Journal', view: 'journal', icon: File },
     { name: 'Contacts', view: 'contacts', icon: Users },
@@ -75,8 +76,8 @@ export default function TopBar({ showSettings = false }: TopBarProps) {
 
   return (
     <div className="h-11 border-b border-zinc-800 bg-zinc-950 flex items-center px-4 justify-between shrink-0">
-      <Link href="/app" className="flex items-baseline gap-2 hover:opacity-80 transition-opacity">
-        <span className="font-semibold tracking-tight">entrytwo</span>
+      <Link href="/app" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+        <img src="/entrytwo-logo.svg" alt="entrytwo" className="h-5 w-auto" />
       </Link>
 
       <div className="flex items-center gap-2">

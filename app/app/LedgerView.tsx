@@ -37,6 +37,7 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
   const [limit] = useState(25)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [runningBalance, setRunningBalance] = useState(0)
 
   // Local filter state (synced with URL for shareability)
   const [search, setSearch] = useState(searchParams?.get('search') || '')
@@ -71,12 +72,26 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
       const res = await fetch(`/api/journal-entries?${params.toString()}`)
       if (!res.ok) throw new Error('Failed to load ledger')
       const data = (await res.json()) as { entries?: Entry[]; total?: number }
-      setEntries(data.entries || [])
+      const list = data.entries || []
+      setEntries(list)
       setTotal(data.total || 0)
+
+      // Compute running balance for this account (only the side that touches this account)
+      let bal = 0
+      for (const e of list) {
+        for (const l of e.lines) {
+          if (l.account.code !== accountCode) continue
+          const d = Number(l.debit || 0)
+          const c = Number(l.credit || 0)
+          bal += d - c
+        }
+      }
+      setRunningBalance(bal)
     } catch (err: unknown) {
       void err
       setError('Could not load ledger entries')
       setEntries([])
+      setRunningBalance(0)
     } finally {
       setLoading(false)
     }
@@ -228,10 +243,22 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
         <div className="text-zinc-500 text-sm">No entries match the current filters.</div>
       ) : (
         <>
+          <div className="text-xs text-zinc-400 mb-2">
+            Running balance for <span className="font-mono text-zinc-200">{accountCode}</span>: <span className="font-mono text-zinc-200">{format.number(runningBalance, { style: 'currency', currency: 'EUR' })}</span>
+          </div>
           <div className="space-y-4">
             {entries.map(entry => {
               const debits = entry.lines.reduce((s, l) => s + Number(l.debit || 0), 0)
               const credits = entry.lines.reduce((s, l) => s + Number(l.credit || 0), 0)
+              // Effect on the viewed account (can be debit or credit side)
+              let accountDelta = 0
+              const accountLines: typeof entry.lines = []
+              for (const l of entry.lines) {
+                if (l.account.code === accountCode) {
+                  accountDelta += Number(l.debit || 0) - Number(l.credit || 0)
+                  accountLines.push(l)
+                }
+              }
               return (
                 <div key={entry.id} className="border border-zinc-800 rounded-xl p-4 bg-zinc-950">
                   <div className="flex justify-between text-sm mb-2">
@@ -240,19 +267,37 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
                       {new Date(entry.date).toISOString().split('T')[0]}
                     </div>
                   </div>
-                  <div className="space-y-1 text-sm">
-                    {entry.lines.map((line, idx) => (
-                      <div key={idx} className="flex justify-between text-xs text-zinc-300">
-                        <span>{line.account.code} — {line.account.name} {line.description ? `· ${line.description}` : ''}</span>
-                        <span className="font-mono">
-                          {Number(line.debit) > 0 ? format.number(Number(line.debit), { style: 'currency', currency: 'EUR' }) : ''}
-                          {Number(line.credit) > 0 ? format.number(Number(line.credit), { style: 'currency', currency: 'EUR' }) : ''}
-                        </span>
-                      </div>
-                    ))}
+
+                  {/* Full double-entry for context */}
+                  <div className="space-y-1 text-sm mb-2">
+                    {entry.lines.map((line, idx) => {
+                      const isThisAccount = line.account.code === accountCode
+                      return (
+                        <div
+                          key={idx}
+                          className={`flex justify-between text-xs rounded px-1 py-0.5 ${isThisAccount ? 'bg-zinc-800/60 text-zinc-100' : 'text-zinc-300'}`}
+                        >
+                          <span>
+                            {line.account.code} — {line.account.name}
+                            {line.description ? ` · ${line.description}` : ''}
+                            {isThisAccount && <span className="ml-1 text-[10px] text-emerald-400">(this account)</span>}
+                          </span>
+                          <span className="font-mono">
+                            {Number(line.debit) > 0 ? format.number(Number(line.debit), { style: 'currency', currency: 'EUR' }) : ''}
+                            {Number(line.credit) > 0 ? format.number(Number(line.credit), { style: 'currency', currency: 'EUR' }) : ''}
+                          </span>
+                        </div>
+                      )
+                    })}
                   </div>
-                  <div className="mt-2 pt-2 border-t border-zinc-800 text-xs text-right font-mono text-zinc-400">
-                    {format.number(debits, { style: 'currency', currency: 'EUR' })} / {format.number(credits, { style: 'currency', currency: 'EUR' })}
+
+                  <div className="mt-2 pt-2 border-t border-zinc-800 text-xs flex justify-between font-mono text-zinc-400">
+                    <span title="Net effect on this account from the full journal entry">
+                      Effect on {accountCode}: <span className={accountDelta >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{format.number(accountDelta, { style: 'currency', currency: 'EUR' })}</span>
+                    </span>
+                    <span title="Totals of the full journal entry (all lines)">
+                      Entry: {format.number(debits, { style: 'currency', currency: 'EUR' })} / {format.number(credits, { style: 'currency', currency: 'EUR' })}
+                    </span>
                   </div>
                 </div>
               )

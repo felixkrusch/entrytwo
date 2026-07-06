@@ -102,20 +102,32 @@ export async function POST(req: NextRequest) {
       for (let i = 0; i < files.length; i++) {
         const f = files[i]
         const buf = Buffer.from(await f.arrayBuffer())
-        // Save to disk so we can link to journal entries later
-        const uploadsDir = join(process.cwd(), 'public', 'uploads', 'receipts')
-        await mkdir(uploadsDir, { recursive: true })
-        const safe = (f.name || 'doc').replace(/[^a-zA-Z0-9_.-]/g, '_')
-        const fname = `${Date.now()}-${i}-${safe}`
-        const disk = join(uploadsDir, fname)
-        await writeFile(disk, buf)
-        const publicPath = `/uploads/receipts/${fname}`
-        attachedFiles.push({
-          name: f.name,
-          buffer: buf,
-          savedPath: publicPath,
-          mimeType: f.type || 'application/pdf',
-        })
+        // Prefer a pre-saved path sent by the client (from /api/invoices/process or previous upload).
+        // This ensures the exact same /uploads/receipts/... path is linked on the journal entry.
+        const clientSaved = form.get(`savedPath_${i}`) as string | null
+        if (clientSaved) {
+          attachedFiles.push({
+            name: f.name,
+            buffer: buf,
+            savedPath: clientSaved,
+            mimeType: f.type || 'application/pdf',
+          })
+        } else {
+          // First-time or direct upload in chat: save now so we have a stable public path to link.
+          const uploadsDir = join(process.cwd(), 'public', 'uploads', 'receipts')
+          await mkdir(uploadsDir, { recursive: true })
+          const safe = (f.name || 'doc').replace(/[^a-zA-Z0-9_.-]/g, '_')
+          const fname = `${Date.now()}-${i}-${safe}`
+          const disk = join(uploadsDir, fname)
+          await writeFile(disk, buf)
+          const publicPath = `/uploads/receipts/${fname}`
+          attachedFiles.push({
+            name: f.name,
+            buffer: buf,
+            savedPath: publicPath,
+            mimeType: f.type || 'application/pdf',
+          })
+        }
       }
     } else {
       const jsonBody = await req.json()
@@ -457,11 +469,14 @@ Output ONLY the understanding text. Do not output JSON or action names.`
           // For execution we will let the normal per-item logic run Pass 2 on it (to pack into schema).
           // We represent it as a candidate CREATE_JOURNAL with the rich understanding.
           // Pass 2 will turn the understanding into the exact structured object.
+          // Capture the first uploaded file's public path so we can link it on the journal entry.
+          const firstFile = attachedFiles[0]
           actionItems = [{
             action: 'CREATE_JOURNAL',
             understanding,
             confidence: 0.85,
-            reasoning: 'Raw document provided in Pass 1'
+            reasoning: 'Raw document provided in Pass 1',
+            sourcePdfPath: firstFile?.savedPath || null,
           }]
         }
       } else {
@@ -679,6 +694,17 @@ Return ONLY the JSON object for the schema. No extra text.`
               }
             }
 
+            // Ensure uploaded receipt/invoice path is carried on CREATE_JOURNAL params
+            // so the journal entry (autonomous or proposed) gets sourcePdfPath.
+            // This comes from the file we received in this request (attachedFiles) or
+            // from Pass 1 (item.sourcePdfPath).
+            if (chosenAction === 'CREATE_JOURNAL' && packed) {
+              const pp: any = packed
+              if (!pp.sourcePdfPath) {
+                pp.sourcePdfPath = item?.sourcePdfPath || (attachedFiles[0]?.savedPath || null)
+              }
+            }
+
             // Pure LLM path only. No server-side amount/FX extraction or mutation.
             // Pass 2 prompt contains the full raw-document understanding + user note.
             // The model must produce the correct balanced journal (or we fall back to proposal).
@@ -726,6 +752,14 @@ Return ONLY the JSON object for the schema. No extra text.`
                 packedParams.description = item?.understanding || lastMessage
               }
 
+              // Link the uploaded invoice/receipt to the journal entry.
+              // Prefer what came from Pass 1 (item.sourcePdfPath), fall back to current request's first file.
+              if (chosenAction === 'CREATE_JOURNAL') {
+                if (!packedParams.sourcePdfPath) {
+                  packedParams.sourcePdfPath = item?.sourcePdfPath || (attachedFiles[0]?.savedPath || null)
+                }
+              }
+
               const cleanIntent: ChatIntent = {
                 action: chosenAction,
                 confidence: item?.confidence ?? 0.75,
@@ -761,6 +795,11 @@ Return ONLY the JSON object for the schema. No extra text.`
                 payload.understanding = item.understanding
               }
 
+              // Surface the linked receipt/invoice path on the response so UIs can show it immediately.
+              if (packedParams?.sourcePdfPath) {
+                payload.sourcePdfPath = packedParams.sourcePdfPath
+              }
+
               lastResult = payload
             } else {
               // On validation failure (e.g. FX balance), still surface as a PROPOSAL
@@ -780,6 +819,9 @@ Return ONLY the JSON object for the schema. No extra text.`
                 understanding: item?.understanding,
                 params: packedParams,
                 proposedAction: { type: chosenAction, params: packedParams },
+              }
+              if (packedParams?.sourcePdfPath) {
+                ;(lastResult as any).sourcePdfPath = packedParams.sourcePdfPath
               }
             }
           } catch (inner) {

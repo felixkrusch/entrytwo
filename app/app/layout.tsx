@@ -34,7 +34,7 @@ interface Account {
 }
 
 function AppContent({ children }: { children: ReactNode }) {
-  const { isOpen, suggestion, closeNewEntry } = useNewEntry()
+  const { isOpen, suggestion, closeNewEntry, openNewEntry } = useNewEntry()
   const t = useTranslations('app.toasts')
   const router = useRouter()
   const pathname = usePathname()
@@ -170,6 +170,13 @@ function AppContent({ children }: { children: ReactNode }) {
                     >
                       Refresh all
                     </button>
+                    <button
+                      onClick={() => openNewEntry()}
+                      className="text-xs px-3 py-0.5 rounded bg-white text-black hover:bg-zinc-200 transition font-medium"
+                      title="Create manual journal entry"
+                    >
+                      + Create manual entry
+                    </button>
                     {(selectedAccount) && (
                       <button
                         onClick={() => {
@@ -223,26 +230,33 @@ function AppContent({ children }: { children: ReactNode }) {
                     </ErrorBoundary>
                   </div>
 
+                    <div className="lg:col-span-3 xl:col-span-6">
+                      {/* Dashboard shows only the 5 most recent entries. Full journal with pagination is at ?view=journal */}
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm font-medium text-zinc-300">Recent entries</div>
+                        <button
+                          onClick={() => openNewEntry()}
+                          className="text-xs px-3 py-1 rounded bg-white text-black hover:bg-zinc-200 transition font-medium"
+                          title="Create manual journal entry"
+                        >
+                          + Create manual entry
+                        </button>
+                      </div>
+                      <ErrorBoundary>
+                        <JournalEntriesPanel
+                          filterAccountId={selectedAccount?.code}
+                          branch={currentBranch}
+                          asOf={asOf}
+                          limit={5}
+                          showPagination={false}
+                        />
+                      </ErrorBoundary>
+                    </div>
+
+                   {/* Balance Sheet removed from dashboard per task list. Compact BS style now lives under /app?view=reports. */}
                    <div className="lg:col-span-3 xl:col-span-6">
-                     {/* Dashboard shows only the 5 most recent entries. Full journal with pagination is at ?view=journal */}
-                     <ErrorBoundary>
-                       <JournalEntriesPanel
-                         filterAccountId={selectedAccount?.code}
-                         branch={currentBranch}
-                         asOf={asOf}
-                         limit={5}
-                         showPagination={false}
-                       />
-                     </ErrorBoundary>
+                     <ErrorBoundary><ProfitLossPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} branch={currentBranch} asOf={asOf} /></ErrorBoundary>
                    </div>
-
-                  <div className="lg:col-span-3 xl:col-span-3">
-                    <ErrorBoundary><ReportsPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} branch={currentBranch} asOf={asOf} /></ErrorBoundary>
-                  </div>
-
-                  <div className="lg:col-span-3 xl:col-span-3">
-                    <ErrorBoundary><ProfitLossPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} branch={currentBranch} asOf={asOf} /></ErrorBoundary>
-                  </div>
 
                    {/* Commit history moved to its own view (?view=history) and to the Settings dropdown.
                        We no longer embed the full AuditLogPanel on the dashboard. */}
@@ -274,13 +288,26 @@ function AppContent({ children }: { children: ReactNode }) {
                   <ReportsContent />
                 )}
 
-                 {view === 'ledger' && ledgerAccountCode && (
-                   <LedgerView accountCode={ledgerAccountCode} branch={currentBranch} asOf={asOf} />
-                 )}
+                  {view === 'ledger' && ledgerAccountCode && (
+                    <LedgerView accountCode={ledgerAccountCode} branch={currentBranch} asOf={asOf} />
+                  )}
 
-                 {view === 'ledger' && !ledgerAccountCode && (
-                   <div className="text-sm text-zinc-400">No account selected for ledger.</div>
-                 )}
+                  {view === 'ledger' && !ledgerAccountCode && (
+                    <div className="p-6">
+                      <div className="mb-6">
+                        <h1 className="text-2xl font-semibold tracking-tight">Ledger</h1>
+                        <p className="text-sm text-zinc-400 mt-1 max-w-prose">
+                          A ledger shows the activity and running balance for <span className="text-zinc-200">one specific account</span> over time — like a bank statement for that account.
+                          It includes the full double-entry of each transaction for context.
+                        </p>
+                        <p className="text-sm text-zinc-400 mt-3">Select an account to begin.</p>
+                      </div>
+
+                      <ErrorBoundary>
+                        <AccountsPanel branch={currentBranch} asOf={asOf} />
+                      </ErrorBoundary>
+                    </div>
+                  )}
 
                  {view === 'receipts' && (
                    <ReceiptsPanel />

@@ -27,6 +27,7 @@ export interface AutonomousJournalInput {
     reasoning?: string
   }
   branch?: string
+  sourcePdfPath?: string | null   // link to uploaded invoice/receipt under /uploads/receipts
 }
 
 export async function createAutonomousJournal(input: AutonomousJournalInput) {
@@ -39,6 +40,7 @@ export async function createAutonomousJournal(input: AutonomousJournalInput) {
     data: {
       date: new Date(input.date),
       description: input.description,
+      sourcePdfPath: input.sourcePdfPath || null,
       lines: {
         create: input.lines.map(l => ({
           accountId: l.accountId,

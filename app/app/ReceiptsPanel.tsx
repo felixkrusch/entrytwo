@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import toast from 'react-hot-toast'
 
 interface ReceiptItem {
   name: string
@@ -28,6 +29,18 @@ export default function ReceiptsPanel() {
   }
 
   useEffect(() => { load() }, [])
+
+  const del = async (name: string) => {
+    if (!confirm(`Delete ${name}?`)) return
+    try {
+      const res = await fetch(`/api/receipts?file=${encodeURIComponent(name)}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error(await res.text())
+      toast.success('Deleted')
+      load()
+    } catch (e: any) {
+      toast.error(e?.message || 'Delete failed')
+    }
+  }
 
   return (
     <div className="mt-4">
@@ -60,10 +73,11 @@ export default function ReceiptsPanel() {
                     <a href={it.url} target="_blank" rel="noopener" className="text-emerald-400 hover:underline">{it.name}</a>
                   </td>
                   <td className="px-3 py-2 text-zinc-400 text-xs">{Math.round(it.size / 1024)} KB</td>
-                  <td className="px-3 py-2 text-zinc-400 text-xs">{it.mtime ? new Date(it.mtime).toLocaleString() : '—'}</td>
-                  <td className="px-3 py-2 text-right">
-                    <a href={it.url} target="_blank" rel="noopener" className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800">Open</a>
-                  </td>
+                   <td className="px-3 py-2 text-zinc-400 text-xs">{it.mtime ? new Date(it.mtime).toLocaleString() : '—'}</td>
+                   <td className="px-3 py-2 text-right">
+                     <a href={it.url} target="_blank" rel="noopener" className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800">Open</a>
+                     <button onClick={() => del(it.name)} className="ml-2 text-[10px] px-2 py-0.5 rounded border border-rose-800 text-rose-400 hover:bg-rose-950">Delete</button>
+                   </td>
                 </tr>
               ))}
             </tbody>

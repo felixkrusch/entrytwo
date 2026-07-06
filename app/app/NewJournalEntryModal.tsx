@@ -5,6 +5,7 @@ import { X } from 'lucide-react'
 import type { NewEntrySuggestion } from './NewEntryContext'
 import { useTranslations, useFormatter } from 'next-intl'
 import { getTaxDirection } from '@/lib/taxDirection'
+import toast from 'react-hot-toast'
 
 interface Account {
   id: string
@@ -66,6 +67,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   const [error, setError] = useState('')
   const [userConfirmed, setUserConfirmed] = useState(false)
   const [verificationWarnings, setVerificationWarnings] = useState<string[]>([])
+  const [attachedFile, setAttachedFile] = useState<{ name: string; savedPath: string } | null>(null)
 
   const isReversal = !!initialSuggestion?.reversingOriginalId
   const requiresConfirmation = !!initialSuggestion?.needsConfirmation
@@ -359,6 +361,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   const handleClose = () => {
     setDescription('')
     setContactId('')
+    setAttachedFile(null)
     setLines([
       { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: 'EUR' },
       { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: 'EUR' }
@@ -369,6 +372,34 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
 
   const addLineWithFx = () => {
     setLines([...lines, { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: 'EUR', contactId: contactId || undefined }])
+  }
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const lower = file.name.toLowerCase()
+    const ok = file.type === 'application/pdf' || file.type.startsWith('image/') || lower.endsWith('.pdf') || /\.(jpg|jpeg|png|webp)$/.test(lower)
+    if (!ok) {
+      toast.error('Please select a PDF or image file')
+      e.target.value = ''
+      return
+    }
+    const form = new FormData()
+    form.append('file', file)
+    try {
+      const res = await fetch('/api/invoices/process', { method: 'POST', body: form })
+      const data = await res.json()
+      if (!res.ok || !data?.saved?.length) {
+        throw new Error('Upload failed')
+      }
+      const saved = data.saved[0]
+      setAttachedFile({ name: file.name, savedPath: saved.savedPath })
+      toast.success('Attachment added')
+    } catch {
+      toast.error('Failed to attach file')
+    } finally {
+      e.target.value = ''
+    }
   }
 
   if (!isOpen) return null
@@ -443,7 +474,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
         date,
         description: description || undefined,
         branch,
-        sourcePdfPath: (initialSuggestion as any)?.sourcePdfPath || undefined,
+        sourcePdfPath: (initialSuggestion as any)?.sourcePdfPath || attachedFile?.savedPath || undefined,
         lines: lines.map(l => ({
           accountId: l.accountId,
           debit: Number(l.debit),
@@ -571,11 +602,22 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
             </div>
           </div>
 
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <label className="text-sm text-zinc-400">{t('journalLines')}</label>
-              <button onClick={addLineWithFx} className="text-xs px-2 py-1 bg-zinc-800 rounded hover:bg-zinc-700">{t('addLine')}</button>
-            </div>
+            <div>
+             <div className="flex justify-between items-center mb-2">
+               <label className="text-sm text-zinc-400">{t('journalLines')}</label>
+               <div className="flex items-center gap-2">
+                 <label className="text-xs px-2 py-1 bg-zinc-800 rounded hover:bg-zinc-700 cursor-pointer">
+                   Attach PDF/image
+                   <input type="file" className="hidden" accept="application/pdf,image/*,.pdf,.jpg,.jpeg,.png,.webp" onChange={handleFileSelect} />
+                 </label>
+                 <button onClick={addLineWithFx} className="text-xs px-2 py-1 bg-zinc-800 rounded hover:bg-zinc-700">{t('addLine')}</button>
+               </div>
+             </div>
+             {attachedFile && (
+               <div className="mb-2 text-[11px] text-emerald-400">
+                 📎 {attachedFile.name} <button className="ml-2 text-zinc-500 hover:text-red-400" onClick={() => setAttachedFile(null)}>remove</button>
+               </div>
+             )}
 
             <div className="space-y-2">
               {lines.map((line, index) => (

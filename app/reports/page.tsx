@@ -134,66 +134,63 @@ export default function ReportsPage() {
           {balanceSheet ? (
             <div className="space-y-4 text-sm">
               <div>
-                <div className="text-zinc-400 font-medium mb-2">Assets</div>
+                <div className="text-emerald-400 font-medium mb-2 flex justify-between">
+                  <span>Assets</span>
+                  <span className="font-mono">{formatCurrency(balanceSheet.assetsTotal ?? 0)}</span>
+                </div>
                 <div className="space-y-1">
                   {balanceSheet.assets && balanceSheet.assets.length > 0 ? (
                     balanceSheet.assets.map(a => (
-                      <div key={a.code} className="flex justify-between">
+                      <div key={a.code} className="flex justify-between text-xs">
                         <span>{a.code} - {a.name}</span>
-                        <span>{formatCurrency(a.balance, a.currency)}</span>
+                        <span className="font-mono text-emerald-400">{formatCurrency(a.balance, a.currency)}</span>
                       </div>
                     ))
                   ) : (
                     <div className="text-zinc-500 pl-2">{t('reports.noAssets')}</div>
                   )}
-                  <div className="border-t border-zinc-700 pt-1 font-medium flex justify-between">
-                    <span>Total</span>
-                    <span>{formatCurrency(balanceSheet.assetsTotal ?? 0)}</span>
-                  </div>
                 </div>
               </div>
               
               <div>
-                <div className="text-zinc-400 font-medium mb-2">Liabilities</div>
+                <div className="text-amber-400 font-medium mb-2 flex justify-between">
+                  <span>Liabilities</span>
+                  <span className="font-mono">{formatCurrency(balanceSheet.liabilitiesTotal ?? 0)}</span>
+                </div>
                 <div className="space-y-1">
                   {balanceSheet.liabilities && balanceSheet.liabilities.length > 0 ? (
                     balanceSheet.liabilities.map(a => (
-                      <div key={a.code} className="flex justify-between">
+                      <div key={a.code} className="flex justify-between text-xs">
                         <span>{a.code} - {a.name}</span>
-                        <span>{formatCurrency(a.balance, a.currency)}</span>
+                        <span className="font-mono text-amber-400">{formatCurrency(a.balance, a.currency)}</span>
                       </div>
                     ))
                   ) : (
                     <div className="text-zinc-500 pl-2">{t('reports.noLiabilities')}</div>
                   )}
-                  <div className="border-t border-zinc-700 pt-1 font-medium flex justify-between">
-                    <span>Total</span>
-                    <span>{formatCurrency(balanceSheet.liabilitiesTotal ?? 0)}</span>
-                  </div>
                 </div>
               </div>
               
               <div>
-                <div className="text-zinc-400 font-medium mb-2">Equity</div>
+                <div className="text-purple-400 font-medium mb-2 flex justify-between">
+                  <span>Equity</span>
+                  <span className="font-mono">{formatCurrency(balanceSheet.equityTotal ?? 0)}</span>
+                </div>
                 <div className="space-y-1">
                   {balanceSheet.equity && balanceSheet.equity.length > 0 ? (
                     balanceSheet.equity.map(a => (
-                      <div key={a.code} className="flex justify-between">
+                      <div key={a.code} className="flex justify-between text-xs">
                         <span>{a.code} - {a.name}</span>
-                        <span>{formatCurrency(a.balance, a.currency)}</span>
+                        <span className="font-mono text-purple-400">{formatCurrency(a.balance, a.currency)}</span>
                       </div>
                     ))
                   ) : (
                     <div className="text-zinc-500 pl-2">{t('reports.noEquity')}</div>
                   )}
-                  <div className="border-t border-zinc-700 pt-1 font-medium flex justify-between">
-                    <span>Total</span>
-                    <span>{formatCurrency(balanceSheet.equityTotal ?? 0)}</span>
-                  </div>
                 </div>
               </div>
               
-              <div className="text-xs pt-2">
+              <div className="text-xs pt-2 border-t border-zinc-700">
                 {balanceSheet.assetsTotal === balanceSheet.liabilitiesTotal + balanceSheet.equityTotal ? (
                   <span className="text-emerald-400">✓ {t('reports.balanced')}</span>
                 ) : (

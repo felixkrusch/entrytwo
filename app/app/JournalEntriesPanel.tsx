@@ -293,21 +293,7 @@ export default function JournalEntriesPanel({
                             Open ledger
                           </button>
                         )}
-                        {/* Git-model: view this journal entry as a commit point (like clicking a SHA) */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            const p = new URLSearchParams()
-                            p.set('view', 'ledger')
-                            p.set('accountCode', entry.lines[0]?.account?.code || '')
-                            p.set('asOf', entry.date)
-                            router.push(`/app?${p.toString()}`)
-                          }}
-                          className="text-[10px] px-2 py-0.5 rounded border border-emerald-800 text-emerald-400 hover:bg-emerald-950"
-                          title="Load books exactly at this journal entry (commit)"
-                        >
-                          View at this commit
-                        </button>
+                         {/* Git-model navigation via BooksViewIndicator + ledger; no per-row "view at this commit" button. */}
                       {!isReversal && !hasBeenReversed && (
                         <>
                           <button

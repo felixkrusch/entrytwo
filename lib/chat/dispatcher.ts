@@ -275,6 +275,7 @@ async function execCreateJournal(intent: ChatIntent, branch: string): Promise<Di
       model: 'chat',
     },
     branch,
+    sourcePdfPath: p?.sourcePdfPath || null,
   })
 
   return {

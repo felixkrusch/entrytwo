@@ -10,6 +10,7 @@ interface Account {
   name: string
   type: string
   _count: { journalLines: number }
+  balance?: number
 }
 
 interface AccountsPanelProps {
@@ -252,12 +253,6 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
           ) : null}
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => { setShowAdd(!showAdd); setAddError('') }}
-            className="text-xs px-2 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-white transition"
-          >
-            {t('addAccount')}
-          </button>
           <div className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">
             {search ? `${filteredAccounts.length} / ` : ''}{t('count', { count: accounts.length })}
           </div>
@@ -274,53 +269,7 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
         />
       </div>
 
-      {/* Add Account Form */}
-      {showAdd && (
-        <div className="mb-4 p-3 rounded-lg bg-zinc-950 border border-zinc-800">
-          <div className="text-xs text-zinc-400 mb-2">{t('addTitle')}</div>
-          <div className="grid grid-cols-12 gap-2">
-            <input
-              value={newCode}
-              onChange={e => setNewCode(e.target.value)}
-              placeholder={t('codePlaceholder')}
-              className="col-span-2 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm font-mono"
-            />
-            <input
-              value={newName}
-              onChange={e => setNewName(e.target.value)}
-              placeholder={t('namePlaceholder')}
-              className="col-span-6 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm"
-            />
-            <select
-              value={newType}
-              onChange={e => setNewType(e.target.value as 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE')}
-              className="col-span-2 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm"
-            >
-              <option value="ASSET">ASSET</option>
-              <option value="LIABILITY">LIABILITY</option>
-              <option value="EQUITY">EQUITY</option>
-              <option value="REVENUE">REVENUE</option>
-              <option value="EXPENSE">EXPENSE</option>
-            </select>
-            <button
-              onClick={handleAddAccount}
-              disabled={isAdding || !newCode.trim() || !newName.trim()}
-              className="col-span-2 px-3 py-1 text-sm rounded bg-white text-black disabled:opacity-50"
-            >
-              {isAdding ? (t('creating') || 'Adding...') : t('create')}
-            </button>
-          </div>
-          {addError && (
-            <div className="mt-1 text-xs text-rose-400">{addError}</div>
-          )}
-          <button
-            onClick={() => { setShowAdd(false); setAddError('') }}
-            className="mt-2 text-xs text-zinc-500 hover:text-zinc-300"
-          >
-            {t('cancel')}
-          </button>
-        </div>
-      )}
+      {/* Add Account Form hidden on public/dashboard view (edit in /admin/chart-of-accounts) */}
 
       {loading ? (
         <div className="text-zinc-500 text-sm">{t('loading')}</div>
@@ -428,21 +377,12 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
                               <div className="text-xs text-zinc-500 group-hover:text-zinc-400">
                                 {t('lines', { count: account._count.journalLines })}
                               </div>
-
-                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); startEdit(account) }}
-                                  className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-white"
-                                >
-                                  {t('edit')}
-                                </button>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleDelete(account) }}
-                                  className="text-[10px] px-1.5 py-0.5 rounded bg-rose-900 hover:bg-rose-800 text-rose-200"
-                                >
-                                  {t('delete')}
-                                </button>
-                              </div>
+                              {typeof (account as any).balance === 'number' && (
+                                <span className="font-mono text-xs text-zinc-400 group-hover:text-zinc-200">
+                                  {(account as any).balance.toFixed(2)}
+                                </span>
+                              )}
+                              {/* Dashboard/public view: no edit/delete */}
                             </div>
                           </div>
                         )
