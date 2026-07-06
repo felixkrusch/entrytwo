@@ -1,6 +1,6 @@
 // lib/chat/intent.ts
-// Comprehensive intent schema and classification for autonomous AI execution via chat.
-// See docs/Autonomous-AI-Execution-Plan.md for full taxonomy and rules.
+// Action type enum + Zod schemas for the master/specialist chat architecture.
+// These are the canonical shapes the LLM must emit when it decides to act.
 
 import { z } from 'zod'
 
