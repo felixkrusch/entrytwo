@@ -1,6 +1,6 @@
 // lib/accounting/branch.ts
 // Git Model for Accounting - Branch management (main, proposals, AI experiments)
-// See docs/Git-Model-for-Accounting.md and docs/Git-Model-Implementation-Plan.md
+// See docs/Git-Model-for-Accounting.md
 
 import { prisma } from '@/lib/prisma'
 

@@ -1,7 +1,7 @@
 // lib/accounting/replay.ts
 // Git Model for Accounting - Replay / Reconstruct engine
 // Given a snapshot + events after it, reconstruct state at a point in time.
-// See docs/Git-Model-for-Accounting.md and docs/Git-Model-Implementation-Plan.md
+// See docs/Git-Model-for-Accounting.md
 
 import { prisma } from '@/lib/prisma'
 import type { SnapshotData } from './snapshot'

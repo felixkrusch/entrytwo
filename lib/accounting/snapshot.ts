@@ -1,6 +1,6 @@
 // lib/accounting/snapshot.ts
 // Git Model for Accounting - Snapshot service
-// See docs/Git-Model-for-Accounting.md and docs/Git-Model-Implementation-Plan.md
+// See docs/Git-Model-for-Accounting.md
 
 import { prisma } from '@/lib/prisma'
 

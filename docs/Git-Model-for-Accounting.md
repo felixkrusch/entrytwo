@@ -204,15 +204,11 @@ If we ever build features that force the user back into manual ticking and drudg
 
 ## 9. Related Documents (Must Stay Consistent)
 
-- `docs/production-ready.md` — must treat this as the guiding philosophy.
-- `docs/Detailed-Data-Model-Prisma-Schema.md` — event sourcing + snapshots were always meant for this.
-- `docs/Project-Scope-Architecture.md`
-- `docs/Technical-Architecture.md`
-- `docs/PRODUCTION-READINESS-PLAN.md`
-- `docs/Implementation-Plan.md`
-- Any future design docs.
+- `docs/Detailed-Data-Model-Prisma-Schema.md`
+- `docs/Master-Specialist-LLM-Architecture.md` (current chat/LLM architecture)
+- Any future design docs that are actively maintained.
 
-This document is the **north star**. Everything else derives from it.
+This document (`Git-Model-for-Accounting.md`) is the **north star**. Everything else derives from it.
 
 ---
 

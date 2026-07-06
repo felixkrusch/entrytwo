@@ -40,10 +40,8 @@ On a fresh database, create the first **ADMIN** user (bootstrap flow).
 
 - [docs/SETUP.md](./docs/SETUP.md) – Setup, environment, seeding, first admin, Docker, troubleshooting
 - [docs/Git-Model-for-Accounting.md](./docs/Git-Model-for-Accounting.md) — **Foundational philosophy** (read this first). Accounting as a Git repository: branches, merges, autonomous high-confidence AI commits, AI-driven reconciliation, full history + rollback.
-- [docs/Implementation-Plan.md](./docs/Implementation-Plan.md)
-- [docs/Project-Scope-Architecture.md](./docs/Project-Scope-Architecture.md)
+- [docs/Master-Specialist-LLM-Architecture.md](./docs/Master-Specialist-LLM-Architecture.md) — Current LLM chat architecture (master + specialist, full history, single lock).
 - [docs/Detailed-Data-Model-Prisma-Schema.md](./docs/Detailed-Data-Model-Prisma-Schema.md)
-- [docs/Technical-Architecture.md](./docs/Technical-Architecture.md)
 - [docs/Security-Compliance.md](./docs/Security-Compliance.md)
 
 ---
