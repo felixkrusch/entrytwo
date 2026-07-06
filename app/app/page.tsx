@@ -540,6 +540,25 @@ export default function ChatPage() {
     }
   }
 
+  // Listen for "attach from receipts list" (manual selection of already-uploaded files)
+  useEffect(() => {
+    const onAttachReceipt = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { name?: string; savedPath: string } | undefined
+      if (!detail?.savedPath) return
+      const name = detail.name || detail.savedPath.split('/').pop() || 'file'
+      // show in yellow pending list
+      setPendingAttachments(prev => [...prev, { name, savedPath: detail.savedPath }])
+      // stash for next sendMessage (no File object for pre-existing)
+      const win = window as any
+      win.__pendingAttachments = [
+        ...(win.__pendingAttachments || []),
+        { file: undefined, savedPath: detail.savedPath, name }
+      ]
+    }
+    window.addEventListener('attach-receipt', onAttachReceipt as EventListener)
+    return () => window.removeEventListener('attach-receipt', onAttachReceipt as EventListener)
+  }, [])
+
   // Attachments: multiple files (PDFs + images) are attached to the *next* user message.
   // They are sent together with the text prompt to the LLM (chat two-pass).
   // No legacy extraction, no heuristics here.

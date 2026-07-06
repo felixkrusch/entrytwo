@@ -1,51 +1,61 @@
-# Master + Specialist LLM Architecture (Hard Cut Rewrite)
+# Trillion Chat Architecture (Thread Context + Grok Skills on Demand)
 
-**Status:** Authoritative implementation plan. Hard cut — no backward compatibility.  
+**Status:** Current implementation (as of 2026-07-06).  
 **Date:** 2026-07-06  
-**Goal:** Replace the accumulated two-pass + dual-mode + dispatcher-heavy chat system with a simple, maintainable master + specialist flow that gives the LLM proper conversational context while still producing the strict JSON required for real accounting actions.
+**Goal:** A single conversational accountant ("Trillion") that reasons freely with real context, always sees the live financial "map", and only pulls precise action instructions (via skills) when it decides to mutate data. Strict server-side validation + lock semantics guarantee safety. No more preloading giant reference files every turn.
 
-## 1. Vision & Non-Negotiables
+## 1. Current Reality (2026-07-06)
 
-- One coherent conversational experience.
-- The model receives full session history (no artificial slice(-8)).
-- A single global **Chat Lock** (closed = proposals only; open = normal autonomy rules apply).
-- When the lock is closed the chat may still propose actions (show structured card + "Confirm & Execute"), but nothing executes without an explicit user click.
-- Strict, correct JSON is required for any mutation (journal, invoice draft, contact, etc.). Free text is never sufficient for creation.
-- The Git model (Events + branch heads + ancestry + restore) remains the universal audit + rollback safety net.
-- Hard cut: delete everything that exists only for historical layering. No compat shims.
+- **Trillion** is the single conversational accountant.
+- **Thread-based context** (not full history every time):
+  - Server owns authoritative threads (`lib/chatThreadStore.ts`).
+  - Client sends only the new message + `threadId` (+ lock/branch/asOf).
+  - Model receives a bounded recent window (currently up to 40 turns) via `getContextForModel`.
+- **Always-attached live snapshot** ("the map"):
+  - Every turn builds the current view's balances/accounts (branch + optional asOf).
+  - Model is told: "this is the app, here is the live data".
+- **Skills on demand** (Grok style):
+  - No giant action reference is preloaded every turn.
+  - Base prompt is small.
+  - When the model decides it needs to act (CREATE_JOURNAL, CREATE_CONTACT, etc.), it calls the `get_skill` tool with a short name (e.g. "create-contact", "create-journal", "core").
+  - Skill content (exact schema + rules + examples) is returned; model then emits **one clean JSON action**.
+- **Single global Chat Lock** (closed = proposals only).
+- Strict server validation + policy always apply.
+- Git model (Events + branches + ancestry) is the safety net for all mutations.
+- Model uses native xAI provider (via `@ai-sdk/xai`) for correct API shape.
 
-## 2. Core Architectural Decision: Master + Specialist
+## 2. How Trillion Actually Works (Current)
 
-**Master agent**
-- Full conversational context (entire session messages).
-- Normal reasoning, tax advice, bookkeeping discussion, app questions, multi-turn refinement.
-- Decides when a real action is warranted.
-- When it acts, it produces (or delegates for) the exact structured payload.
+**Conversational master**
+- Threaded context window (recent turns via `getContextForModel`).
+- Full reasoning freedom for advice, tax questions, discussion, multi-turn refinement.
+- Decides **on its own** when it needs precise instructions for an action.
 
-**Specialist (formatting)**
-- Narrow, non-conversational.
-- Only job: emit precise JSON that matches the canonical action schemas.
-- Can be a separate narrow call or (preferred for simplicity) the master itself is instructed to output the exact shape when it decides to act.
+**On-demand skills (instead of preloaded schemas)**
+- Skills live in `.grok/skills/` (Grok-compatible layout).
+- Core skills: `core`, `create-journal`, `create-contact`, `create-invoice-draft`, `update-contact`, etc.
+- Model calls the `get_skill` tool (registered in `generateText`) when it wants to act.
+- Tool returns the exact schema + rules + examples for that action.
+- Model then outputs **exactly one** clean JSON action object (plain or ```json).
+- Server extracts it with `tryExtractAction`, validates, applies lock/policy, executes or proposes.
 
-For maximum simplicity we start with the master doing both:
-- The master prompt contains the full set of action schemas as "available skills".
-- When the master decides an action is needed it outputs a single top-level JSON object instead of (or in addition to) text.
-- Server attempts to parse an action; if present and valid → process it. Otherwise treat as normal text response.
+This is the "pull when needed" model the user asked for — exactly like deciding to search the web for German tax rules.
 
-A true separate specialist call can be added later only if the single-call approach proves unreliable for strict JSON. We deliberately start simple.
+**Live snapshot every turn**
+- `buildLiveBalancesSummary` is **always** called (no heuristics or "needs money words").
+- Model is told: "Use the live data above for any question about this company's actual numbers... this is the map."
 
-## 3. Lock Semantics (the only mode)
+**No more monolithic reference**
+- The old `docs/LLM-Action-Reference.md` was deleted.
+- All authoritative shapes now live in the skill files.
 
-- `chatLocked: boolean` (global, persisted in localStorage as before for the icon).
-- Closed (locked):
-  - Master is explicitly told: "You are in advisory/proposal-only mode. You may discuss and show proposed actions, but you must never indicate that anything will run automatically."
-  - Server always forces `proposed: true` for any actionable output.
-  - User must click a confirmation button for execution.
-- Open (unlocked):
-  - Normal policy applies (confidence, SAFE vs PROPOSE lists, validation).
-  - High-confidence safe actions may execute directly.
+## 3. Lock Semantics (unchanged core behavior)
 
-This replaces the 'advisor' | 'execution' toggle and the conflicting ChatMode types.
+- Single boolean `chatLocked` (persisted in localStorage).
+- Locked: model may discuss and return proposals; server forces `proposed: true`.
+- Unlocked: safe autonomous actions (per `isSafeAutonomous`) can execute directly after validation.
+- Destructive / master-data / validation-fail actions are always turned into proposals.
+- Confirmation path (`approvedAction`) re-validates and executes.
 
 ## 4. Conversation History
 

@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { auth } from '@/lib/auth'
 import { recordCommitOnBranch } from '@/lib/accounting/commit'
 import { getVisibleJournalEntryIds, getVisibleJournalEntryIdsAtPoint } from '@/lib/accounting/ancestry'
+import { nextEntryNumber } from '@/lib/accounting/entryNumber'
 
 const createEntrySchema = z.object({
   date: z.string().refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid date format' }),
@@ -35,7 +37,11 @@ export async function GET(request: Request) {
     const limit = Math.min(100, Math.max(5, parseInt(searchParams.get('limit') || '25', 10)))
     const sortParam = searchParams.get('sort') || 'date:desc'
     const [sortField, sortDir] = sortParam.split(':')
-    const orderBy: any = sortField === 'date' ? { date: sortDir === 'asc' ? 'asc' : 'desc' } : { date: 'desc' }
+    // Sort by date, then by entryNumber as a stable secondary key. Without the
+    // secondary sort, entries sharing the same date are returned in arbitrary DB
+    // order (e.g. JE-2026-0066 appearing above JE-2026-0067).
+    const dir = sortField === 'date' && sortDir === 'asc' ? 'asc' : 'desc'
+    const orderBy: any = [{ date: dir }, { entryNumber: dir }]
 
     // Git Model: branch + asOf
     // - If asOf: pinned view at that point (uses ancestry of the event at that point)
@@ -112,11 +118,53 @@ export async function GET(request: Request) {
       })
     ])
 
+    // Resolve the creating user for each entry (accountability metadata).
+    const creatorIds = Array.from(new Set(entries.map(e => e.createdBy).filter(Boolean))) as string[]
+    const creators = creatorIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: creatorIds } },
+          select: { id: true, name: true, email: true },
+        })
+      : []
+    const creatorMap = new Map(creators.map(u => [u.id, u]))
+
+    // Map raw entries into the stable UI shape.
+    // Adds: entryNumber (top-level), line.cleared, createdByUser, and a reversal cross-reference.
+    const mappedEntries = entries.map(e => ({
+      id: e.id,
+      date: e.date,
+      description: e.description,
+      entryNumber: e.entryNumber,
+      createdBy: e.createdBy,
+      createdByUser: e.createdBy ? creatorMap.get(e.createdBy) || null : null,
+      updatedAt: e.updatedAt,
+      sourcePdfPath: e.sourcePdfPath,
+      reversalOfEntryNumber:
+        typeof e.description === 'string' && e.description.startsWith('Reversal of')
+          ? (e.description.match(/JE-\d{4}-\d{4}/)?.[0] || null)
+          : null,
+      lines: e.lines.map(l => ({
+        id: l.id,
+        debit: l.debit,
+        credit: l.credit,
+        description: l.description,
+        account: l.account,
+        taxRate: l.taxRate,
+        taxIsInput: l.taxIsInput,
+        currency: l.currency,
+        fxRateToBase: l.fxRateToBase,
+        fxSource: l.fxSource,
+        fxDate: l.fxDate,
+        contact: l.contact,
+        cleared: l.cleared ?? false,
+      })),
+    }))
+
     // If using ancestry filter, the "total" above is already the visible count for the view.
     // We keep page/limit for UI pagination of the visible set.
 
     return NextResponse.json({
-      entries,
+      entries: mappedEntries,
       total,
       page,
       limit,
@@ -195,11 +243,18 @@ export async function POST(request: Request) {
       )
     }
 
+    const entryNumber = await nextEntryNumber(new Date(date))
+
+    const session = await auth().catch(() => null)
+    const createdBy = session?.user?.id || null
+
     const result = await prisma.$transaction(async (tx) => {
       const created = await tx.journalEntry.create({
         data: {
           date: new Date(date),
           description,
+          entryNumber,
+          createdBy,
           sourcePdfPath: sourcePdfPath || null,
           lines: {
             create: lines.map(line => ({
@@ -209,6 +264,7 @@ export async function POST(request: Request) {
               description: line.description,
               taxRateId: line.taxRateId || null,
               taxIsInput: typeof line.taxIsInput === 'boolean' ? line.taxIsInput : null,
+              cleared: false,
               currency: line.currency || 'EUR',
               fxRateToBase: line.fxRateToBase != null ? line.fxRateToBase : null,
               fxSource: line.fxSource || null,
@@ -296,5 +352,29 @@ export async function POST(request: Request) {
       { error: 'Failed to create journal entry' },
       { status: 500 }
     )
+  }
+}
+
+// PATCH updates reconciliation state for a single journal line (cleared flag).
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json()
+    const lineId = typeof body?.lineId === 'string' ? body.lineId : undefined
+    const cleared = typeof body?.cleared === 'boolean' ? body.cleared : undefined
+
+    if (!lineId) {
+      return NextResponse.json({ error: 'lineId is required' }, { status: 400 })
+    }
+
+    const updated = await prisma.journalLine.update({
+      where: { id: lineId },
+      data: { cleared: cleared ?? false },
+      select: { id: true, cleared: true },
+    })
+
+    return NextResponse.json(updated)
+  } catch (error) {
+    console.error('Error updating journal line:', error)
+    return NextResponse.json({ error: 'Failed to update journal line' }, { status: 500 })
   }
 }

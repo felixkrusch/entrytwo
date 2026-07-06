@@ -4,13 +4,14 @@ import { useEffect, useState } from 'react'
 import { useNewEntry } from './NewEntryContext'
 import toast from 'react-hot-toast'
 import { useTranslations, useFormatter } from 'next-intl'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 interface JournalLine {
   id: string
   debit: string
   credit: string
   description?: string | null   // line-level note (returned by API)
+  cleared?: boolean
   account: { code: string; name: string }
   taxRate?: {
     id: string
@@ -30,6 +31,11 @@ interface JournalEntry {
   id: string
   date: string
   description: string | null
+  entryNumber?: string | null
+  createdBy?: string | null
+  createdByUser?: { id: string; name?: string | null; email?: string | null } | null
+  updatedAt?: string | null
+  reversalOfEntryNumber?: string | null
   sourcePdfPath?: string | null
   lines: JournalLine[]
 }
@@ -52,6 +58,8 @@ export default function JournalEntriesPanel({
   const { openNewEntry } = useNewEntry()
   const t = useTranslations('app.panels.journal')
   const format = useFormatter()
+  const searchParams = useSearchParams()
+  const entryRef = searchParams?.get('entryRef') || ''
 
   const [entries, setEntries] = useState<JournalEntry[]>([])
   const [reversedMap, setReversedMap] = useState<Map<string, string>>(new Map())
@@ -61,6 +69,12 @@ export default function JournalEntriesPanel({
   const [expandAll, setExpandAll] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
+  // Date-range + account filters for the full journal view
+  const [search, setSearch] = useState('')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [accountFilter, setAccountFilter] = useState(filterAccountId || '')
+
   // Pagination (only used when showPagination is true and no limit is passed)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -69,8 +83,12 @@ export default function JournalEntriesPanel({
   const fetchEntries = () => {
     const params = new URLSearchParams()
     if (filterAccountId) params.set('accountCode', filterAccountId)
+    else if (accountFilter) params.set('accountCode', accountFilter)
     if (branch) params.set('branch', branch)
     if (asOf) params.set('asOf', asOf)
+    if (search) params.set('search', search)
+    if (from) params.set('from', from)
+    if (to) params.set('to', to)
 
     // When a hard limit is provided (dashboard "5 recent"), we still ask the API for a larger page
     // and then slice client-side so we always get the freshest N.
@@ -98,6 +116,12 @@ export default function JournalEntriesPanel({
           setEntries(list.slice(0, limit))
         } else {
           setEntries(list)
+        }
+
+        // Auto-expand a specific entry when arriving from the ledger via ?entryRef=JE-...
+        if (entryRef) {
+          const match = list.find(e => e.entryNumber === entryRef)
+          if (match) setExpanded(match.id)
         }
 
         if (data && typeof data.totalPages === 'number') setTotalPages(data.totalPages || 1)
@@ -142,7 +166,7 @@ export default function JournalEntriesPanel({
       mounted = false
       window.removeEventListener('journal-updated', handler)
     }
-  }, [filterAccountId, branch, asOf, limit, showPagination, page])
+  }, [filterAccountId, branch, asOf, limit, showPagination, page, search, from, to, accountFilter])
 
   const filteredEntries = filterAccountId
     ? entries.filter(entry =>
@@ -230,6 +254,53 @@ export default function JournalEntriesPanel({
         </div>
       )}
 
+      {showPagination && (
+        <div className="mb-4 flex flex-wrap items-end gap-3">
+          <div>
+            <label className="text-xs text-zinc-400 block mb-1">Search</label>
+            <input
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1) }}
+              placeholder="Description or line text"
+              className="bg-zinc-900 border border-zinc-700 rounded px-3 py-1 text-sm w-56"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-zinc-400 block mb-1">Account</label>
+            <input
+              value={accountFilter}
+              onChange={e => { setAccountFilter(e.target.value); setPage(1) }}
+              placeholder="e.g. 1000"
+              className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm w-24"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-zinc-400 block mb-1">From</label>
+            <input
+              type="date"
+              value={from}
+              onChange={e => { setFrom(e.target.value); setPage(1) }}
+              className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-zinc-400 block mb-1">To</label>
+            <input
+              type="date"
+              value={to}
+              onChange={e => { setTo(e.target.value); setPage(1) }}
+              className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm"
+            />
+          </div>
+          <button
+            onClick={() => { setSearch(''); setAccountFilter(''); setFrom(''); setTo(''); setPage(1) }}
+            className="px-3 py-1 text-sm rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <div className="text-zinc-500 text-sm">{t('loading')}</div>
       ) : error ? (
@@ -245,55 +316,71 @@ export default function JournalEntriesPanel({
               const isOpen = expandAll || expanded === entry.id
               const entryDebits = entry.lines.reduce((s, l) => s + parseFloat(l.debit), 0)
               const entryCredits = entry.lines.reduce((s, l) => s + parseFloat(l.credit), 0)
-              const isReversal = entry.description?.startsWith('Reversal of')
+              // Balanced when total debits equal total credits (base-currency independent check on raw columns)
+              const balanced = Math.abs(entryDebits - entryCredits) < 0.005
+              const isReversal = !!entry.reversalOfEntryNumber || entry.description?.startsWith('Reversal of')
               const hasBeenReversed = reversalMap.has(entry.id)
 
               return (
                 <div
                   key={entry.id}
-                  className={`border rounded-xl p-4 bg-zinc-950 cursor-pointer transition-colors ${isReversal ? 'border-rose-900/40 bg-zinc-950/70' : 'border-zinc-800'}`}
+                  className={`border rounded-xl p-4 bg-zinc-950 cursor-pointer transition-colors ${isReversal ? 'border-rose-900/40 bg-zinc-950/70' : hasBeenReversed ? 'border-rose-900/30' : 'border-zinc-800'}`}
                   onClick={() => setExpanded(isOpen ? null : entry.id)}
                 >
-                  <div className="flex justify-between text-sm mb-2">
-                     <div className="font-medium flex items-center gap-2">
-                       {entry.description || t('untitled')}
-                       {isReversal && (
-                         <span className="text-[10px] px-1.5 py-px rounded bg-rose-900/40 text-rose-400 border border-rose-800">{t('reversal')}</span>
-                       )}
-                        {hasBeenReversed && (
-                          <span className="text-[10px] px-1.5 py-px rounded bg-rose-900/40 text-rose-400 border border-rose-800">{t('reversed')}</span>
+                  <div className="flex justify-between text-sm mb-2 flex-wrap gap-2">
+                     <div className="font-medium flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700" title="Journal entry reference">
+                          {entry.entryNumber || '—'}
+                        </span>
+                        <span className={isReversal ? 'line-through text-zinc-500' : ''}>
+                          {entry.description || t('untitled')}
+                        </span>
+                        {isReversal && (
+                          <span className="text-[10px] px-1.5 py-px rounded bg-rose-900/40 text-rose-400 border border-rose-800">
+                            {t('reversal')}{entry.reversalOfEntryNumber ? ` · ${entry.reversalOfEntryNumber}` : ''}
+                          </span>
                         )}
-                        {(entry.description || '').match(/^Repeat (of|entry)/i) && (
-                          <span className="text-[10px] px-1.5 py-px rounded bg-sky-900/40 text-sky-400 border border-sky-800">repeated</span>
-                        )}
-                        {entry.sourcePdfPath && (
-                          <a
-                            href={entry.sourcePdfPath}
-                            target="_blank"
-                            rel="noopener"
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-[10px] px-1.5 py-px rounded bg-emerald-900/30 text-emerald-400 border border-emerald-800 hover:bg-emerald-900"
-                            title="Open uploaded receipt / invoice PDF"
-                          >
-                            📎
-                          </a>
-                        )}
-                      </div>
-                     <div className="flex items-center gap-3">
-                        <div className="text-zinc-500 font-mono text-xs">{(typeof entry.date === 'string' ? entry.date : new Date(entry.date).toISOString()).slice(0, 10)}</div>
-                        {/* Quick open full ledger for first account of this entry */}
-                        {entry.lines[0]?.account?.code && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              openLedgerForAccount(entry.lines[0].account.code)
-                            }}
-                            className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
-                          >
-                            Open ledger
-                          </button>
-                        )}
-                         {/* Git-model navigation via BooksViewIndicator + ledger; no per-row "view at this commit" button. */}
+                         {hasBeenReversed && (
+                           <span className="text-[10px] px-1.5 py-px rounded bg-rose-900/40 text-rose-400 border border-rose-800">{t('reversed')}</span>
+                         )}
+                         {(entry.description || '').match(/^Repeat (of|entry)/i) && (
+                           <span className="text-[10px] px-1.5 py-px rounded bg-sky-900/40 text-sky-400 border border-sky-800">repeated</span>
+                         )}
+                         {entry.sourcePdfPath && (
+                           <a
+                             href={entry.sourcePdfPath}
+                             target="_blank"
+                             rel="noopener"
+                             onClick={(e) => e.stopPropagation()}
+                             className="text-[10px] px-1.5 py-px rounded bg-emerald-900/30 text-emerald-400 border border-emerald-800 hover:bg-emerald-900"
+                             title="Open uploaded receipt / invoice PDF"
+                           >
+                             📎
+                           </a>
+                         )}
+                       </div>
+                      <div className="flex items-center gap-3">
+                         <div className="text-zinc-500 font-mono text-xs" title="Total debits vs credits">
+                           {balanced ? (
+                             <span className="text-emerald-400" title="Debits equal credits">✓ Balanced</span>
+                           ) : (
+                             <span className="text-amber-400" title="Debits do not equal credits">⚠ Unbalanced</span>
+                           )}
+                         </div>
+                         <div className="text-zinc-500 font-mono text-xs">{(typeof entry.date === 'string' ? entry.date : new Date(entry.date).toISOString()).slice(0, 10)}</div>
+                         {/* Quick open full ledger for first account of this entry */}
+                         {entry.lines[0]?.account?.code && (
+                           <button
+                             onClick={(e) => {
+                               e.stopPropagation()
+                               openLedgerForAccount(entry.lines[0].account.code)
+                             }}
+                             className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+                           >
+                             Open ledger
+                           </button>
+                         )}
+                          {/* Git-model navigation via BooksViewIndicator + ledger; no per-row "view at this commit" button. */}
                       {!isReversal && !hasBeenReversed && (
                         <>
                            <button
@@ -450,17 +537,59 @@ export default function JournalEntriesPanel({
                          </div>
                        )}
 
-                       {reversalMap.has(entry.id) && (
-                         <div className="text-rose-400">
-                           {t('reversedBy').replace('{description}', reversalMap.get(entry.id) || '')}
-                         </div>
-                       )}
+                        {reversalMap.has(entry.id) && (
+                          <div className="text-rose-400">
+                            {t('reversedBy').replace('{description}', reversalMap.get(entry.id) || '')}
+                          </div>
+                        )}
+
+                        {entry.reversalOfEntryNumber && (
+                          <div className="text-rose-400">
+                            {t('reverses').replace('{ref}', entry.reversalOfEntryNumber)}
+                          </div>
+                        )}
+
+                        {entry.lines.some(l => l.cleared) && (
+                          <div className="text-emerald-400">
+                            {entry.lines.filter(l => l.cleared).length} line(s) cleared / reconciled
+                          </div>
+                        )}
+
+                        {entry.createdByUser && (
+                          <div className="text-zinc-500">
+                            Created by {entry.createdByUser.name || entry.createdByUser.email || entry.createdBy}
+                            {entry.updatedAt ? ` · ${new Date(entry.updatedAt).toLocaleString()}` : ''}
+                          </div>
+                        )}
                      </div>
                    )}
                 </div>
               )
             })}
           </div>
+
+          {/* Pagination controls (full journal view only) */}
+          {showPagination && (
+            <div className="flex items-center justify-between mt-6 text-sm">
+              <button
+                disabled={page <= 1}
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                className="px-3 py-1 rounded border border-zinc-700 disabled:opacity-40"
+              >
+                ← Previous
+              </button>
+              <div className="text-zinc-500">
+                Page {page} / {totalPages}
+              </div>
+              <button
+                disabled={page >= totalPages}
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                className="px-3 py-1 rounded border border-zinc-700 disabled:opacity-40"
+              >
+                Next →
+              </button>
+            </div>
+          )}
 
           {/* Totals footer for visible entries */}
           <div className="mt-4 pt-3 border-t border-zinc-800 flex justify-between text-sm text-zinc-400">

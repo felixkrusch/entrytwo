@@ -74,6 +74,7 @@
         "reversed": "REVERSED",
         "reversal": "REVERSAL",
         "reversedBy": "This entry has been reversed by: {description}",
+        "reverses": "Reverses entry: {ref}",
         "debitsCredits": "Debits: {debits} | Credits: {credits}",
         "clickToCollapse": "Click to collapse",
         "confirmReverse": "Reverse this entry? This will create an offsetting reversing entry.",
@@ -131,12 +132,17 @@
         "loading": "Loading audit...",
         "empty": "No activity yet."
       },
-      "templates": {
+       "templates": {
         "title": "Transaction Templates",
         "add": "+ New Template",
         "use": "Use",
         "delete": "×",
         "none": "No templates yet. Create one from journal entries."
+      },
+      "recurringJournal": {
+        "title": "Recurring Journal Schedules",
+        "generateNow": "Generate due now",
+        "empty": "No recurring schedules yet. Use “Repeat on a schedule” when creating an entry."
       },
       "contacts": {
         "title": "Contacts",
@@ -220,7 +226,8 @@
       "postReversal": "Post Reversal",
       "reversingLoading": "Reversing...",
       "confirmAndCreate": "Confirm & Create Journal Entry",
-      "confirmationRequired": "Please review currency, amounts, tax, and any feed match. Check the box below to enable posting."
+      "confirmationRequired": "Please review currency, amounts, tax, and any feed match. Check the box below to enable posting.",
+      "scheduleRecurring": "Repeat on a schedule (e.g. monthly rent)"
     },
     "toasts": {
       "entryCreated": "Journal entry created",

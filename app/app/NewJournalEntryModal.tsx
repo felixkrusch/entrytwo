@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import type { NewEntrySuggestion } from './NewEntryContext'
 import { useTranslations, useFormatter } from 'next-intl'
@@ -68,6 +68,18 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   const [userConfirmed, setUserConfirmed] = useState(false)
   const [verificationWarnings, setVerificationWarnings] = useState<string[]>([])
   const [attachedFile, setAttachedFile] = useState<{ name: string; savedPath: string } | null>(null)
+  const [showPickExisting, setShowPickExisting] = useState(false)
+  const [existingFiles, setExistingFiles] = useState<Array<{ name: string; url: string }>>([])
+  const uploadRef = useRef<HTMLInputElement>(null)
+
+  // "Repeat on a schedule" (recurring journal entry) — optional.
+  const [scheduleEnabled, setScheduleEnabled] = useState(false)
+  const [scheduleName, setScheduleName] = useState('')
+  const [scheduleFrequency, setScheduleFrequency] = useState<'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY'>('MONTHLY')
+  const [scheduleInterval, setScheduleInterval] = useState(1)
+  const [scheduleStartDate, setScheduleStartDate] = useState(new Date().toISOString().split('T')[0])
+  const [scheduleEndDate, setScheduleEndDate] = useState('')
+  const [scheduleAutoPost, setScheduleAutoPost] = useState(false)
 
   const isReversal = !!initialSuggestion?.reversingOriginalId
   const requiresConfirmation = !!initialSuggestion?.needsConfirmation
@@ -98,10 +110,16 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   useEffect(() => {
     if (isOpen && initialSuggestion?.source === 'repeat') {
       const target = initialSuggestion.originalDate || new Date().toISOString().split('T')[0]
-      const id = setTimeout(() => setDate(target), 0)
+      const id = setTimeout(() => {
+        setDate(target)
+        const baseName = (initialSuggestion.description || 'Repeated entry')
+          .replace(/^Repeat (of|entry)\s*/i, '')
+          .replace(/:\s*/, ' ').trim()
+        setScheduleName(`Recurring: ${baseName || 'entry'}`)
+      }, 0)
       return () => clearTimeout(id)
     }
-  }, [isOpen, initialSuggestion?.source, initialSuggestion?.originalDate])
+  }, [isOpen, initialSuggestion?.source, initialSuggestion?.originalDate, initialSuggestion?.description])
 
   useEffect(() => {
     if (isOpen) {
@@ -362,6 +380,15 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
     setDescription('')
     setContactId('')
     setAttachedFile(null)
+    setShowPickExisting(false)
+    setExistingFiles([])
+    setScheduleEnabled(false)
+    setScheduleName('')
+    setScheduleFrequency('MONTHLY')
+    setScheduleInterval(1)
+    setScheduleStartDate(new Date().toISOString().split('T')[0])
+    setScheduleEndDate('')
+    setScheduleAutoPost(false)
     setLines([
       { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: 'EUR' },
       { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: 'EUR' }
@@ -395,11 +422,30 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
       const saved = data.saved[0]
       setAttachedFile({ name: file.name, savedPath: saved.savedPath })
       toast.success('Attachment added')
+      setShowPickExisting(false)
+      setExistingFiles([])
     } catch {
       toast.error('Failed to attach file')
     } finally {
       e.target.value = ''
     }
+  }
+
+  const loadExisting = async () => {
+    try {
+      const r = await fetch('/api/receipts?limit=100')
+      const d = await r.json()
+      const list = (d?.receipts || []).map((x: any) => ({ name: x.name, url: x.url }))
+      setExistingFiles(list)
+    } catch {
+      setExistingFiles([])
+    }
+  }
+
+  const pickExisting = (url: string, name: string) => {
+    setAttachedFile({ name, savedPath: url })
+    setShowPickExisting(false)
+    toast.success('Attached existing file')
   }
 
   if (!isOpen) return null
@@ -499,6 +545,48 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
       if (!res.ok) {
         const data = await res.json()
         throw new Error(data.error || 'Failed to create entry')
+      }
+
+      // If the user asked to repeat this on a schedule, create the recurring schedule.
+      // The entry we just posted serves as the first occurrence.
+      if (scheduleEnabled) {
+        try {
+          const schedRes = await fetch('/api/recurring-journal-entries', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: scheduleName || description || 'Recurring entry',
+              frequency: scheduleFrequency,
+              interval: scheduleInterval,
+              startDate: scheduleStartDate,
+              endDate: scheduleEndDate || undefined,
+              autoPost: scheduleAutoPost,
+              currency: lines[0]?.currency || 'EUR',
+              description,
+              lines: lines.map(l => ({
+                accountId: l.accountId,
+                debit: Number(l.debit),
+                credit: Number(l.credit),
+                description: l.description || undefined,
+                taxRateId: l.taxRateId || undefined,
+                taxIsInput: typeof l.taxIsInput === 'boolean' ? l.taxIsInput : undefined,
+                currency: l.currency || 'EUR',
+                fxRateToBase: l.fxRateToBase,
+                fxSource: l.fxSource,
+                fxDate: l.fxDate,
+                contactId: l.contactId || contactId || undefined,
+              })),
+              createFirstEntry: false,
+              branch,
+            })
+          })
+          if (!schedRes.ok) {
+            const sd = await schedRes.json().catch(() => ({}))
+            console.error('Recurring schedule create failed', sd)
+          }
+        } catch {
+          // Non-fatal: the one-off entry was still created.
+        }
       }
 
       onSuccess()
@@ -602,22 +690,68 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
             </div>
           </div>
 
-            <div>
-             <div className="flex justify-between items-center mb-2">
-               <label className="text-sm text-zinc-400">{t('journalLines')}</label>
-               <div className="flex items-center gap-2">
-                 <label className="text-xs px-2 py-1 bg-zinc-800 rounded hover:bg-zinc-700 cursor-pointer">
-                   Attach PDF/image
-                   <input type="file" className="hidden" accept="application/pdf,image/*,.pdf,.jpg,.jpeg,.png,.webp" onChange={handleFileSelect} />
-                 </label>
-                 <button onClick={addLineWithFx} className="text-xs px-2 py-1 bg-zinc-800 rounded hover:bg-zinc-700">{t('addLine')}</button>
+             <div>
+               <div className="flex justify-between items-center mb-2">
+                 <label className="text-sm text-zinc-400">{t('journalLines')}</label>
+                 <div className="flex items-center gap-2">
+                   <button
+                     type="button"
+                     onClick={() => { setShowPickExisting(true); loadExisting(); }}
+                     className="text-xs px-2 py-1 bg-zinc-800 rounded hover:bg-zinc-700"
+                   >
+                     Attach invoice/receipt
+                   </button>
+                   <button onClick={addLineWithFx} className="text-xs px-2 py-1 bg-zinc-800 rounded hover:bg-zinc-700">{t('addLine')}</button>
+                 </div>
                </div>
-             </div>
-             {attachedFile && (
-               <div className="mb-2 text-[11px] text-emerald-400">
-                 📎 {attachedFile.name} <button className="ml-2 text-zinc-500 hover:text-red-400" onClick={() => setAttachedFile(null)}>remove</button>
-               </div>
-             )}
+
+              {attachedFile && (
+                <div className="mb-2 text-[11px] text-emerald-400">
+                  📎 {attachedFile.name} <button className="ml-2 text-zinc-500 hover:text-red-400" onClick={() => setAttachedFile(null)}>remove</button>
+                </div>
+              )}
+
+              {showPickExisting && (
+                <div className="mb-3 p-2 border border-zinc-700 rounded bg-zinc-950 max-h-40 overflow-auto text-xs">
+                  <div className="mb-2">
+                    <label
+                      className="inline-block text-xs px-2 py-1 bg-zinc-800 rounded hover:bg-zinc-700 cursor-pointer text-emerald-400"
+                      onClick={() => uploadRef.current?.click()}
+                    >
+                      Upload new invoice / receipt
+                    </label>
+                    <input
+                      ref={uploadRef}
+                      type="file"
+                      className="hidden"
+                      accept="application/pdf,image/*,.pdf,.jpg,.jpeg,.png,.webp"
+                      onChange={handleFileSelect}
+                    />
+                  </div>
+
+                  <div className="border-t border-zinc-700 my-1" />
+
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-zinc-400">Choose existing:</span>
+                    <button type="button" onClick={() => setShowPickExisting(false)} className="text-zinc-500 hover:text-zinc-300">close</button>
+                  </div>
+
+                  {existingFiles.length === 0 ? (
+                    <div className="text-zinc-500">No files found.</div>
+                  ) : (
+                    existingFiles.map((f, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => pickExisting(f.url, f.name)}
+                        className="block w-full text-left px-2 py-1 hover:bg-zinc-800 rounded font-mono text-emerald-400 truncate"
+                      >
+                        {f.name}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
 
             <div className="space-y-2">
               {lines.map((line, index) => (
@@ -723,6 +857,89 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                 {verificationWarnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
               </div>
             )}
+
+            {/* Repeat on a schedule — turns a one-off "Repeat" into a recurring journal entry */}
+            <div className="mt-3 p-3 rounded-lg border border-zinc-700 bg-zinc-950">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={scheduleEnabled}
+                  onChange={(e) => setScheduleEnabled(e.target.checked)}
+                  className="accent-sky-400"
+                />
+                <span className="text-sm text-sky-300">{t('scheduleRecurring') || 'Repeat on a schedule (e.g. monthly rent)'}</span>
+              </label>
+
+              {scheduleEnabled && (
+                <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                  <div className="col-span-2">
+                    <label className="block text-xs text-zinc-400 mb-1">Schedule name</label>
+                    <input
+                      value={scheduleName}
+                      onChange={e => setScheduleName(e.target.value)}
+                      placeholder="e.g. Monthly rent"
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Frequency</label>
+                    <select
+                      value={scheduleFrequency}
+                      onChange={e => setScheduleFrequency(e.target.value as typeof scheduleFrequency)}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-sm"
+                    >
+                      <option value="WEEKLY">Weekly</option>
+                      <option value="MONTHLY">Monthly</option>
+                      <option value="QUARTERLY">Quarterly</option>
+                      <option value="YEARLY">Yearly</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Every (interval)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={12}
+                      value={scheduleInterval}
+                      onChange={e => setScheduleInterval(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Start date</label>
+                    <input
+                      type="date"
+                      value={scheduleStartDate}
+                      onChange={e => setScheduleStartDate(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">End date (optional)</label>
+                    <input
+                      type="date"
+                      value={scheduleEndDate}
+                      onChange={e => setScheduleEndDate(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-zinc-400">
+                      <input
+                        type="checkbox"
+                        checked={scheduleAutoPost}
+                        onChange={e => setScheduleAutoPost(e.target.checked)}
+                        className="accent-sky-400"
+                      />
+                      <span>Auto-post future occurrences (otherwise they post as normal entries for review)</span>
+                    </label>
+                  </div>
+                  <div className="col-span-2 text-[10px] text-zinc-500">
+                    The entry above is posted now as the first occurrence. Future occurrences are generated on the schedule and appear in the Journal.
+                  </div>
+                </div>
+              )}
+            </div>
         </div>
 
         <div className="flex gap-3 mt-8">

@@ -96,8 +96,10 @@ model JournalEntry {
   id                 String            @id @default(uuid())
   date               DateTime
   description        String?
+  entryNumber        String?           @unique // human reference, e.g. "JE-2026-0001"
   sourcePdfPath      String?           // original uploaded PDF/image receipt path (under /uploads/receipts)
   createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
   createdBy          String?
   // Git Model: the Event that introduced this entry into a branch's visible history
   introducedByEventId String?
@@ -120,6 +122,7 @@ model JournalLine {
   fxRateToBase   Decimal? // exchange rate to system base currency at entry time
   fxSource       String? // e.g. "ECB", "manual"
   fxDate         DateTime? // date the fx rate applies to
+  cleared        Boolean   @default(false) // reconciliation / bank-cleared status for this line
 
   journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id])
   account      Account      @relation(fields: [accountId], references: [id])
@@ -230,6 +233,30 @@ model RecurringInvoice {
   updatedAt       DateTime  @updatedAt
 
   contact Contact @relation(fields: [contactId], references: [id])
+}
+
+// Recurring journal-entry schedules (the "Repeat on a schedule" feature).
+// Mirrors RecurringInvoice but for double-entry journal lines.
+// Philosophy: generates DRAFT-ready journal entries on schedule; the user can
+// review before they post (or auto-post for convenience). Each generated entry
+// is a normal JournalEntry so it appears in the ledger/journal like any other.
+model RecurringJournalEntry {
+  id              String   @id @default(uuid())
+  name            String // e.g. "Monthly rent"
+  frequency       String // WEEKLY | MONTHLY | QUARTERLY | YEARLY
+  interval        Int      @default(1) // every N weeks/months/quarters/years
+  startDate       DateTime
+  nextDueDate     DateTime
+  lastGeneratedAt DateTime?
+  endDate         DateTime?
+  status          String   @default("ACTIVE") // ACTIVE | PAUSED | CANCELLED
+  notes           String?
+  autoPost        Boolean  @default(false) // if true, generated entries post immediately
+  // Snapshot of what to book (lines with accountId, debit/credit, tax, currency, fx)
+  templateData    Json // { currency, description?, lines: [...] }
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model Invoice {

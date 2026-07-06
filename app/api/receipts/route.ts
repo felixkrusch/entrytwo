@@ -2,17 +2,21 @@ import { NextResponse } from 'next/server'
 import { readdir, stat, unlink } from 'fs/promises'
 import { join } from 'path'
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const { searchParams } = new URL(req.url)
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20', 10)))
+
     const dir = join(process.cwd(), 'public', 'uploads', 'receipts')
     let files: string[] = []
     try {
       files = await readdir(dir)
     } catch {
-      return NextResponse.json({ receipts: [] })
+      return NextResponse.json({ receipts: [], total: 0, page, limit })
     }
 
-    const items = await Promise.all(
+    const allItems = await Promise.all(
       files
         .filter((f) => !f.startsWith('.'))
         .map(async (name) => {
@@ -27,9 +31,13 @@ export async function GET() {
         })
     )
 
-    items.sort((a, b) => (b.mtime || '').localeCompare(a.mtime || ''))
+    allItems.sort((a, b) => (b.mtime || '').localeCompare(a.mtime || ''))
 
-    return NextResponse.json({ receipts: items })
+    const total = allItems.length
+    const start = (page - 1) * limit
+    const receipts = allItems.slice(start, start + limit)
+
+    return NextResponse.json({ receipts, total, page, limit })
   } catch (e) {
     return NextResponse.json({ error: 'Failed to list receipts' }, { status: 500 })
   }

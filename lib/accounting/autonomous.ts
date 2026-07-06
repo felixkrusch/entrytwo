@@ -4,6 +4,7 @@
 
 import { prisma } from '@/lib/prisma'
 import { recordCommitOnBranch } from './commit'
+import { nextEntryNumber } from './entryNumber'
 
 export interface AutonomousJournalInput {
   date: string
@@ -28,6 +29,7 @@ export interface AutonomousJournalInput {
   }
   branch?: string
   sourcePdfPath?: string | null   // link to uploaded invoice/receipt under /uploads/receipts
+  createdBy?: string | null       // attributing user (null for system/AI)
 }
 
 export async function createAutonomousJournal(input: AutonomousJournalInput) {
@@ -36,10 +38,14 @@ export async function createAutonomousJournal(input: AutonomousJournalInput) {
   const br = await prisma.accountingBranch.findUnique({ where: { name: targetBranch } })
   const parentHead = br?.headEventId || null
 
+  const entryNumber = await nextEntryNumber(new Date(input.date))
+
   const entry = await prisma.journalEntry.create({
     data: {
       date: new Date(input.date),
       description: input.description,
+      entryNumber,
+      createdBy: input.createdBy ?? null,
       sourcePdfPath: input.sourcePdfPath || null,
       lines: {
         create: input.lines.map(l => ({
@@ -54,6 +60,7 @@ export async function createAutonomousJournal(input: AutonomousJournalInput) {
           taxRateId: l.taxRateId || null,
           taxIsInput: typeof l.taxIsInput === 'boolean' ? l.taxIsInput : null,
           contactId: l.contactId || null,
+          cleared: false,
         })),
       },
     },

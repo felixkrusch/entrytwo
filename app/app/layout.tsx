@@ -18,9 +18,10 @@ import LedgerView from './LedgerView'
 import GitModelBootstrap from './GitModelBootstrap'
 import GitModelControls from './GitModelControls'
 import BooksViewIndicator from './BooksViewIndicator'
-import toast from 'react-hot-toast'
 import ReceiptsPanel from './ReceiptsPanel'
+import RecurringJournalPanel from './RecurringJournalPanel'
 import { useTranslations } from 'next-intl'
+import toast from 'react-hot-toast'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { Search } from 'lucide-react'
@@ -40,6 +41,7 @@ function AppContent({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
+  const [showRecurring, setShowRecurring] = useState(false)
   const [needsBootstrap, setNeedsBootstrap] = useState<boolean | null>(null)
 
   useEffect(() => {
@@ -313,23 +315,37 @@ function AppContent({ children }: { children: ReactNode }) {
                    <ReceiptsPanel />
                  )}
 
-                 {/* Full journal view (all entries, with pagination). 5 most recent stay on dashboard. */}
-                 {view === 'journal' && (
-                   <div className="p-4">
-                     <div className="mb-4">
-                       <h1 className="text-xl font-semibold">Journal</h1>
-                       <p className="text-xs text-zinc-500 mt-1">All journal entries with pagination.</p>
-                     </div>
-                     <ErrorBoundary>
-                       <JournalEntriesPanel
-                         filterAccountId={selectedAccount?.code}
-                         branch={currentBranch}
-                         asOf={asOf}
-                         showPagination={true}
-                       />
-                     </ErrorBoundary>
-                   </div>
-                 )}
+                  {/* Full journal view (all entries, with pagination). 5 most recent stay on dashboard. */}
+                  {view === 'journal' && (
+                    <div className="p-4">
+                      <div className="mb-4 flex items-center justify-between">
+                        <div>
+                          <h1 className="text-xl font-semibold">Journal</h1>
+                          <p className="text-xs text-zinc-500 mt-1">All journal entries with pagination.</p>
+                        </div>
+                        <button
+                          onClick={() => setShowRecurring(v => !v)}
+                          className="text-xs px-3 py-1 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                        >
+                          {showRecurring ? 'Show entries' : 'Recurring schedules'}
+                        </button>
+                      </div>
+                      {showRecurring ? (
+                        <ErrorBoundary>
+                          <RecurringJournalPanel />
+                        </ErrorBoundary>
+                      ) : (
+                        <ErrorBoundary>
+                          <JournalEntriesPanel
+                            filterAccountId={selectedAccount?.code}
+                            branch={currentBranch}
+                            asOf={asOf}
+                            showPagination={true}
+                          />
+                        </ErrorBoundary>
+                      )}
+                    </div>
+                  )}
 
                    {/* Dedicated Git view: full Git Model controls + complete commit history */}
                    {view === 'history' && (

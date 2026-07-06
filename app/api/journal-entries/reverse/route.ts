@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { auth } from '@/lib/auth'
 import { recordCommitOnBranch } from '@/lib/accounting/commit'
+import { nextEntryNumber } from '@/lib/accounting/entryNumber'
 
 const reverseSchema = z.object({
   originalId: z.string(),
@@ -32,6 +34,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Original entry not found' }, { status: 404 })
     }
 
+    const entryNumber = await nextEntryNumber(new Date())
+    const originalRef = original.entryNumber ? ` (${original.entryNumber})` : ''
+
+    const session = await auth().catch(() => null)
+    const createdBy = session?.user?.id || null
+
     const branchForCommit = (body.branch || 'main') as string
     const br = await prisma.accountingBranch.findUnique({ where: { name: branchForCommit } })
     const parentHead = br?.headEventId || null
@@ -40,7 +48,9 @@ export async function POST(request: Request) {
       const created = await tx.journalEntry.create({
         data: {
           date: new Date(),
-          description: `Reversal of ${original.description || original.id}`,
+          description: `Reversal of ${original.entryNumber || original.description || original.id}${originalRef}`,
+          entryNumber,
+          createdBy,
           lines: {
             create: original.lines.map(line => ({
               accountId: line.accountId,
@@ -52,6 +62,7 @@ export async function POST(request: Request) {
               fxRateToBase: line.fxRateToBase != null ? Number(line.fxRateToBase) : null,
               fxSource: line.fxSource || null,
               fxDate: line.fxDate || null,
+              cleared: false,
             }))
           }
         },
