@@ -1,11 +1,7 @@
 import { NextRequest } from 'next/server'
-import { generateText, generateObject } from 'ai'
+import { generateText, tool, stepCountIs } from 'ai'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { getRecentFeedRatesPromptText } from '@/lib/recentFeedRates'
-// Note: getMerchantMemoryPrompt and MemoryVault are intentionally not used here
-// to avoid pre-loading everything and to prevent AgentMemory table errors
-// until the user runs `npx prisma db push`.
 import { getLlmConfig, createLlmModel } from '@/lib/llm'
 import { getCompanyProfile } from '@/lib/companyProfile'
 import { getVisibleJournalEntryIds, getVisibleJournalEntryIdsAtPoint } from '@/lib/accounting/ancestry'
@@ -17,24 +13,23 @@ import {
   validateRestoreTarget,
 } from '@/lib/chat/validation'
 import { isSafeAutonomous } from '@/lib/chat/intent'
-// MemoryVault (AgentMemory) is intentionally not called from chat.
-// Trillion gets the full conversation history + live ledger state every turn.
-// She can reason freely and only emits structured actions when she decides to mutate data.
-// All safety (lock, validation, proposals) is enforced on the server.
 import { createAutonomousJournal } from '@/lib/accounting/autonomous'
 import { recordCommitOnBranch } from '@/lib/accounting/commit'
 import { EventType } from '@prisma/client'
-import { writeFile, mkdir, readFile } from 'fs/promises'
+import { writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
-import { loadOrCreateThread, appendToThread, getContextForModel, ChatTurn } from '@/lib/chatThreadStore'
+import { loadOrCreateThread, appendToThread, getContextForModel } from '@/lib/chatThreadStore'
+import { loadSkill } from '@/lib/skills'
 
 /**
- * Trillion chat (proper context management).
+ * Trillion chat (thread context + Grok skills on demand).
  * - Client sends only the *new* user message + threadId.
  * - Server owns the authoritative thread (lib/chatThreadStore).
- * - On each call we send a bounded recent window to the model (not the entire history).
- * - Model reasons freely (generateText). Structured actions only when it emits valid JSON per the reference.
- * - All safety (lock, validation, master data, proposals, Git execution) stays on the server.
+ * - Bounded recent window sent to model (getContextForModel).
+ * - Model reasons freely with generateText + tools.
+ * - When it needs to act, it calls the get_skill tool (like searching docs or web).
+ * - After receiving the skill, it emits one clean JSON action.
+ * - Server handles validation, lock, proposals, execution.
  */
 
 // Extraction helper: the model now reasons freely (generateText + full history).
@@ -76,9 +71,9 @@ function buildMasterSystemPrompt(ctx: {
   branch: string
   asOf?: string
   financialSnapshot?: string
-  actionReference: string
+  taxRatesInfo?: string
 }): string {
-  const { companyProfile, chatLocked, branch, asOf, financialSnapshot, actionReference } = ctx
+  const { chatLocked, branch, asOf, financialSnapshot, taxRatesInfo } = ctx
 
   const lockRule = chatLocked
     ? 'CHAT IS CURRENTLY LOCKED. You may discuss and propose changes, but you must NOT execute anything without explicit user confirmation. The server will force proposals when locked.'
@@ -86,9 +81,9 @@ function buildMasterSystemPrompt(ctx: {
 
   const snapshotSection = `\n\nLive ledger state (branch=${branch}${asOf ? ` asOf=${asOf}` : ''}):\n${financialSnapshot || '(no journal lines yet in this view)'}\n`
 
-  const referenceSection = actionReference
-    ? `\n\n=== ACTION REFERENCE (study this for exact shapes when you decide to act) ===\n${actionReference}\n=== END REFERENCE ===\n`
-    : ''
+  const taxSection = taxRatesInfo
+    ? `\n\nAvailable tax rates (use the exact UUID as taxRateId):\n${taxRatesInfo}\n`
+    : '\n\n(No tax rates configured yet.)\n'
 
   return `You are Trillion, the accounting companion inside entrytwo.
 
@@ -102,20 +97,22 @@ Current view: branch=${branch}${asOf ? ` asOf=${asOf}` : ''}
 
 ${lockRule}
 ${snapshotSection}
+${taxSection}
 
 Use the live data above for any question about this company's actual numbers, accounts, balances, transactions, or documents.
 
 For general tax rules, laws, rates in a country, or anything that is not specific to this company's own configured records, check current external sources.
 
-When you need to create or change records (journal, contact, invoice, etc.), output **exactly one** clean JSON action object using the shapes from the ACTION REFERENCE below. You can put it in a fenced \`\`\`json block or as plain JSON. The server will parse, validate, and respect the lock.
+When you need to create or change records (journal, contact, invoice, etc.):
+- First call the get_skill tool with the right skill name (e.g. "create-contact", "create-journal", "core").
+- After receiving the skill instructions, output **exactly one** clean JSON action object (or a \`\`\`json block).
+- The server will parse, validate, and respect the lock.
 
 Otherwise just answer normally in clear text.
 
-${referenceSection}
-
 Bank/credit card feed rates are authoritative for FX when available.
 Never mutate master data (accounts, tax rates, settings, users) from chat.
-Normal conversation → normal text. Real actions → one JSON action object.
+Normal conversation → normal text. Real actions → look up the skill if needed → one JSON action object.
 `.trim()
 }
 
@@ -192,13 +189,6 @@ export async function POST(req: NextRequest) {
     // Safety (lock, validation, proposals) is enforced here on the server.
     const companyProfile = await getCompanyProfile()
 
-    // Load the single reference the model should study for exact action shapes.
-    let actionReference = ''
-    try {
-      const refPath = join(process.cwd(), 'docs', 'LLM-Action-Reference.md')
-      actionReference = await readFile(refPath, 'utf8')
-    } catch {}
-
     // Always build live balances for the current Git view (branch + asOf).
     // This is the "map" — she reads what she needs.
     async function buildLiveBalancesSummary(b: string, point?: string): Promise<string> {
@@ -234,13 +224,27 @@ export async function POST(req: NextRequest) {
       financialSnapshot = await buildLiveBalancesSummary(branch, asOf)
     } catch {}
 
+    // Provide current tax rates so the model can use real taxRateId values (UUIDs) when needed.
+    let taxRatesInfo = ''
+    try {
+      const rates = await prisma.taxRate.findMany({
+        select: { id: true, jurisdiction: true, name: true, rate: true },
+        orderBy: [{ jurisdiction: 'asc' }, { rate: 'desc' }],
+      })
+      if (rates.length) {
+        taxRatesInfo = rates
+          .map(r => `${r.id}  ${r.jurisdiction} ${r.name} (${(Number(r.rate) * 100).toFixed(0)}%)`)
+          .join('\n')
+      }
+    } catch {}
+
     const system = buildMasterSystemPrompt({
       companyProfile,
       chatLocked,
       branch,
       asOf,
       financialSnapshot: financialSnapshot || undefined,
-      actionReference,
+      taxRatesInfo: taxRatesInfo || undefined,
     })
 
     // Server owns the authoritative thread.
@@ -276,12 +280,35 @@ export async function POST(req: NextRequest) {
       return { role: turn.role, content: turn.content || '' }
     })
 
-    // Call the model with the windowed context.
+    // Define the on-demand skill retrieval tool (Grok skills style).
+    // The model decides when it needs precise action schemas and calls this.
+    const getSkillTool = tool({
+      description: 'Fetch the exact instructions, rules, and JSON shape for a Trillion action skill. Call this by name (core, create-contact, create-journal, create-invoice-draft, update-contact) right before you need to emit a structured action. The result contains the authoritative schema and examples.',
+      inputSchema: z.object({
+        skill: z.string().describe('The skill name to load, e.g. "create-contact", "create-journal", "core".'),
+      }),
+      execute: async ({ skill }) => {
+        const content = await loadSkill(skill)
+        return content || `No instructions found for skill: ${skill}`
+      },
+    })
+
+    // Call the model with the windowed context + tools.
+    // The model decides when to call get_skill (like web search).
     let assistantText = ''
     try {
-      const { text } = await generateText({ model, system, messages: llmMessages })
+      const { text } = await generateText({
+        model,
+        system,
+        messages: llmMessages,
+        tools: {
+          get_skill: getSkillTool,
+        },
+        stopWhen: stepCountIs(5),
+      })
       assistantText = text || ''
-    } catch {
+    } catch (e: any) {
+      console.error('generateText error (Trillion chat):', e?.message || e, e)
       assistantText = 'Chat temporarily unavailable.'
     }
 
@@ -335,6 +362,7 @@ export async function POST(req: NextRequest) {
           resolved.contactId = v.resolvedContactId
           resolved.contactName = v.resolvedContactName
         }
+        if (v.resolvedLines) resolved.lines = v.resolvedLines
       } else if (action === 'PROPOSE_RESTORE') {
         const v = await validateRestoreTarget(params.target || '', branch)
         validationOk = v.ok
@@ -511,6 +539,32 @@ async function executeAction(action: ActionType, params: any, ctx: { branch: str
 
     if (!ar || !rev) throw new Error('Required accounts for invoicing not found')
 
+    // Resolve taxRateIds: only keep ones that actually exist (FK safety).
+    // Model should use exact UUIDs from the "Available tax rates" list we inject.
+    const rawInputLines = Array.isArray(lines) ? lines : []
+    const rawTaxStrings: string[] = rawInputLines
+      .map((l: any) => (typeof l?.taxRateId === 'string' ? l.taxRateId.trim() : ''))
+      .filter((s: string): s is string => s.length > 0)
+    const candidateTaxIds: string[] = Array.from(new Set(rawTaxStrings))
+    const idsForQuery: string[] = candidateTaxIds
+    const existingTaxRates = idsForQuery.length
+      ? await prisma.taxRate.findMany({ where: { id: { in: idsForQuery } }, select: { id: true } })
+      : []
+    const validTaxIdSet = new Set(existingTaxRates.map(r => r.id))
+
+    const safeLines = lines.map((l: any) => {
+      const taxId = (typeof l.taxRateId === 'string' && validTaxIdSet.has(l.taxRateId)) ? l.taxRateId : null
+      const qty = Number(l.quantity) || 1
+      const up = Number(l.unitPrice) || 0
+      return {
+        description: l.description,
+        quantity: qty,
+        unitPrice: up,
+        taxRateId: taxId,
+        lineTotal: qty * up,
+      }
+    })
+
     const invoice = await prisma.invoice.create({
       data: {
         invoiceNumber: `INV-${new Date().getFullYear()}-${Math.floor(Math.random() * 90000) + 10000}`,
@@ -524,13 +578,7 @@ async function executeAction(action: ActionType, params: any, ctx: { branch: str
         dueDate: new Date(Date.now() + 30 * 86400000),
         notes: p.description,
         lines: {
-          create: lines.map((l: any) => ({
-            description: l.description,
-            quantity: l.quantity || 1,
-            unitPrice: l.unitPrice,
-            taxRateId: l.taxRateId || null,
-            lineTotal: (l.quantity || 1) * (l.unitPrice || 0),
-          })),
+          create: safeLines,
         },
       },
     })

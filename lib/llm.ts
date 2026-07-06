@@ -81,9 +81,18 @@ export function createLlmModel(config: LlmConfig) {
     return openaiCompat(base, headers)(config.model)
   }
 
-  // xAI
+  // xAI - use the dedicated provider so it talks the correct xAI API format
+  // (chat completions with messages, not the Responses API /responses + input[] shape)
   if (config.provider === 'xai') {
-    return openaiCompat('https://api.x.ai/v1')(config.model)
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { xai } = require('@ai-sdk/xai')
+      const xaiKey = key || process.env.XAI_API_KEY || process.env.LLM_API_KEY || ''
+      return xai(config.model, xaiKey ? { apiKey: xaiKey } : undefined)
+    } catch {
+      // fallback (should not normally happen)
+      return openaiCompat('https://api.x.ai/v1')(config.model)
+    }
   }
 
   // Anthropic (official or compat)
