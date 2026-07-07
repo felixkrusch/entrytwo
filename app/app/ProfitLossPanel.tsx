@@ -11,6 +11,7 @@ interface ReportItem {
 }
 
 interface PLData {
+  baseCurrency?: string
   revenue: { total: number; items: ReportItem[] }
   expenses: { total: number; items: ReportItem[] }
   netIncome: number
@@ -129,6 +130,8 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode, br
     )
   }
 
+  const baseCurrency = data.baseCurrency || 'EUR'
+
   return (
     <div className="mt-8">
       {error && (
@@ -188,7 +191,7 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode, br
         <div>
           <div className="font-medium text-blue-400 mb-2 flex justify-between">
             <span>{t('revenue')}</span>
-            <span className="font-mono text-blue-400">{format.number(data.revenue.total, { style: 'currency', currency: 'EUR' })}</span>
+            <span className="font-mono text-blue-400">{format.number(data.revenue.total, { style: 'currency', currency: baseCurrency })}</span>
           </div>
            {data.revenue.items.length > 0 ? (
              data.revenue.items.map((item: ReportItem & { currency?: string; nativeAmount?: number; feedSourced?: boolean }) => (
@@ -200,7 +203,7 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode, br
                >
                  <span>{item.code} {item.name}</span>
                  <span className="font-mono text-blue-400">
-                   {format.number(item.amount, { style: 'currency', currency: 'EUR' })}
+                   {format.number(item.amount, { style: 'currency', currency: baseCurrency })}
                    {item.currency && item.currency !== 'EUR' ? ` (${item.currency}${item.nativeAmount != null ? ` ~${item.nativeAmount.toFixed(2)}` : ''}${item.feedSourced ? ' • feed' : ''})` : ''}
                  </span>
                </div>
@@ -214,7 +217,7 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode, br
         <div>
           <div className="font-medium text-rose-400 mb-2 flex justify-between">
             <span>{t('expenses')}</span>
-            <span className="font-mono text-rose-400">{format.number(data.expenses.total, { style: 'currency', currency: 'EUR' })}</span>
+            <span className="font-mono text-rose-400">{format.number(data.expenses.total, { style: 'currency', currency: baseCurrency })}</span>
           </div>
           {data.expenses.items.length > 0 ? (
              data.expenses.items.map((item: ReportItem & { currency?: string; nativeAmount?: number }) => (
@@ -226,7 +229,7 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode, br
                >
                  <span>{item.code} {item.name}</span>
                  <span className="font-mono text-rose-400">
-                   {format.number(item.amount, { style: 'currency', currency: 'EUR' })}
+                   {format.number(item.amount, { style: 'currency', currency: baseCurrency })}
                    {item.currency && item.currency !== 'EUR' ? ` (${item.currency}${item.nativeAmount != null ? ` ~${item.nativeAmount.toFixed(2)}` : ''})` : ''}
                  </span>
                </div>
@@ -240,7 +243,7 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode, br
         <div className="pt-3 border-t border-zinc-700 flex justify-between text-sm font-medium">
           <span>{t('netIncome')}</span>
             <span className={`font-mono ${data.netIncome >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-            {format.number(data.netIncome, { style: 'currency', currency: 'EUR' })}
+            {format.number(data.netIncome, { style: 'currency', currency: baseCurrency })}
           </span>
         </div>
 
@@ -250,7 +253,7 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode, br
             <div className="text-[9px] text-zinc-500 mb-0.5">{t('byCurrency')}</div>
             {Object.entries(data.byCurrency as Record<string, { netBase?: number; netNative?: number }>).sort().map(([cur, v]) => (
               <div key={cur}>
-                {cur}: {t('netBase')} {format.number(v.netBase || 0, { style: 'currency', currency: 'EUR' })}
+                {cur}: {t('netBase')} {format.number(v.netBase || 0, { style: 'currency', currency: baseCurrency })}
                 {cur !== 'EUR' && v.netNative != null ? ` • ${t('netNative')} ~${v.netNative.toFixed(2)}` : ''}
               </div>
             ))}
@@ -270,7 +273,7 @@ export default function ProfitLossPanel({ onFilterAccount, currentFilterCode, br
         {/* Tax summary (Phase 0 tax foundation) - fully i18n */}
         {data.taxSummary && (
           <div className="pt-2 text-[11px] text-zinc-400 font-mono">
-            {t('tax')}: {t('inputTax')} {format.number(data.taxSummary.inputTax, { style: 'currency', currency: 'EUR' })} • {t('outputTax')} {format.number(data.taxSummary.outputTax, { style: 'currency', currency: 'EUR' })} • {t('netTax')} {format.number(data.taxSummary.netTax, { style: 'currency', currency: 'EUR' })}
+            {t('tax')}: {t('inputTax')} {format.number(data.taxSummary.inputTax, { style: 'currency', currency: baseCurrency })} • {t('outputTax')} {format.number(data.taxSummary.outputTax, { style: 'currency', currency: baseCurrency })} • {t('netTax')} {format.number(data.taxSummary.netTax, { style: 'currency', currency: baseCurrency })}
           </div>
         )}
       </div>

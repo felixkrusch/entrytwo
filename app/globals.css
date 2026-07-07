@@ -52,3 +52,37 @@ li[onClick] {
 [tabindex]:not([tabindex="-1"]) {
   cursor: pointer;
 }
+
+/* === Print / PDF export (Reports) === */
+@media print {
+  @page {
+    margin: 1.5cm;
+  }
+  html,
+  body {
+    height: auto !important;
+    background: #fff !important;
+  }
+  /* Remove all non-report chrome from the printed layout (these are siblings of
+     the report pane, never ancestors of #report-print-area, so display:none is safe). */
+  .no-print {
+    display: none !important;
+  }
+  /* Hide everything by default, then re-show only the report container. */
+  body * {
+    visibility: hidden;
+  }
+  #report-print-area,
+  #report-print-area * {
+    visibility: visible;
+  }
+  #report-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: #fff;
+    color: #000;
+    padding: 8px 4px;
+  }
+}
