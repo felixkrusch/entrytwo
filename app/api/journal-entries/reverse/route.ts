@@ -45,9 +45,13 @@ export async function POST(request: Request) {
     const parentHead = br?.headEventId || null
 
     const reversingEntry = await prisma.$transaction(async (tx) => {
+      // Business date for the reversal = today at midnight UTC
+      const businessDate = new Date()
+      businessDate.setUTCHours(0, 0, 0, 0)
+
       const created = await tx.journalEntry.create({
         data: {
-          date: new Date(),
+          date: businessDate,
           description: `Reversal of ${original.entryNumber || original.description || original.id}${originalRef}`,
           entryNumber,
           createdBy,

@@ -37,11 +37,15 @@ export async function GET(request: Request) {
     const limit = Math.min(100, Math.max(5, parseInt(searchParams.get('limit') || '25', 10)))
     const sortParam = searchParams.get('sort') || 'date:desc'
     const [sortField, sortDir] = sortParam.split(':')
-    // Sort by date, then by entryNumber as a stable secondary key. Without the
-    // secondary sort, entries sharing the same date are returned in arbitrary DB
-    // order (e.g. JE-2026-0066 appearing above JE-2026-0067).
-    const dir = sortField === 'date' && sortDir === 'asc' ? 'asc' : 'desc'
-    const orderBy: any = [{ date: dir }, { entryNumber: dir }]
+    const dir = sortDir === 'asc' ? 'asc' : 'desc'
+
+    // Order by business date first (the calendar day the entry belongs to).
+    // Use createdAt as the stable secondary key for true reverse-chronological
+    // ordering within the same day. This replaces the previous entryNumber
+    // secondary key (which is often NULL on legacy data and caused jumping order).
+    const orderBy: any = sortField === 'date'
+      ? [{ date: dir }, { createdAt: dir }]
+      : [{ [sortField]: dir }, { createdAt: dir }]
 
     // Git Model: branch + asOf
     // - If asOf: pinned view at that point (uses ancestry of the event at that point)
@@ -248,10 +252,15 @@ export async function POST(request: Request) {
     const session = await auth().catch(() => null)
     const createdBy = session?.user?.id || null
 
+    // Business date: normalize the provided date to midnight UTC (calendar day only).
+    // The real posting/creation time is captured in createdAt and used for stable ordering.
+    const businessDate = new Date(date)
+    businessDate.setUTCHours(0, 0, 0, 0)
+
     const result = await prisma.$transaction(async (tx) => {
       const created = await tx.journalEntry.create({
         data: {
-          date: new Date(date),
+          date: businessDate,
           description,
           entryNumber,
           createdBy,

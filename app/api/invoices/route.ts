@@ -252,9 +252,13 @@ export async function POST(request: Request) {
         })
       }
 
+      // Business date = issue date at midnight UTC (calendar day semantics)
+      const businessDate = new Date(finalIssueDate)
+      businessDate.setUTCHours(0, 0, 0, 0)
+
       const journalEntry = await tx.journalEntry.create({
         data: {
-          date: finalIssueDate,
+          date: businessDate,
           description: `Invoice ${createdInvoice.invoiceNumber}`,
           lines: {
             create: journalLineData,

@@ -40,9 +40,13 @@ export async function POST(request: Request) {
       const match = await findMatch(feedTx)
 
       if (match?.suggestedEntry) {
+        // Normalize to business date (midnight UTC of the given day)
+        const businessDate = new Date(match.suggestedEntry.date)
+        businessDate.setUTCHours(0, 0, 0, 0)
+
         const entry = await prisma.journalEntry.create({
           data: {
-            date: new Date(match.suggestedEntry.date),
+            date: businessDate,
             description: match.suggestedEntry.description,
             lines: {
               create: match.suggestedEntry.lines.map(l => ({

@@ -141,9 +141,13 @@ export async function POST(request: Request) {
     const parentHead = br?.headEventId || null
 
     for (const journal of data.journalEntries || []) {
+      // Normalize imported journal dates to business day (midnight UTC)
+      const businessDate = new Date(journal.date)
+      businessDate.setUTCHours(0, 0, 0, 0)
+
       const created = await prisma.journalEntry.create({
         data: {
-          date: new Date(journal.date),
+          date: businessDate,
           description: journal.description,
           lines: {
             create: journal.lines.map((line) => ({

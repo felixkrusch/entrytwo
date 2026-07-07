@@ -27,9 +27,14 @@ export async function reverseJournalEntry(originalId: string, branch = 'main') {
     contactId: l.contactId,
   }))
 
+  // Business date = today at midnight UTC (calendar day semantics).
+  // Real creation time is in createdAt.
+  const businessDate = new Date()
+  businessDate.setUTCHours(0, 0, 0, 0)
+
   const revEntry = await prisma.journalEntry.create({
     data: {
-      date: new Date(),
+      date: businessDate,
       description: `Reversal of ${original.description || originalId}`,
       lines: { create: revLines },
     },

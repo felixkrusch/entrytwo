@@ -462,8 +462,13 @@ async function executeAction(action: ActionType, params: any, ctx: { branch: str
       contactId: l.contactId || null,
     }))
 
+    // Business date: always store as midnight UTC for the given calendar day.
+    // The actual creation time is recorded in createdAt (used for stable ordering).
+    const businessDate = p.date ? new Date(p.date) : new Date()
+    businessDate.setUTCHours(0, 0, 0, 0)
+
     const created = await createAutonomousJournal({
-      date: p.date || new Date().toISOString(),
+      date: businessDate.toISOString(),
       description: p.description || 'Autonomous journal entry',
       lines: resolvedLines,
       aiMetadata: { confidence: p.confidence, reasoning: p.reasoning },

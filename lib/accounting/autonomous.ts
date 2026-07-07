@@ -40,9 +40,13 @@ export async function createAutonomousJournal(input: AutonomousJournalInput) {
 
   const entryNumber = await nextEntryNumber(new Date(input.date))
 
+  // Business date = calendar day only (midnight UTC). Real creation time lives in createdAt.
+  const businessDate = new Date(input.date)
+  businessDate.setUTCHours(0, 0, 0, 0)
+
   const entry = await prisma.journalEntry.create({
     data: {
-      date: new Date(input.date),
+      date: businessDate,
       description: input.description,
       entryNumber,
       createdBy: input.createdBy ?? null,

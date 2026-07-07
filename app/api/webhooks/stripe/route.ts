@@ -151,9 +151,13 @@ async function createPaymentJournalEntry(invoiceId: string, amount: number, curr
   const br = await prisma.accountingBranch.findUnique({ where: { name: 'main' } })
   const parentHead = br?.headEventId || null
 
+  // Business date for the payment entry = today at midnight UTC
+  const businessDate = new Date()
+  businessDate.setUTCHours(0, 0, 0, 0)
+
   const created = await prisma.journalEntry.create({
     data: {
-      date: new Date(),
+      date: businessDate,
       description: `Payment for ${invoice.invoiceNumber}`,
       lines: {
         create: [

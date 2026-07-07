@@ -58,9 +58,13 @@ export async function POST(request: Request) {
     const parentHead = br?.headEventId || null
 
     const result = await prisma.$transaction(async (tx) => {
+      // Business date (midnight UTC of the feed transaction day)
+      const businessDate = new Date(date)
+      businessDate.setUTCHours(0, 0, 0, 0)
+
       const created = await tx.journalEntry.create({
         data: {
-          date: new Date(date),
+          date: businessDate,
           description: description || `Feed import: ${merchant || foreignCurrency} ${foreignAmount}`,
           lines: {
             create: [

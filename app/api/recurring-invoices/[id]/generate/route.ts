@@ -155,9 +155,13 @@ export async function POST(
         })
       }
 
+      // Business date (midnight UTC of the invoice issue day)
+      const businessDate = new Date(created.issueDate)
+      businessDate.setUTCHours(0, 0, 0, 0)
+
       const je = await tx.journalEntry.create({
         data: {
-          date: created.issueDate,
+          date: businessDate,
           description: `Invoice ${created.invoiceNumber} (recurring)`,
           lines: { create: journalLines },
         },
