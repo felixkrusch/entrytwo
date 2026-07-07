@@ -40,56 +40,44 @@ export async function getVisibleJournalEntryIds(headEventId: string | null | und
   const ancestorIds = await getAncestorEventIds(headEventId)
   if (ancestorIds.length === 0) return []
 
-  // Load the relevant events in one go (we only care about created and reversed)
+  // Load the relevant events in one go (entries are introduced by CREATED / AI events,
+  // and a REVERSED event introduces the *new* reversing entry).
   const events = await prisma.event.findMany({
     where: {
       id: { in: ancestorIds },
-      eventType: { in: ['JOURNAL_ENTRY_CREATED', 'JOURNAL_ENTRY_REVERSED'] }
+      eventType: { in: ['JOURNAL_ENTRY_CREATED', 'JOURNAL_ENTRY_REVERSED', 'AI_AUTONOMOUS_ENTRY'] }
     },
-    select: { id: true, eventType: true, payload: true }
+    select: { id: true, eventType: true, payload: true, entityId: true }
   })
 
-  // Map event id -> its position in chain (lower index = newer, since chain[0] is head)
-  const position = new Map<string, number>()
-  ancestorIds.forEach((id, idx) => position.set(id, idx))
-
   const createdEntryIds = new Set<string>()
-  const reversedEntryIds = new Set<string>()
 
   for (const ev of events) {
-    if (ev.eventType === 'JOURNAL_ENTRY_CREATED') {
-      const entryId = (ev.payload as any)?.journalEntryId || (ev.payload as any)?.entityId
-      // Fallback: many older events put it in entityId when entityType=JournalEntry
+    if (ev.eventType === 'JOURNAL_ENTRY_CREATED' || ev.eventType === 'AI_AUTONOMOUS_ENTRY') {
+      const p = ev.payload as { journalEntryId?: string; entityId?: string; journalEntry?: { id?: string } } | null
+      const entryId = p?.journalEntryId || p?.entityId || p?.journalEntry?.id || ev.entityId
       if (entryId) createdEntryIds.add(String(entryId))
-      // Also support the case where we set introducedBy later and store in payload.journalEntry
-      const alt = (ev.payload as any)?.journalEntry?.id
-      if (alt) createdEntryIds.add(String(alt))
     } else if (ev.eventType === 'JOURNAL_ENTRY_REVERSED') {
-      const orig = (ev.payload as any)?.originalEntryId || (ev.payload as any)?.journalEntryId || (ev.payload as any)?.entityId
-      if (orig) reversedEntryIds.add(String(orig))
+      // The reversal event's own entityId is the NEW reversing entry. It is a
+      // visible (posted) entry — accounting keeps BOTH the original and the
+      // reversal on the books so they cancel (net zero). We therefore include it.
+      if (ev.entityId) createdEntryIds.add(String(ev.entityId))
     }
   }
 
-  // Exclude any that have a reversal in the visible chain.
-  const visible = new Set<string>()
-  for (const id of createdEntryIds) {
-    if (!reversedEntryIds.has(id)) {
-      visible.add(id)
-    }
-  }
+  // Every entry introduced by a visible event is visible. We do NOT exclude the
+  // original of a reversal: the original and its (negated) reversal are both posted,
+  // so the balance sheet nets them to zero — that is the correct "undo".
+  const visible = new Set<string>(createdEntryIds)
 
-  // Also directly include any JournalEntry that has its introducedByEventId in the ancestor chain.
-  // This catches cases where the event payload didn't contain the id (legacy or different shapes).
+  // Also directly include any JournalEntry whose introducedByEventId is in the
+  // ancestor chain (catches legacy/alternate event shapes).
   if (ancestorIds.length > 0) {
     const direct = await prisma.journalEntry.findMany({
       where: { introducedByEventId: { in: ancestorIds } },
       select: { id: true }
     })
-    for (const d of direct) {
-      if (!reversedEntryIds.has(d.id)) {
-        visible.add(d.id)
-      }
-    }
+    for (const d of direct) visible.add(d.id)
   }
 
   return Array.from(visible)

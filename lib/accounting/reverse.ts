@@ -45,7 +45,7 @@ export async function reverseJournalEntry(originalId: string, branch = 'main') {
       eventType: EventType.JOURNAL_ENTRY_REVERSED,
       entityType: 'JournalEntry',
       entityId: revEntry.id,
-      payload: { originalId },
+      payload: { originalId, originalEntryId: originalId },
       createdBy: null,
     },
   })

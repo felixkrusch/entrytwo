@@ -29,8 +29,10 @@ export async function createTag(input: CreateTagInput) {
   const branch = await prisma.accountingBranch.findUnique({ where: { name: branchName } })
   if (!branch) throw new Error('Branch not found')
 
-  const targetEventId = input.eventId || branch.headEventId
-  if (!targetEventId) throw new Error('No target event for tag')
+  // Tag the current state of the branch. A brand-new branch may have no head event
+  // yet (no journal entries) — that's a valid thing to tag, so fall back to null
+  // rather than refusing.
+  const targetEventId = input.eventId || branch.headEventId || null
 
   const tag = await prisma.event.create({
     data: {

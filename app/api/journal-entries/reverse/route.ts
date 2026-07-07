@@ -85,6 +85,7 @@ export async function POST(request: Request) {
           parentEventId: parentHead,
           payload: {
             originalId,
+            originalEntryId: originalId,
             description: created.description,
             lines: created.lines.map(l => ({
               account: l.account.code,

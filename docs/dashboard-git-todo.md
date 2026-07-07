@@ -71,8 +71,8 @@ This makes it slow to scan and duplicates content that already has (or should ha
 
 - [x] **Protect `main` from history rewrites** — only fast-forward commits and reversals allowed on `main`; force-push/rewrite only permitted on branches
   → DONE: all Git ops are append-only (`restore` creates a ROLLBACK event, `merge` creates a MERGE event, `createBranch` from a point). No rewrite/force-push endpoint exists, so `main` history is never rewritten.
-- [ ] **Merge must re-run the balance check** — if Assets ≠ Liabilities + Equity after a merge, block or flag it before it lands on `main`
-  → PARTIAL: `mergeBranch` blocks a merge if the *source* branch is out of balance (HTTP 422), but the merge is currently a stub (it only creates a MERGE event + advances head; it does NOT replay the net delta). There is no post-merge balance re-check because nothing changes. Needs the real net-delta replay + a post-merge balance assertion to fully satisfy this item.
+- [x] **Merge must re-run the balance check** — if Assets ≠ Liabilities + Equity after a merge, block or flag it before it lands on `main`
+  → DONE: `mergeBranch` (`lib/accounting/merge.ts`) now replays the *branch-only* entries (visible on the source but not the target) as new double-entry commits parented onto the target head, so they become part of the target's ancestry and actually appear on `main`. It keeps both safety gates: (1) blocks merge if the source branch is out of balance (HTTP 422), and (2) after advancing the target head, re-runs `buildBalanceSheet` and reverts the head if the target is somehow out of balance. Verified end-to-end by `lib/accounting/__tests__/git-model-flow.test.ts`.
 - [x] **Require a diff/preview step before Merge completes** — no one-click merge straight from the dropdown without seeing what's changing
   → DONE: `GitModelControls` has "Preview merge" → shows net-change diff → then "Confirm merge". No direct one-click merge.
 - [x] **Make tags human-meaningful** — replace auto-generated hash tag names (e.g. `g4-tag-1783411384655`) with labeled, sortable names (e.g. `FY2026-Q2-close`), especially for anything meant to represent a period-end close
