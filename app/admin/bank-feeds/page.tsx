@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import QuickFeedImport from '@/app/app/QuickFeedImport'
 
 interface Account {
   id: string
@@ -91,7 +92,11 @@ export default function BankFeedsPage() {
     <div>
       <div className="mb-6">
         <h1 className="text-xl font-semibold">Bank Feeds</h1>
-        <p className="text-xs text-zinc-500 mt-1">Connect your accounts to automatic transaction feeds.</p>
+        <p className="text-xs text-zinc-500 mt-1">Connect your accounts to automatic transaction feeds — or import a single transaction manually below.</p>
+      </div>
+
+      <div className="mb-6">
+        <QuickFeedImport />
       </div>
 
       <div className="space-y-4">

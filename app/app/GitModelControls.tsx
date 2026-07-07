@@ -9,6 +9,7 @@ interface Branch {
   name: string
   isMain: boolean
   description?: string | null
+  headEventId?: string | null
 }
 
 interface Tag {
@@ -37,6 +38,7 @@ export default function GitModelControls() {
   const [tags, setTags] = useState<Tag[]>([])
   const [newTagName, setNewTagName] = useState('')
   const [preview, setPreview] = useState<any>(null)
+  const [mergePreview, setMergePreview] = useState<any>(null)
   const [diffResult, setDiffResult] = useState<{ changes: DiffChange[] } | null>(null)
   const [blameResult, setBlameResult] = useState<BlameEntry[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -197,17 +199,41 @@ export default function GitModelControls() {
     }
   }
 
-  const doMerge = async () => {
+  const previewMerge = async () => {
     if (!mergeSource) return alert('Select source branch to merge')
     setLoading(true)
     try {
-      await fetch('/api/accounting/branches/merge', {
+      const src = branches.find((b) => b.name === mergeSource)
+      const tgt = branches.find((b) => b.name === (mergeTarget || 'main'))
+      if (!src?.headEventId || !tgt?.headEventId) return alert('Both branches need a head event')
+      const dRes = await fetch(`/api/accounting/diff?from=${tgt.headEventId}&to=${src.headEventId}`)
+      const d = await dRes.json()
+      setMergePreview(d)
+    } catch {
+      alert('Could not compute merge preview')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const confirmMerge = async () => {
+    if (!mergeSource) return
+    setLoading(true)
+    try {
+      const res = await fetch('/api/accounting/branches/merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source: mergeSource, target: mergeTarget || 'main' }),
       })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        alert(d.error || 'Merge blocked')
+        setMergePreview(null)
+        return
+      }
       window.dispatchEvent(new CustomEvent('journal-updated'))
       await refreshBranches()
+      setMergePreview(null)
       alert(`Merged ${mergeSource} into ${mergeTarget || 'main'}`)
     } finally {
       setLoading(false)
@@ -364,7 +390,7 @@ export default function GitModelControls() {
                   className="text-[10px] px-2 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800"
                   title="Restore the branch head to the currently viewed point and make it current (new ROLLBACK commit)"
                 >
-                  Restore this (make current)
+                  Restore to this
                 </button>
 
                 <button
@@ -432,11 +458,16 @@ export default function GitModelControls() {
         )}
 
         <div className="flex items-center gap-2 ml-2">
-          <input
-            value={reconcileAccount}
-            onChange={e => setReconcileAccount(e.target.value)}
-            className="bg-zinc-900 border border-zinc-700 rounded px-2 py-0.5 text-xs w-16"
-          />
+          <label className="flex items-center gap-1 text-[10px] text-zinc-400" title="Account code to reconcile (e.g. 1100 = Cash)">
+            Account
+            <input
+              value={reconcileAccount}
+              onChange={e => setReconcileAccount(e.target.value)}
+              placeholder="code"
+              aria-label="Account code to reconcile"
+              className="bg-zinc-900 border border-zinc-700 rounded px-2 py-0.5 text-xs w-16"
+            />
+          </label>
           <button
             onClick={runReconcile}
             disabled={loading}
@@ -474,8 +505,30 @@ export default function GitModelControls() {
           <select value={mergeTarget} onChange={e => setMergeTarget(e.target.value)} className="bg-zinc-900 border border-zinc-700 rounded px-1 py-0.5 text-xs">
             {branches.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
           </select>
-          <button onClick={doMerge} disabled={loading || !mergeSource} className="text-xs px-2 py-0.5 rounded bg-purple-950 text-purple-400 border border-purple-800">Merge</button>
+          <button onClick={previewMerge} disabled={loading || !mergeSource} className="text-xs px-2 py-0.5 rounded bg-purple-950 text-purple-400 border border-purple-800" title="Preview the net changes before merging">
+            Preview merge
+          </button>
         </div>
+
+        {mergePreview && (
+          <div className="mt-2 p-2 border border-purple-900 bg-purple-950/30 text-xs rounded">
+            <div className="font-medium mb-1">Merge preview — net change of {mergeTarget || 'main'} ← {mergeSource}</div>
+            <div className="max-h-28 overflow-auto">
+              {(mergePreview.changes || []).slice(0, 12).map((c: any, i: number) => (
+                <div key={i}>{c.accountCode}: {c.net}</div>
+              ))}
+              {(!mergePreview.changes || mergePreview.changes.length === 0) && <div>No net change.</div>}
+            </div>
+            <div className="flex gap-2 mt-2">
+              <button onClick={confirmMerge} disabled={loading} className="text-xs px-2 py-0.5 rounded bg-purple-600 text-white">
+                Confirm merge into {mergeTarget || 'main'}
+              </button>
+              <button onClick={() => setMergePreview(null)} className="text-xs px-2 py-0.5 rounded border border-zinc-700 text-zinc-300">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         <button
           onClick={() => window.dispatchEvent(new CustomEvent('journal-updated'))}

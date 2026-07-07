@@ -13,6 +13,7 @@ const navItems = [
   { href: '/admin/ai', label: 'AI / LLM Provider' },
   { href: '/admin/backup', label: 'Backup & Export' },
   { href: '/admin/bank-feeds', label: 'Bank Feeds' },
+  { href: '/admin/automation', label: 'Automation' },
   { href: '/app?view=history', label: 'Commit History' },
 ]
 

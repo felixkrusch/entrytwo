@@ -90,7 +90,15 @@
         "netIncome": "Net Income (YTD)",
         "entries": "Journal Entries",
         "events": "Audit Events",
-        "cash": "Cash Balance"
+        "cash": "Cash Balance",
+        "liabilities": "Liabilities",
+        "equity": "Equity",
+        "financialHealth": "Financial Health",
+        "balanced": "Balanced",
+        "outOfBalance": "Out of balance",
+        "viewing": "Viewing",
+        "viewAll": "View all in Journal →",
+        "viewReports": "Full Reports →"
       },
       "profitLoss": {
         "title": "Profit & Loss",
@@ -277,7 +285,10 @@
       "entryCreatedFromChat": "Journal entry created from chat suggestion",
       "reversalPosted": "Reversal posted from chat suggestion",
       "entryReversed": "Entry reversed",
-      "chatError": "Chat service unavailable, using local fallback."
+      "chatError": "Chat service unavailable, using local fallback.",
+      "summary": {
+        "viewAll": "View all in Journal →"
+      }
     },
     "auth": {
        "signin": {

@@ -15,6 +15,10 @@ export async function POST(request: Request) {
     const result = await mergeBranch(source, target)
     return NextResponse.json({ ok: true, ...result })
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Merge failed' }, { status: 400 })
+    const status = typeof e?.status === 'number' ? e.status : 400
+    return NextResponse.json(
+      { error: e.message || 'Merge failed', blockedReason: e?.status === 422 ? e.message : undefined },
+      { status },
+    )
   }
 }

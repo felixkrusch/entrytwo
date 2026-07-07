@@ -44,12 +44,16 @@ describe('Git Model for Accounting - Full G4 Coverage', () => {
     expect(branches.some(x => x.name === b.name)).toBe(true)
   })
 
-  it('should create tags on a branch (when DB ready)', async () => {
+  it('should reject auto-generated hash tag names but accept human-readable names (when DB ready)', async () => {
     if (!dbReady) return expect(true).toBe(true)
-    const tag = await createTag({ name: 'g4-tag-' + Date.now(), branch: 'main' })
-    expect(tag.name).toMatch(/g4-tag/)
+    // Auditor safety: auto-generated hash-style names like `g4-tag-<ts>` must be rejected.
+    await expect(createTag({ name: 'g4-tag-' + Date.now(), branch: 'main' })).rejects.toThrow()
+    // Human-readable, sortable names are accepted.
+    const name = 'g4-close-' + Date.now()
+    const tag = await createTag({ name, branch: 'main' })
+    expect(tag.name).toBe(name)
     const all = await listTags('main')
-    expect(all.some(t => t.name === tag.name)).toBe(true)
+    expect(all.some(t => t.name === name)).toBe(true)
   })
 
   it('should merge a branch into main (creates MERGE event) (when DB ready)', async () => {

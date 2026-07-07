@@ -4,12 +4,9 @@ import { ReactNode, useState, useEffect, Suspense, useCallback, useMemo } from '
 import AccountsPanel from './AccountsPanel'
 import JournalEntriesPanel from './JournalEntriesPanel'
 import ReportsPanel from './ReportsPanel'
-import ProfitLossPanel from './ProfitLossPanel'
 import AuditLogPanel from './AuditLogPanel'
 import SummaryBar from './SummaryBar'
-import QuickFeedImport from './QuickFeedImport'
 import RecentFeedRates from './RecentFeedRates'
-import TemplatesPanel from './TemplatesPanel'
 import NewJournalEntryModal from './NewJournalEntryModal'
 import TopBar from './TopBar'
 import { NewEntryProvider, useNewEntry } from './NewEntryContext'
@@ -222,21 +219,17 @@ function AppContent({ children }: { children: ReactNode }) {
                 */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-6 gap-6">
                   <div className="lg:col-span-3 xl:col-span-6">
-                    <ErrorBoundary>
-                      <AccountsPanel
-                        onSelectAccount={setSelectedAccount}
-                        selectedAccountId={selectedAccount?.id}
-                        selectedAccountCode={selectedAccount?.code}
-                        branch={currentBranch}
-                        asOf={asOf}
-                      />
-                    </ErrorBoundary>
-                  </div>
-
-                    <div className="lg:col-span-3 xl:col-span-6">
-                      {/* Dashboard shows only the 5 most recent entries. Full journal with pagination is at ?view=journal */}
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-sm font-medium text-zinc-300">Recent entries</div>
+                    {/* Dashboard shows only the 5 most recent entries. Full journal with pagination is at ?view=journal */}
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-sm font-medium text-zinc-300">Recent entries</div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => router.push('/app?view=journal')}
+                          className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+                          title="Open the full journal with pagination"
+                        >
+                          {t('summary.viewAll')}
+                        </button>
                         <button
                           onClick={() => openNewEntry()}
                           className="text-xs px-3 py-1 rounded bg-white text-black hover:bg-zinc-200 transition font-medium"
@@ -245,32 +238,20 @@ function AppContent({ children }: { children: ReactNode }) {
                           + Create manual entry
                         </button>
                       </div>
-                      <ErrorBoundary>
-                        <JournalEntriesPanel
-                          filterAccountId={selectedAccount?.code}
-                          branch={currentBranch}
-                          asOf={asOf}
-                          limit={5}
-                          showPagination={false}
-                        />
-                      </ErrorBoundary>
                     </div>
-
-                   {/* Balance Sheet removed from dashboard per task list. Compact BS style now lives under /app?view=reports. */}
-                   <div className="lg:col-span-3 xl:col-span-6">
-                     <ErrorBoundary><ProfitLossPanel onFilterAccount={handleFilterAccountByCode} currentFilterCode={selectedAccount?.code} branch={currentBranch} asOf={asOf} /></ErrorBoundary>
-                   </div>
-
-                   {/* Commit history moved to its own view (?view=history) and to the Settings dropdown.
-                       We no longer embed the full AuditLogPanel on the dashboard. */}
-
-                  <div className="lg:col-span-3 xl:col-span-3">
-                    <ErrorBoundary><TemplatesPanel /></ErrorBoundary>
+                    <ErrorBoundary>
+                      <JournalEntriesPanel
+                        filterAccountId={selectedAccount?.code}
+                        branch={currentBranch}
+                        asOf={asOf}
+                        limit={5}
+                        showPagination={false}
+                      />
+                    </ErrorBoundary>
                   </div>
 
-                  <div className="lg:col-span-3 xl:col-span-3">
-                    <ErrorBoundary><QuickFeedImport /></ErrorBoundary>
-                  </div>
+                  {/* Chart of Accounts, P&L, Templates and Bank Feed Import have moved to their own
+                      dedicated pages (see top nav + Admin). The dashboard is now a focused summary. */}
 
                   <div className="lg:col-span-3 xl:col-span-6">
                     <ErrorBoundary><RecentFeedRates /></ErrorBoundary>

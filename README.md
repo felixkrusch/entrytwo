@@ -3,7 +3,7 @@
 **AI-native double-entry accounting.** Chat-first, fully internationalized, tax-aware from day one, and multi-currency with authoritative bank/credit card feed rates.
 
 - **Core**: Proper double-entry with audit logging.
-- **i18n**: 100% externalized strings, locale-aware formatting (no hardcoded English).
+- **i18n**: 100% externalized strings, locale-aware formatting (no hardcoded English). Currently only the `en` locale ships; locale fallback coverage is not yet verified (add a second locale to test fallback before relying on it).
 - **Tax**: Multi-jurisdiction (DE/AT/US-CA etc.), input/output, effective dates, tax-aware reports.
 - **Multi-Currency**: JournalLine carries currency + fxRateToBase + fxSource + fxDate. Automatic date-pinned conversion to base. Bank/card feed rates are authoritative.
 - **PDF + Chat**: Upload invoices → currency + tax + feed cross-check → suggestions with correct FX + tax metadata.
