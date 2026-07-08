@@ -57,6 +57,7 @@ async function main() {
     { code: "5700", name: "Professional Fees", type: AccountType.EXPENSE },
     { code: "5800", name: "Insurance", type: AccountType.EXPENSE },
     { code: "5900", name: "Depreciation Expense", type: AccountType.EXPENSE },
+    { code: "5950", name: "AI", type: AccountType.EXPENSE },
     { code: "6000", name: "Miscellaneous Expense", type: AccountType.EXPENSE },
   ];
 

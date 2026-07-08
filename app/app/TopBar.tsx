@@ -143,6 +143,12 @@ export default function TopBar({ showSettings = false }: TopBarProps) {
                     <Link href="/admin/automation" className="block px-3 py-1.5 hover:bg-zinc-900 text-zinc-300" onClick={() => setShowAdminMenu(false)}>
                       Automation
                     </Link>
+                    <Link href="/admin/chart-of-accounts" className="block px-3 py-1.5 hover:bg-zinc-900 text-zinc-300" onClick={() => setShowAdminMenu(false)}>
+                      Chart of Accounts
+                    </Link>
+                    <Link href="/admin/update" className="block px-3 py-1.5 hover:bg-zinc-900 text-zinc-300" onClick={() => setShowAdminMenu(false)}>
+                      Update
+                    </Link>
                     <div className="my-1 border-t border-zinc-800" />
                   </>
                 )}

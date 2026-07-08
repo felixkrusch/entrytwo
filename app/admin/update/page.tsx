@@ -1,17 +1,22 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useTranslations } from 'next-intl'
 
 type UpdateStatus = {
-  currentCommit: string
-  latestCommit: string
+  currentVersion: string
+  latestVersion: string
+  targetDigest?: string
+  channel?: string
+  changelogUrl?: string
+  appImage?: string
   updateAvailable: boolean
   lastChecked: string
   status: 'idle' | 'checking' | 'updating' | 'success' | 'error'
   progress: string
   error?: string
   message?: string
+  backupPath?: string
 }
 
 export default function UpdatePage() {
@@ -19,7 +24,7 @@ export default function UpdatePage() {
   const [status, setStatus] = useState<UpdateStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
-  const [createBackup, setCreateBackup] = useState(true)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const checkForUpdates = async () => {
     setLoading(true)
@@ -36,9 +41,33 @@ export default function UpdatePage() {
     }
   }
 
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }
+
+  const pollUntilDone = () => {
+    stopPolling()
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch('/api/admin/update')
+        if (!res.ok) return
+        const data = await res.json()
+        setStatus(data)
+        if (data.status !== 'updating') {
+          stopPolling()
+          setUpdating(false)
+        }
+      } catch {
+        // keep polling
+      }
+    }, 2000)
+  }
+
   const performUpdate = async () => {
     if (!status?.updateAvailable) return
-
     if (!confirm(t('updateConfirm'))) return
 
     setUpdating(true)
@@ -46,28 +75,24 @@ export default function UpdatePage() {
       const res = await fetch('/api/admin/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'update', createBackup }),
+        body: JSON.stringify({ action: 'update' }),
       })
-
-      const data = await res.json()
-
-      if (res.ok) {
-        setStatus({ ...status, status: 'success', message: data.message })
-        setTimeout(() => window.location.reload(), 3000)
-      } else {
-        setStatus({ ...status, status: 'error', error: data.error })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setStatus({ ...status, status: 'error', error: data.error || 'Update failed to start' })
+        setUpdating(false)
+        return
       }
+      pollUntilDone()
     } catch (e) {
       setStatus({ ...status, status: 'error', error: e instanceof Error ? e.message : 'Unknown error' })
-    } finally {
       setUpdating(false)
     }
   }
 
   useEffect(() => {
     void checkForUpdates()
-    const interval = setInterval(() => void checkForUpdates(), 60000)
-    return () => clearInterval(interval)
+    return () => stopPolling()
   }, [])
 
   if (loading && !status) {
@@ -89,27 +114,50 @@ export default function UpdatePage() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <div className="text-zinc-400 text-xs">Current Version</div>
-                <div className="font-mono text-sm">#{status.currentCommit}</div>
+                <div className="font-mono text-sm">{status.currentVersion}</div>
               </div>
               {status.updateAvailable && (
-                <div>
+                <div className="text-right">
                   <div className="text-zinc-400 text-xs">{t('updateAvailable')}</div>
-                  <div className="font-mono text-sm text-emerald-400">#{status.latestCommit}</div>
+                  <div className="font-mono text-sm text-emerald-400">{status.latestVersion}</div>
+                  {status.channel && (
+                    <div className="text-[10px] text-zinc-500 mt-0.5">{status.channel}</div>
+                  )}
                 </div>
               )}
             </div>
+
+            {status.targetDigest && (
+              <div className="mb-4">
+                <div className="text-zinc-400 text-xs">Target Digest</div>
+                <div className="font-mono text-[11px] text-zinc-300 break-all">{status.targetDigest}</div>
+              </div>
+            )}
+
+            {status.changelogUrl && status.updateAvailable && (
+              <div className="mb-4">
+                <a
+                  href={status.changelogUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-emerald-400 hover:underline"
+                >
+                  View changelog
+                </a>
+              </div>
+            )}
 
             {status.updateAvailable && (
               <div className="flex items-center gap-2 mb-4">
                 <input
                   type="checkbox"
                   id="backup"
-                  checked={createBackup}
-                  onChange={e => setCreateBackup(e.target.checked)}
+                  checked
+                  disabled
                   className="w-4 h-4"
                 />
-                <label htmlFor="backup" className="text-sm">
-                  Create backup before update
+                <label htmlFor="backup" className="text-sm text-zinc-400">
+                  Full backup is created automatically before update
                 </label>
               </div>
             )}
@@ -126,14 +174,16 @@ export default function UpdatePage() {
             {status.status === 'success' && (
               <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded">
                 <div className="text-emerald-400 font-medium">Update completed successfully!</div>
-                <div className="text-xs text-zinc-400 mt-1">Page will reload shortly...</div>
+                {status.backupPath && (
+                  <div className="text-xs text-zinc-400 mt-1">Backup: {status.backupPath}</div>
+                )}
               </div>
             )}
 
             {status.status === 'error' && (
               <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded">
                 <div className="text-rose-400 font-medium">Update failed</div>
-                <div className="text-xs text-zinc-400 mt-1">{status.error}</div>
+                <div className="text-xs text-zinc-400 mt-1 whitespace-pre-wrap">{status.error}</div>
               </div>
             )}
 
@@ -146,7 +196,7 @@ export default function UpdatePage() {
                 {loading ? t('loading') : t('refresh')}
               </button>
 
-              {status.updateAvailable && (
+              {status.updateAvailable && status.status !== 'updating' && (
                 <button
                   onClick={() => void performUpdate()}
                   disabled={updating}
@@ -165,6 +215,17 @@ export default function UpdatePage() {
               </div>
               <div className="text-xs text-zinc-500 mt-1">
                 Last checked: {new Date(status.lastChecked).toLocaleString()}
+              </div>
+            </div>
+          )}
+
+          {!status.updateAvailable && !status.latestVersion && (
+            <div className="border border-zinc-800 rounded-lg p-4 bg-zinc-950">
+              <div className="text-sm text-amber-400">
+                Update source not configured
+              </div>
+              <div className="text-xs text-zinc-500 mt-1">
+                Set <code className="font-mono">UPDATE_MANIFEST_URL</code> to a signed release manifest to enable updates.
               </div>
             </div>
           )}

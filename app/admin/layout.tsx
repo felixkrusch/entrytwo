@@ -15,6 +15,8 @@ const navItems = [
   { href: '/admin/backup', label: 'Backup & Export' },
   { href: '/admin/bank-feeds', label: 'Bank Feeds' },
   { href: '/admin/automation', label: 'Automation' },
+  { href: '/admin/chart-of-accounts', label: 'Chart of Accounts' },
+  { href: '/admin/update', label: 'Update' },
   { href: '/app?view=history', label: 'Commit History' },
 ]
 

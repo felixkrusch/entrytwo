@@ -1,6 +1,84 @@
 services:
-  entrytwo:
-    image: entrytwo
+  app:
+    image: ${APP_IMAGE:-entrytwo:latest}
     build:
       context: .
       dockerfile: ./Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:password@db:5432/entrytwo
+      - APP_VERSION=${APP_VERSION:-dev}
+      - APP_IMAGE=${APP_IMAGE:-entrytwo:latest}
+      - COMPOSE_FILE=/app/entrytwo/compose.yaml
+      - UPDATE_SERVICE=app
+      # Delegate Docker operations to the isolated updater sidecar (docs §6).
+      # When set, the app never mounts the Docker socket and cannot self-modify.
+      - UPDATER_URL=${UPDATER_URL:-http://updater:4000}
+      - UPDATER_TOKEN=${UPDATER_TOKEN:-changeme}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backups:/app/entrytwo/backups
+      - ./logs:/app/entrytwo/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      updater:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  # Isolated updater sidecar. It — not the app — holds the Docker socket and
+  # performs pull / migrate / recreate / health-gate / rollback. The app only
+  # triggers it over HTTP with UPDATER_TOKEN (docs/Self-Hosted-Update-Delivery.md §6).
+  updater:
+    build:
+      context: .
+      dockerfile: ./updater/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - UPDATER_PORT=4000
+      - UPDATER_TOKEN=${UPDATER_TOKEN:-changeme}
+      - COSIGN_IDENTITY=${COSIGN_IDENTITY:-}
+      - COSIGN_OIDC_ISSUER=${COSIGN_OIDC_ISSUER:-https://token.actions.githubusercontent.com}
+      - COSIGN_PUBLIC_KEY=${COSIGN_PUBLIC_KEY:-}
+      - COSIGN_VERIFY_ARGS=${COSIGN_VERIFY_ARGS:-}
+      - UPDATE_VERIFY_SIGNATURE=${UPDATE_VERIFY_SIGNATURE:-true}
+      - APP_IMAGE=${APP_IMAGE:-entrytwo:latest}
+      - UPDATE_SERVICE=app
+      - COMPOSE_FILE=/app/entrytwo/compose.yaml
+      - APP_PUBLIC_URL=http://app:3000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./compose.yaml:/app/entrytwo/compose.yaml:ro
+      - ./backups:/app/entrytwo/backups
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=entrytwo
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
