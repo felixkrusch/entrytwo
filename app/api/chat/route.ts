@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { generateText, tool, stepCountIs } from 'ai'
+import { generateText, tool, stepCountIs, type ModelMessage } from 'ai'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { getLlmConfig, createLlmModel } from '@/lib/llm'
@@ -265,7 +265,7 @@ export async function POST(req: NextRequest) {
 
     // Prepare messages for the model.
     type LlmPart = { type: string; image?: Buffer; data?: Buffer; mimeType?: string; text?: string }
-    type LlmMsg = { role: string; content: string | LlmPart[] }
+    type LlmMsg = { role: 'user' | 'assistant' | 'system' | 'tool'; content: string | LlmPart[] }
     const llmMessages: LlmMsg[] = contextTurns.map((turn, idx) => {
       const isLast = idx === contextTurns.length - 1
       const attachFilesHere = isLast && attachedFiles.length > 0 && turn.role === 'user'
@@ -302,7 +302,7 @@ export async function POST(req: NextRequest) {
       const { text } = await generateText({
         model,
         system,
-        messages: llmMessages,
+        messages: llmMessages as ModelMessage[],
         tools: {
           get_skill: getSkillTool,
         },
@@ -326,7 +326,7 @@ export async function POST(req: NextRequest) {
       })
 
       const action = extracted.action as ActionType
-      const params = extracted.params || {}
+      const params: Record<string, unknown> = extracted.params || {}
       const confidence = extracted.confidence ?? 0.8
       const reasoning = extracted.reasoning
 
@@ -367,7 +367,7 @@ export async function POST(req: NextRequest) {
         }
         if (v.resolvedLines) resolved.lines = v.resolvedLines
       } else if (action === 'PROPOSE_RESTORE') {
-        const v = await validateRestoreTarget(params.target || '', branch)
+        const v = await validateRestoreTarget(String(params.target ?? ''), branch)
         validationOk = v.ok
         validationError = v.error
         if (v.eventId) resolved.eventId = v.eventId
@@ -449,11 +449,29 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
   const branch = ctx.branch || 'main'
 
   if (action === 'CREATE_JOURNAL') {
-    const p = params
+    const p = params as {
+      description?: string
+      date?: string
+      sourcePdfPath?: string | null
+      confidence?: number
+      reasoning?: string
+      lines: Array<{
+        accountId: string
+        debit: number
+        credit: number
+        description?: string
+        currency?: string
+        fxRateToBase?: number | null
+        fxSource?: string
+        fxDate?: string
+        taxRateId?: string | null
+        contactId?: string | null
+      }>
+    }
     const lines = Array.isArray(p.lines) ? p.lines : []
     if (lines.length < 2) throw new Error('Journal must have at least 2 lines')
 
-    const resolvedLines = lines.map((l: Record<string, unknown>) => ({
+    const resolvedLines = lines.map((l) => ({
       accountId: l.accountId, // already resolved by validation in the main path
       debit: l.debit || 0,
       credit: l.credit || 0,
@@ -491,10 +509,25 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
   }
 
   if (action === 'CREATE_CONTACT') {
-    const p = params
+    const p = params as {
+      name?: string
+      email?: string
+      type?: string
+      phone?: string
+      addressStreet?: string
+      addressCity?: string
+      addressState?: string
+      addressZip?: string
+      addressCountry?: string
+      addressLine2?: string
+      taxId?: string
+      website?: string
+      currency?: string
+      notes?: string
+    }
     const contact = await prisma.contact.create({
       data: {
-        name: p.name,
+        name: p.name ?? '',
         email: p.email,
         type: p.type || 'CUSTOMER',
         phone: p.phone,
@@ -529,7 +562,19 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
   }
 
   if (action === 'CREATE_INVOICE_DRAFT') {
-    const p = params
+    const p = params as {
+      contactId?: string
+      contactName?: string
+      description?: string
+      amount?: number | string
+      currency?: string
+      lines?: Array<{
+        description?: string
+        quantity?: number | string
+        unitPrice?: number | string
+        taxRateId?: string | null
+      }>
+    }
     let contactId = p.contactId
     if (!contactId && p.contactName) {
       const found = await prisma.contact.findFirst({ where: { name: p.contactName } })
@@ -539,7 +584,7 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
 
     const currency = (p.currency || 'EUR').toUpperCase()
     const lines = p.lines || [{ description: p.description, quantity: 1, unitPrice: p.amount || 0 }]
-    const subtotal = lines.reduce((s: number, l: Record<string, unknown>) => s + (Number(l.quantity) || 1) * (Number(l.unitPrice) || 0), 0)
+    const subtotal = lines.reduce((s: number, l) => s + (Number(l.quantity) || 1) * (Number(l.unitPrice) || 0), 0)
 
     let ar = await prisma.account.findFirst({ where: { OR: [{ code: '1100' }, { name: { contains: 'receivable', mode: 'insensitive' } }] } })
     if (!ar) ar = await prisma.account.findFirst({ where: { type: 'ASSET' } })
@@ -552,8 +597,8 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
     // Model should use exact UUIDs from the "Available tax rates" list we inject.
     const rawInputLines = Array.isArray(lines) ? lines : []
     const rawTaxStrings: string[] = rawInputLines
-      .map((l: Record<string, unknown>) => (typeof l?.taxRateId === 'string' ? (l.taxRateId as string).trim() : ''))
-      .filter((s: string): s is string => s.length > 0)
+      .map((l) => (typeof l?.taxRateId === 'string' ? l.taxRateId.trim() : ''))
+      .filter((s): s is string => s.length > 0)
     const candidateTaxIds: string[] = Array.from(new Set(rawTaxStrings))
     const idsForQuery: string[] = candidateTaxIds
     const existingTaxRates = idsForQuery.length
@@ -561,12 +606,12 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
       : []
     const validTaxIdSet = new Set(existingTaxRates.map(r => r.id))
 
-    const safeLines = lines.map((l: Record<string, unknown>) => {
+    const safeLines = lines.map((l) => {
       const taxId = (typeof l.taxRateId === 'string' && validTaxIdSet.has(l.taxRateId)) ? l.taxRateId : null
       const qty = Number(l.quantity) || 1
       const up = Number(l.unitPrice) || 0
       return {
-        description: l.description,
+        description: l.description ?? '',
         quantity: qty,
         unitPrice: up,
         taxRateId: taxId,

@@ -129,7 +129,7 @@ export async function createBranch(name: string, fromEventId?: string, descripti
 /**
  * Update the head of a branch (used after commits, merges, restores).
  */
-export async function setBranchHead(name: string, eventId: string): Promise<void> {
+export async function setBranchHead(name: string, eventId: string | null): Promise<void> {
   await prisma.accountingBranch.updateMany({
     where: { name },
     data: { headEventId: eventId },

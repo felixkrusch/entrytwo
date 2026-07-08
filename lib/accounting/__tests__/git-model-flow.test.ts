@@ -9,6 +9,7 @@ import { reverseJournalEntry } from '@/lib/accounting/reverse'
 import { recordCommitOnBranch } from '@/lib/accounting/commit'
 import { buildBalanceSheet, type BalanceSheetResult } from '@/lib/reports'
 import { getVisibleJournalEntryIds } from '@/lib/accounting/ancestry'
+import { type AccountType } from '@prisma/client'
 
 let dbReady = false
 
@@ -31,7 +32,7 @@ async function ensureAccount(code: string, type: string) {
   return prisma.account.upsert({
     where: { code },
     update: {},
-    create: { code, name: `${type} ${code}`, type },
+    create: { code, name: `${type} ${code}`, type: type as AccountType },
   })
 }
 

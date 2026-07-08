@@ -142,8 +142,13 @@ export async function validateInvoiceDraftIntent(params: unknown): Promise<{ ok:
     const c = await prisma.contact.findUnique({ where: { id: contactId } })
     if (!c) return { ok: false, error: 'Provided contactId not found' }
   } else if (contactName) {
-    let found = await prisma.contact.findFirst({ where: { name: contactName } })
-    if (!found) found = await prisma.contact.findFirst({ where: { name: { equals: contactName, mode: 'insensitive' } } })
+    let found: { id: string; name: string } | null = null
+    const exact = await prisma.contact.findFirst({ where: { name: contactName } })
+    if (exact) found = { id: exact.id, name: exact.name }
+    if (!found) {
+      const insensitive = await prisma.contact.findFirst({ where: { name: { equals: contactName, mode: 'insensitive' } } })
+      if (insensitive) found = { id: insensitive.id, name: insensitive.name }
+    }
     if (!found) {
       const all = await prisma.contact.findMany({ select: { id: true, name: true } })
       const ln = contactName.toLowerCase()

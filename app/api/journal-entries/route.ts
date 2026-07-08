@@ -77,9 +77,10 @@ export async function GET(request: Request) {
     // else: no ancestry restriction → show all (legacy current main or no head yet)
 
     if (from || to) {
-      where.date = where.date || {}
-      if (from) where.date.gte = new Date(from)
-      if (to) where.date.lte = new Date(to)
+      const dateFilter: Record<string, Date> = {}
+      if (from) dateFilter.gte = new Date(from)
+      if (to) dateFilter.lte = new Date(to)
+      where.date = dateFilter
     }
 
     if (accountCode) {

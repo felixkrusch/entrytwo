@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 import type { CompanyProfile } from '@/lib/companyProfile'
 
 export interface MemoryEntry {
@@ -62,22 +63,24 @@ export const MemoryVault = {
    * Set (upsert) a memory item.
    */
   async set(input: SetMemoryInput): Promise<MemoryEntry> {
+    const jsonOrNull = (v: unknown) =>
+      v == null ? Prisma.JsonNull : (v as Prisma.InputJsonValue)
     try {
       const row = await prisma.agentMemory.upsert({
         where: { scope_key: { scope: input.scope, key: input.key } },
         update: {
-          value: input.value,
+          value: jsonOrNull(input.value),
           category: input.category ?? null,
           source: input.source ?? null,
-          metadata: input.metadata ?? null,
+          metadata: jsonOrNull(input.metadata),
         },
         create: {
           key: input.key,
-          value: input.value,
+          value: jsonOrNull(input.value),
           scope: input.scope,
           category: input.category ?? null,
           source: input.source ?? null,
-          metadata: input.metadata ?? null,
+          metadata: jsonOrNull(input.metadata),
         },
       })
       return {

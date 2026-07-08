@@ -30,7 +30,13 @@ export async function POST(
       return NextResponse.json({ error: 'Schedule ended' }, { status: 400 })
     }
 
-    const tpl = (rec.templateData as Record<string, unknown>) || {}
+    type RecurringLine = {
+      description?: string
+      quantity?: number | string
+      unitPrice?: number | string
+      taxRateId?: string | null
+    }
+    const tpl = (rec.templateData as { currency?: string; notes?: string; terms?: string; lines?: RecurringLine[] }) || {}
     const currency = (tpl.currency || 'EUR').toUpperCase()
     const lines = Array.isArray(tpl.lines) ? tpl.lines : []
 
@@ -42,7 +48,7 @@ export async function POST(
     const taxRateIds: string[] = Array.from(
       new Set(
         lines
-          .map((l: Record<string, unknown>) => l.taxRateId)
+          .map((l) => l.taxRateId)
           .filter((x): x is string => typeof x === 'string' && x.length > 0)
       )
     )
@@ -51,16 +57,16 @@ export async function POST(
 
     let subtotal = 0
     let taxAmount = 0
-    const enriched = lines.map((l: Record<string, unknown>) => {
+    const enriched = lines.map((l) => {
       const q = Number(l.quantity) || 1
       const p = Number(l.unitPrice) || 0
       const net = q * p
-      const rate = l.taxRateId ? rateMap.get(l.taxRateId as string) || 0 : 0
+      const rate = l.taxRateId ? rateMap.get(l.taxRateId) || 0 : 0
       const tax = net * rate
       subtotal += net
       taxAmount += tax
       return {
-        description: l.description,
+        description: l.description ?? '',
         quantity: q,
         unitPrice: p,
         taxRateId: l.taxRateId || null,
@@ -126,7 +132,7 @@ export async function POST(
           notes: tpl.notes || rec.notes || null,
           terms: tpl.terms || null,
           lines: {
-            create: enriched.map((l: Record<string, unknown>) => ({
+            create: enriched.map((l) => ({
               description: l.description,
               quantity: l.quantity,
               unitPrice: l.unitPrice,
@@ -139,7 +145,16 @@ export async function POST(
         include: { contact: true, lines: { include: { taxRate: true } } },
       })
 
-      const journalLines: Array<Record<string, unknown>> = [
+      const journalLines: Array<{
+        accountId: string
+        debit: number
+        credit: number
+        currency: string
+        description: string
+        contactId?: string
+        taxRateId?: string | null
+        taxIsInput?: boolean | null
+      }> = [
         { accountId: arAccount!.id, debit: total, credit: 0, currency, contactId: rec.contactId, description: `Invoice ${created.invoiceNumber}` },
         { accountId: revenueAccount!.id, debit: 0, credit: subtotal, currency, description: 'Revenue' },
       ]
@@ -201,7 +216,7 @@ export async function POST(
     if (rec.autoSend) {
       // If email is configured, send PDF (delivery only; do not auto-mark SENT here)
       const hasEmail = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
-      if (hasEmail && invoice.contact?.email) {
+      if (hasEmail && rec.contact?.email) {
         try {
           await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ''}/api/invoices/${invoice.id}/email`, {
             method: 'POST',

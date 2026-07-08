@@ -5,6 +5,7 @@
 // Git-model tables before EVERY test file (files run sequentially via fileParallelism:false),
 // giving each file a fresh slate. It only touches the dedicated test database.
 import 'dotenv/config'
+import { beforeAll } from 'vitest'
 import { prisma } from '@/lib/prisma'
 import { ensureMainBranch } from '@/lib/accounting/branch'
 

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 
 const RecurringSchema = z.object({
@@ -59,7 +60,7 @@ export async function POST(request: Request) {
         nextDueDate: start,
         autoSend: data.autoSend,
         notes: data.notes || null,
-        templateData: data.templateData as unknown as Record<string, unknown>,
+        templateData: data.templateData as unknown as Prisma.InputJsonValue,
         status: 'ACTIVE',
       },
     })

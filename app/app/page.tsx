@@ -318,14 +318,14 @@ export default function ChatPage() {
               description: p.description || data.response || 'Journal entry',
               lines: Array.isArray(p.lines) ? p.lines.map((l: JournalLineInput) => ({
                 accountCode: l.accountCode,
-                debit: l.debit || 0,
-                credit: l.credit || 0,
+                debit: typeof l.debit === 'string' ? Number(l.debit) : (l.debit || 0),
+                credit: typeof l.credit === 'string' ? Number(l.credit) : (l.credit || 0),
                 description: l.description,
                 currency: l.currency,
-                fxRateToBase: l.fxRateToBase,
+                fxRateToBase: l.fxRateToBase != null ? Number(l.fxRateToBase) : undefined,
                 fxSource: l.fxSource,
                 fxDate: l.fxDate,
-                taxRateId: l.taxRateId,
+                taxRateId: l.taxRateId ?? undefined,
               })) : [],
               // carry uploaded invoice/receipt so the journal entry can be linked to it
               sourcePdfPath: p?.sourcePdfPath || d.sourcePdfPath || undefined,

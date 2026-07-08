@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Suspense } from 'react'
 import TopBar from '@/app/app/TopBar'
+import { NewEntryProvider } from '@/app/app/NewEntryContext'
 
 const navItems = [
   { href: '/admin', label: 'Overview' },
@@ -60,7 +61,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         {/* Main content */}
         <div className="flex-1 overflow-auto p-8">
           <div className="max-w-4xl mx-auto">
-            {children}
+            <NewEntryProvider>
+              {children}
+            </NewEntryProvider>
           </div>
         </div>
       </div>

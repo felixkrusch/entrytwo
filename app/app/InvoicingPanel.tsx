@@ -787,7 +787,7 @@ export default function InvoicingPanel() {
                   <div>
                     <span className="font-medium">{r.name}</span>
                     <span className="text-zinc-400 ml-2">• {r.contact?.name}</span>
-                    <span className="text-xs ml-2 text-zinc-500">{r.frequency} ×{r.interval} • next {new Date(r.nextDueDate).toLocaleDateString()}</span>
+                    <span className="text-xs ml-2 text-zinc-500">{r.frequency} ×{r.interval} • next {r.nextDueDate ? new Date(r.nextDueDate).toLocaleDateString() : '—'}</span>
                   </div>
                   <div className="flex gap-2 text-xs">
                     <button onClick={() => generateNow(r.id)} className="px-2 py-0.5 rounded bg-emerald-800 text-emerald-200">Generate now</button>

@@ -218,7 +218,10 @@ export default function AuditLogPanel() {
                   <div className="text-zinc-400 mb-1 text-xs font-medium">Changes in this commit:</div>
                   <div className="bg-zinc-950 border border-zinc-800 rounded p-2 text-xs space-y-1 font-mono">
                      {(selectedEvent.payload.lines as Array<Record<string, unknown>>).map((line: Record<string, unknown>, idx: number) => {
-                      const acct = typeof line.account === 'string' ? line.account : (line.account?.code || line.accountCode || '?')
+                      const account = line.account as string | { code?: string } | undefined
+                      const acct = typeof account === 'string'
+                        ? account
+                        : (account?.code || (typeof line.accountCode === 'string' ? line.accountCode : '') || '?')
                       const d = Number(line.debit || 0)
                       const c = Number(line.credit || 0)
                       return (
