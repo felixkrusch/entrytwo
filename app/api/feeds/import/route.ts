@@ -126,17 +126,17 @@ export async function POST(request: Request) {
       return { created, commitEventId: ev.id, branchForCommit }
     })
 
-    const created = (result as any).created
-    const commitEventId = (result as any).commitEventId
-    const b = (result as any).branchForCommit || branchForCommit
+    const r = result as { created: { id: string }; commitEventId: string; branchForCommit?: string }
+    const commitEventId = r.commitEventId
+    const b = r.branchForCommit || branchForCommit
 
     if (commitEventId) {
-      await recordCommitOnBranch(created.id, b, commitEventId)
+      await recordCommitOnBranch(r.created.id, b, commitEventId)
     } else {
-      await recordCommitOnBranch(created.id, b)
+      await recordCommitOnBranch(r.created.id, b)
     }
 
-    return NextResponse.json(created, { status: 201 })
+    return NextResponse.json(r.created, { status: 201 })
   } catch (error) {
     console.error('Feed import error:', error)
     return NextResponse.json({ error: 'Failed to import feed' }, { status: 500 })

@@ -29,7 +29,8 @@ export async function getCompanyProfile(): Promise<CompanyProfile> {
 
     const addr = addrSetting?.value as unknown as { region?: string; country?: string } | null
     const jur = (jurSetting?.value as unknown as { value?: string })?.value || (jurSetting?.value as unknown as string)
-    const bc = (bcSetting?.value as any)?.value
+    const bcVal = bcSetting?.value
+    const bc = (bcVal && typeof bcVal === 'object' && 'value' in bcVal ? (bcVal as Record<string, unknown>).value : bcVal) as string | null | undefined
 
     if (addr?.region) {
       profile.region = String(addr.region).toUpperCase()

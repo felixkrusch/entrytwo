@@ -434,8 +434,8 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   const loadExisting = async () => {
     try {
       const r = await fetch('/api/receipts?limit=100')
-      const d = await r.json()
-      const list = (d?.receipts || []).map((x: any) => ({ name: x.name, url: x.url }))
+      const d = await r.json() as { receipts?: Array<{ name: string; url: string }> }
+      const list = (d?.receipts || []).map((x) => ({ name: x.name, url: x.url }))
       setExistingFiles(list)
     } catch {
       setExistingFiles([])
@@ -520,7 +520,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
         date,
         description: description || undefined,
         branch,
-        sourcePdfPath: (initialSuggestion as any)?.sourcePdfPath || attachedFile?.savedPath || undefined,
+        sourcePdfPath: (initialSuggestion as { sourcePdfPath?: string } | undefined)?.sourcePdfPath || attachedFile?.savedPath || undefined,
         lines: lines.map(l => ({
           accountId: l.accountId,
           debit: Number(l.debit),

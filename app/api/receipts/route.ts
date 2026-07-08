@@ -38,7 +38,7 @@ export async function GET(req: Request) {
     const receipts = allItems.slice(start, start + limit)
 
     return NextResponse.json({ receipts, total, page, limit })
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'Failed to list receipts' }, { status: 500 })
   }
 }
@@ -54,7 +54,7 @@ export async function DELETE(req: Request) {
     const full = join(dir, safe)
     await unlink(full)
     return NextResponse.json({ ok: true })
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'Failed to delete' }, { status: 500 })
   }
 }

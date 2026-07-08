@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { formatCurrency } from '@/lib/utils'
 
 interface ContactItem {
@@ -32,6 +32,17 @@ interface TaxRate {
   name: string
   rate: number
   jurisdiction: string
+}
+
+interface RecurringSchedule {
+  id: string
+  name: string
+  contact?: { name?: string }
+  frequency: string
+  interval: number
+  nextDueDate?: string
+  status: string
+  autoSend: boolean
 }
 
 interface Invoice {
@@ -82,12 +93,12 @@ export default function InvoicingPanel() {
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null)
 
   // Recurring schedules (per plan: generate DRAFT by default, optional autoSend)
-  const [recurring, setRecurring] = useState<any[]>([])
+  const [recurring, setRecurring] = useState<RecurringSchedule[]>([])
   const [showRecurring, setShowRecurring] = useState(false)
 
   // Accordion expansion (in-place details, no hidden bottom panel)
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [expandedData, setExpandedData] = useState<any>(null)
+  const [expandedData, setExpandedData] = useState<Invoice | null>(null)
 
   const fetchRecurring = useCallback(async () => {
     try {
@@ -153,7 +164,7 @@ export default function InvoicingPanel() {
     }
   }
 
-  const toggleRecurringStatus = async (rec: any) => {
+  const toggleRecurringStatus = async (rec: RecurringSchedule) => {
     const newStatus = rec.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE'
     await fetch(`/api/recurring-invoices/${rec.id}`, {
       method: 'PUT',
@@ -162,15 +173,6 @@ export default function InvoicingPanel() {
     })
     void fetchRecurring()
   }
-
-  useEffect(() => {
-    fetch('/api/payments/stripe/status').then(r => r.json()).then(d => setStripeEnabled(!!d.configured)).catch(() => {})
-    fetch('/api/payments/paypal/status').then(r => r.json()).then(d => setPaypalEnabled(!!d.configured)).catch(() => {})
-    // Email availability (SMTP configured) — gates Email button
-    fetch('/api/invoices/email/status').then(r => r.json()).then(d => setEmailEnabled(!!d.configured)).catch(() => {})
-    // Preload text snippets so they are ready when opening the create form
-    void fetchTextSnippets()
-  }, [])
 
   // Create form state
   const [contacts, setContacts] = useState<ContactItem[]>([])
@@ -184,7 +186,7 @@ export default function InvoicingPanel() {
 
   // Invoice-level free text (notes/message) + its text snippets
   const [notes, setNotes] = useState('')
-  const [textSnippets, setTextSnippets] = useState<any[]>([])
+  const [textSnippets, setTextSnippets] = useState<SavedSnippet[]>([])
 
   // --- All useCallback definitions FIRST (before any useEffect that references them) ---
   const fetchContacts = useCallback(async () => {
@@ -199,16 +201,25 @@ export default function InvoicingPanel() {
     try {
       const res = await fetch('/api/invoices/snippets')
       const data = await res.json()
-      setSnippets((data.snippets || []).filter((s: any) => !s.kind || s.kind === 'line'))
+      setSnippets(((data.snippets || []) as SavedSnippet[]).filter(s => !s.kind || s.kind === 'line'))
     } catch {}
   }, [])
 
-  const fetchTextSnippets = useCallback(async () => {
+  const fetchTextSnippets = async () => {
     try {
       const res = await fetch('/api/invoices/snippets?kind=text')
       const data = await res.json()
-      setTextSnippets(data.snippets || [])
+      setTextSnippets((data.snippets || []) as SavedSnippet[])
     } catch {}
+  }
+
+  useEffect(() => {
+    fetch('/api/payments/stripe/status').then(r => r.json()).then(d => setStripeEnabled(!!d.configured)).catch(() => {})
+    fetch('/api/payments/paypal/status').then(r => r.json()).then(d => setPaypalEnabled(!!d.configured)).catch(() => {})
+    // Email availability (SMTP configured) — gates Email button
+    fetch('/api/invoices/email/status').then(r => r.json()).then(d => setEmailEnabled(!!d.configured)).catch(() => {})
+    // Preload text snippets so they are ready when opening the create form
+    void fetchTextSnippets()
   }, [])
 
   const fetchTaxRates = useCallback(async () => {
@@ -429,7 +440,7 @@ export default function InvoicingPanel() {
 
 
 
-  const applyTextSnippet = (s: any) => {
+  const applyTextSnippet = (s: SavedSnippet) => {
     const t = (s.text || s.description || '').toString().trim()
     if (!t) return
     setNotes(prev => {
@@ -455,16 +466,12 @@ export default function InvoicingPanel() {
 
 
 
-  const subtotal = useMemo(() => {
-    return newLines.reduce((sum, line) => sum + (line.quantity * line.unitPrice), 0)
-  }, [newLines])
+  const subtotal = newLines.reduce((sum, line) => sum + (line.quantity * line.unitPrice), 0)
 
-  const taxTotal = useMemo(() => {
-    return newLines.reduce((sum, line) => {
-      const rate = taxRates.find(r => r.id === line.taxRateId)?.rate || 0
-      return sum + (line.quantity * line.unitPrice * rate)
-    }, 0)
-  }, [newLines, taxRates])
+  const taxTotal = newLines.reduce((sum, line) => {
+    const rate = taxRates.find(r => r.id === line.taxRateId)?.rate || 0
+    return sum + (line.quantity * line.unitPrice * rate)
+  }, 0)
 
   const grandTotal = subtotal + taxTotal
 
@@ -501,7 +508,7 @@ export default function InvoicingPanel() {
     try {
       const validLines = newLines.filter(l => l.description.trim())
 
-      const payload: any = {
+      const payload = {
         contactId: newContactId,
         status: 'DRAFT',
         issueDate: formIssueDate ? new Date(formIssueDate).toISOString() : undefined,
@@ -946,7 +953,7 @@ export default function InvoicingPanel() {
                        ))}
                      </div>
                    ) : (
-                     <div className="text-[10px] text-zinc-500">No text snippets yet. Write in the Notes box above and click "Save current text as snippet".</div>
+                      <div className="text-[10px] text-zinc-500">No text snippets yet. Write in the Notes box above and click &quot;Save current text as snippet&quot;.</div>
                    )}
                  </div>
                 </div>
@@ -1030,7 +1037,7 @@ export default function InvoicingPanel() {
                            setEditingInvoiceId(invoice.id);
                            setNewContactId(invoice.contact?.id || '');
                            fetch(`/api/invoices/${invoice.id}`).then(r => r.json()).then(full => {
-                             const mapped = (full.lines || []).map((l: any) => ({
+                              const mapped = ((full.lines || []) as InvoiceLineForm[]).map((l) => ({
                                description: l.description,
                                quantity: Number(l.quantity) || 1,
                                unitPrice: Number(l.unitPrice) || 0,
@@ -1092,7 +1099,7 @@ export default function InvoicingPanel() {
 
                       <div className="text-xs text-zinc-400 mb-1">Line items</div>
                       <div className="space-y-1 mb-3">
-                        {(expandedData.lines || []).map((l: any, i: number) => (
+                         {(expandedData.lines || []).map((l, i: number) => (
                           <div key={i} className="flex justify-between text-xs">
                             <span>{l.description} × {Number(l.quantity)} @ {formatCurrency(l.unitPrice, expandedData.currency)}{l.taxRate ? ` +${(l.taxRate.rate*100).toFixed(0)}%` : ''}</span>
                             <span>{formatCurrency(l.lineTotal, expandedData.currency)}</span>
@@ -1129,7 +1136,7 @@ export default function InvoicingPanel() {
                           <button onClick={() => {
                             setEditingInvoiceId(expandedData.id)
                             setNewContactId(expandedData.contact?.id || '')
-                             const mapped = (expandedData.lines || []).map((l: any) => ({
+                              const mapped = ((expandedData.lines || []) as InvoiceLineForm[]).map((l) => ({
                                description: l.description,
                                quantity: Number(l.quantity) || 1,
                                unitPrice: Number(l.unitPrice) || 0,
@@ -1177,7 +1184,7 @@ export default function InvoicingPanel() {
        </div>
 
       <div className="mt-4 text-[10px] text-zinc-500">
-        Invoices are created as DRAFT. Click a row to expand details in place (accordion). Use "Mark Sent" only when you have actually delivered it.
+        Invoices are created as DRAFT. Click a row to expand details in place (accordion). Use &quot;Mark Sent&quot; only when you have actually delivered it.
       </div>
     </div>
   )

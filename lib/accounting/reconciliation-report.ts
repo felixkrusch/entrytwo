@@ -20,7 +20,7 @@ export interface ReconciliationReport {
 
 export async function generateReconciliationReport(
   accountCode: string,
-  result: { ledgerBalance: number; differences: any[]; createdEntryIds: string[]; reportSummary: string }
+  result: { ledgerBalance: number; differences: Array<{ description: string; amount: number; type: string }>; createdEntryIds: string[]; reportSummary: string }
 ): Promise<ReconciliationReport> {
   const account = await prisma.account.findUnique({ where: { code: accountCode } })
   if (!account) throw new Error('Account not found')

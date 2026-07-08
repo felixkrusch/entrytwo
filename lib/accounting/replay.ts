@@ -102,7 +102,7 @@ export async function replayToPoint(
     const d = Number(line.debit)
     const c = Number(line.credit)
     const cur = (line.currency || 'EUR').toUpperCase() // note: journalLine may not have currency on line in some schemas; safe default
-    const rate = (line as any).fxRateToBase != null ? Number((line as any).fxRateToBase) : 1
+    const rate = (line as { fxRateToBase?: unknown }).fxRateToBase != null ? Number((line as { fxRateToBase?: unknown }).fxRateToBase) : 1
     const baseD = cur === 'EUR' ? d : d * rate
     const baseC = cur === 'EUR' ? c : c * rate
 
@@ -128,12 +128,14 @@ export async function replayToPoint(
     })
 
     for (const ev of eventsAfter) {
-      const payloadLines = (ev.payload as any)?.lines || []
-      for (const l of payloadLines) {
-        const code = typeof l.account === 'string' ? l.account : l.accountCode
+      const payload = ev.payload as Record<string, unknown> | null
+      const payloadLines = (payload && typeof payload === 'object' && 'lines' in payload ? (payload as { lines?: unknown }).lines : null) || []
+      for (const l of payloadLines as unknown[]) {
+        const lineObj = l as Record<string, unknown>
+        const code = typeof lineObj.account === 'string' ? lineObj.account : (lineObj.accountCode as string | undefined)
         if (!code || !balances[code]) continue
-        const d = Number(l.debit || 0)
-        const c = Number(l.credit || 0)
+        const d = Number(lineObj.debit || 0)
+        const c = Number(lineObj.credit || 0)
         if (ev.eventType === 'JOURNAL_ENTRY_REVERSED') {
           balances[code].base -= (d - c)
           balances[code].native -= (d - c)

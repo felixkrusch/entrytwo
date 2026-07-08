@@ -14,7 +14,6 @@ import {
 } from '@/lib/chat/validation'
 import { isSafeAutonomous } from '@/lib/chat/intent'
 import { createAutonomousJournal } from '@/lib/accounting/autonomous'
-import { recordCommitOnBranch } from '@/lib/accounting/commit'
 import { EventType } from '@prisma/client'
 import { writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
@@ -32,10 +31,11 @@ import { loadSkill } from '@/lib/skills'
  * - Server handles validation, lock, proposals, execution.
  */
 
-// Extraction helper: the model now reasons freely (generateText + full history).
-// When it wants to act, it emits one clean JSON action (or inside a ```json fence).
-// We extract it here. Server validation + policy still apply.
-function tryExtractAction(text: string): { action: ActionType; params?: any; confidence?: number; reasoning?: string } | null {
+  // Extraction helper: the model now reasons freely (generateText + full history).
+  // When it wants to act, it emits one clean JSON action (or inside a ```json fence).
+  // We extract it here. Server validation + policy still apply.
+  type Extracted = { action: ActionType; params?: Record<string, unknown>; confidence?: number; reasoning?: string }
+  function tryExtractAction(text: string): Extracted | null {
   if (!text) return null
 
   // 1. Fenced code block (preferred)
@@ -66,7 +66,7 @@ function tryExtractAction(text: string): { action: ActionType; params?: any; con
 }
 
 function buildMasterSystemPrompt(ctx: {
-  companyProfile: any
+  companyProfile: unknown
   chatLocked: boolean
   branch: string
   asOf?: string
@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
     let branch = 'main'
     let asOf: string | undefined
     let incomingThreadId: string | undefined
-    let attachedFiles: Array<{ name: string; buffer: Buffer; savedPath: string; mimeType: string }> = []
+    const attachedFiles: Array<{ name: string; buffer: Buffer; savedPath: string; mimeType: string }> = []
 
     const contentType = req.headers.get('content-type') || ''
 
@@ -197,7 +197,7 @@ export async function POST(req: NextRequest) {
         : await getVisibleJournalEntryIds((await prisma.accountingBranch.findUnique({ where: { name: b } }))?.headEventId)
 
       const restrict = visibleEntryIds.length > 0
-      const where: any = restrict ? { journalEntryId: { in: visibleEntryIds } } : {}
+      const where: Record<string, unknown> = restrict ? { journalEntryId: { in: visibleEntryIds } } : {}
 
       const accounts = await prisma.account.findMany({
         orderBy: { code: 'asc' },
@@ -264,12 +264,14 @@ export async function POST(req: NextRequest) {
     const contextTurns = getContextForModel(thread, 40)
 
     // Prepare messages for the model.
-    const llmMessages: any[] = contextTurns.map((turn, idx) => {
+    type LlmPart = { type: string; image?: Buffer; data?: Buffer; mimeType?: string; text?: string }
+    type LlmMsg = { role: string; content: string | LlmPart[] }
+    const llmMessages: LlmMsg[] = contextTurns.map((turn, idx) => {
       const isLast = idx === contextTurns.length - 1
       const attachFilesHere = isLast && attachedFiles.length > 0 && turn.role === 'user'
 
       if (attachFilesHere) {
-        const parts: any[] = attachedFiles.map(f =>
+        const parts: LlmPart[] = attachedFiles.map(f =>
           f.mimeType?.startsWith('image/')
             ? { type: 'image', image: f.buffer }
             : { type: 'file', data: f.buffer, mimeType: f.mimeType }
@@ -307,8 +309,9 @@ export async function POST(req: NextRequest) {
         stopWhen: stepCountIs(5),
       })
       assistantText = text || ''
-    } catch (e: any) {
-      console.error('generateText error (Trillion chat):', e?.message || e, e)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('generateText error (Trillion chat):', msg, e)
       assistantText = 'Chat temporarily unavailable.'
     }
 
@@ -343,7 +346,7 @@ export async function POST(req: NextRequest) {
       // Validation first (needed for both proposal and execute paths)
       let validationOk = true
       let validationError: string | undefined
-      let resolved: any = {}
+      const resolved: Record<string, unknown> = {}
 
       if (action === 'CREATE_JOURNAL') {
         const v = await validateJournalIntent(params, branch)
@@ -375,7 +378,7 @@ export async function POST(req: NextRequest) {
       // "No more babysitting":
       // Safe autonomous actions execute directly when lock is open + validation passed.
       // Only force proposal for safe actions on lock, destructive, or validation failure.
-      let forceProposal = chatLocked || isDestructive || !validationOk || !isSafe
+      const forceProposal = chatLocked || isDestructive || !validationOk || !isSafe
 
       const finalPayload = { action, params: { ...params, ...resolved }, confidence, reasoning, branch, asOf }
 
@@ -405,14 +408,15 @@ export async function POST(req: NextRequest) {
       try {
         const execResult = await executeAction(action, finalPayload.params, { branch, asOf })
         return Response.json({ ...execResult, threadId: thread.id })
-      } catch (e: any) {
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e)
         return Response.json({
-          response: `Execution failed: ${e?.message || e}.`,
+          response: `Execution failed: ${msg}.`,
           proposed: true,
           action,
           params: finalPayload.params,
           proposedAction: finalPayload,
-          error: String(e?.message || e),
+          error: msg,
           threadId: thread.id,
         })
       }
@@ -441,7 +445,7 @@ function isMasterDataAction(action: ActionType): boolean {
   ].includes(action)
 }
 
-async function executeAction(action: ActionType, params: any, ctx: { branch: string; asOf?: string }) {
+async function executeAction(action: ActionType, params: Record<string, unknown>, ctx: { branch: string; asOf?: string }) {
   const branch = ctx.branch || 'main'
 
   if (action === 'CREATE_JOURNAL') {
@@ -449,7 +453,7 @@ async function executeAction(action: ActionType, params: any, ctx: { branch: str
     const lines = Array.isArray(p.lines) ? p.lines : []
     if (lines.length < 2) throw new Error('Journal must have at least 2 lines')
 
-    const resolvedLines = lines.map((l: any) => ({
+    const resolvedLines = lines.map((l: Record<string, unknown>) => ({
       accountId: l.accountId, // already resolved by validation in the main path
       debit: l.debit || 0,
       credit: l.credit || 0,
@@ -535,7 +539,7 @@ async function executeAction(action: ActionType, params: any, ctx: { branch: str
 
     const currency = (p.currency || 'EUR').toUpperCase()
     const lines = p.lines || [{ description: p.description, quantity: 1, unitPrice: p.amount || 0 }]
-    const subtotal = lines.reduce((s: number, l: any) => s + (l.quantity || 1) * (l.unitPrice || 0), 0)
+    const subtotal = lines.reduce((s: number, l: Record<string, unknown>) => s + (Number(l.quantity) || 1) * (Number(l.unitPrice) || 0), 0)
 
     let ar = await prisma.account.findFirst({ where: { OR: [{ code: '1100' }, { name: { contains: 'receivable', mode: 'insensitive' } }] } })
     if (!ar) ar = await prisma.account.findFirst({ where: { type: 'ASSET' } })
@@ -548,7 +552,7 @@ async function executeAction(action: ActionType, params: any, ctx: { branch: str
     // Model should use exact UUIDs from the "Available tax rates" list we inject.
     const rawInputLines = Array.isArray(lines) ? lines : []
     const rawTaxStrings: string[] = rawInputLines
-      .map((l: any) => (typeof l?.taxRateId === 'string' ? l.taxRateId.trim() : ''))
+      .map((l: Record<string, unknown>) => (typeof l?.taxRateId === 'string' ? (l.taxRateId as string).trim() : ''))
       .filter((s: string): s is string => s.length > 0)
     const candidateTaxIds: string[] = Array.from(new Set(rawTaxStrings))
     const idsForQuery: string[] = candidateTaxIds
@@ -557,7 +561,7 @@ async function executeAction(action: ActionType, params: any, ctx: { branch: str
       : []
     const validTaxIdSet = new Set(existingTaxRates.map(r => r.id))
 
-    const safeLines = lines.map((l: any) => {
+    const safeLines = lines.map((l: Record<string, unknown>) => {
       const taxId = (typeof l.taxRateId === 'string' && validTaxIdSet.has(l.taxRateId)) ? l.taxRateId : null
       const qty = Number(l.quantity) || 1
       const up = Number(l.unitPrice) || 0
@@ -616,15 +620,16 @@ async function executeAction(action: ActionType, params: any, ctx: { branch: str
   }
 }
 
-async function handleApprovedAction(approved: any, ctx: { branch: string; asOf?: string }) {
+async function handleApprovedAction(approved: { action: ActionType; params?: Record<string, unknown> }, ctx: { branch: string; asOf?: string }) {
   try {
     const result = await executeAction(approved.action, approved.params || {}, ctx)
     // Note: for approved actions we don't have the thread here.
     // Client will keep using its stored threadId for subsequent chat turns.
     return Response.json(result)
-  } catch (e: any) {
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
     return Response.json({
-      response: `Confirmation failed: ${e?.message || e}`,
+      response: `Confirmation failed: ${msg}`,
       proposed: true,
       action: approved.action,
       params: approved.params,

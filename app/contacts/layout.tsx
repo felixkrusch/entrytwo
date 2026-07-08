@@ -8,5 +8,5 @@ export default function ContactsRedirectLayout({ children }: { children: React.R
   useEffect(() => {
     router.replace('/app?view=contacts')
   }, [router])
-  return null
+  return <>{children}</>
 }

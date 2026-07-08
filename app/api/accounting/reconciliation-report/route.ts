@@ -4,7 +4,7 @@ import { reconcileAccount } from '@/lib/accounting/reconcile'
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
+    const body = (await request.json()) as { accountCode?: string; from?: string; to?: string }
     const { accountCode = '1100', from, to } = body
 
     const recon = await reconcileAccount({ accountCode, from, to, autoApplyHighConfidence: true })
@@ -21,7 +21,8 @@ export async function POST(request: Request) {
       ...recon,
       report,
     })
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Failed to generate reconciliation report' }, { status: 400 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: msg || 'Failed to generate reconciliation report' }, { status: 400 })
   }
 }

@@ -3,6 +3,7 @@
 // See docs/Git-Model-*.md
 
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 
 export interface BlameEntry {
   eventId: string
@@ -17,7 +18,7 @@ export async function blameAccount(accountCode: string, asOf?: string): Promise<
   const account = await prisma.account.findUnique({ where: { code: accountCode } })
   if (!account) throw new Error('Account not found')
 
-  const where: any = { accountId: account.id }
+  const where: Prisma.JournalLineWhereInput = { accountId: account.id }
   if (asOf) {
     where.journalEntry = { date: { lte: new Date(asOf) } }
   }
@@ -43,7 +44,8 @@ export async function blameAccount(accountCode: string, asOf?: string): Promise<
       select: { id: true, eventType: true, createdAt: true, payload: true }
     })
 
-    const payloadDesc = (ev?.payload as any)?.description || (ev?.payload as any)?.journalEntry?.description
+    const payloadDesc = (ev?.payload as { description?: string; journalEntry?: { description?: string } } | null)?.description
+      || (ev?.payload as { description?: string; journalEntry?: { description?: string } } | null)?.journalEntry?.description
     result.push({
       eventId: ev?.id || 'unknown',
       createdAt: (l.journalEntry.date || ev?.createdAt || new Date()).toISOString(),

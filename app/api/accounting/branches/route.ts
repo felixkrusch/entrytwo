@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createBranch, listBranches, getBranch, ensureMainBranch } from '@/lib/accounting/branch'
+import { createBranch, listBranches, ensureMainBranch } from '@/lib/accounting/branch'
 
 export async function GET() {
   await ensureMainBranch()
@@ -9,7 +9,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
+    const body = (await request.json()) as { name?: string; fromEventId?: string; description?: string }
     const { name, fromEventId, description } = body
 
     if (!name) {
@@ -18,7 +18,8 @@ export async function POST(request: Request) {
 
     const branch = await createBranch(name, fromEventId, description)
     return NextResponse.json(branch, { status: 201 })
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Failed to create branch' }, { status: 400 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: msg || 'Failed to create branch' }, { status: 400 })
   }
 }

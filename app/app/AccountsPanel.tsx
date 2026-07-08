@@ -26,13 +26,6 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
 
-  const [showAdd, setShowAdd] = useState(false)
-  const [newCode, setNewCode] = useState('')
-  const [newName, setNewName] = useState('')
-  const [newType, setNewType] = useState<'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE'>('ASSET')
-  const [isAdding, setIsAdding] = useState(false)
-  const [addError, setAddError] = useState('')
-
   // Phase 2: search + collapsible groups
   const [search, setSearch] = useState('')
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
@@ -103,53 +96,6 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
     return () => window.removeEventListener('journal-updated', handler)
   }, [branch, asOf])
 
-  const handleAddAccount = async () => {
-    if (!newCode.trim() || !newName.trim()) return
-    setIsAdding(true)
-    setAddError('')
-
-    try {
-      const res = await fetch('/api/accounts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: newCode.trim().toUpperCase(),
-          name: newName.trim(),
-          type: newType,
-        }),
-      })
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        if (res.status === 409) {
-          setAddError(t('errorCodeExists'))
-        } else {
-          setAddError(data.error || t('errorGeneric'))
-        }
-        return
-      }
-
-      // Success: refresh list and close form
-      setNewCode('')
-      setNewName('')
-      setNewType('ASSET')
-      setShowAdd(false)
-      fetchAccounts()
-    } catch {
-      setAddError(t('errorGeneric'))
-    } finally {
-      setIsAdding(false)
-    }
-  }
-
-  const startEdit = (account: Account) => {
-    setEditingId(account.id)
-    setEditCode(account.code)
-    setEditName(account.name)
-    setEditType(account.type as 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE')
-    setEditError('')
-  }
-
   const cancelEdit = () => {
     setEditingId(null)
     setEditError('')
@@ -183,30 +129,6 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
       setEditError(t('errorGeneric'))
     } finally {
       setIsSavingEdit(false)
-    }
-  }
-
-  const handleDelete = async (account: Account) => {
-    if (!confirm(t('deleteConfirm'))) return
-
-    try {
-      const res = await fetch(`/api/accounts/${account.id}`, {
-        method: 'DELETE',
-      })
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        if (res.status === 400) {
-          alert(t('deleteBlocked'))
-        } else {
-          alert(data.error || t('errorGeneric'))
-        }
-        return
-      }
-
-      fetchAccounts()
-    } catch {
-      alert(t('errorGeneric'))
     }
   }
 
@@ -377,9 +299,9 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
                               <div className="text-xs text-zinc-500 group-hover:text-zinc-400">
                                 {t('lines', { count: account._count.journalLines })}
                               </div>
-                              {typeof (account as any).balance === 'number' && (
+                              {typeof (account as unknown as { balance?: number }).balance === 'number' && (
                                 <span className="font-mono text-xs text-zinc-400 group-hover:text-zinc-200">
-                                  {(account as any).balance.toFixed(2)}
+                                  {((account as unknown as { balance?: number }).balance as number).toFixed(2)}
                                 </span>
                               )}
                               {/* Dashboard/public view: no edit/delete */}

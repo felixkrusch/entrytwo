@@ -595,8 +595,8 @@ function ContactsContent() {
 
   // Listen for chat-triggered "open contact form in focus"
   useEffect(() => {
-    const handler = (e: any) => {
-      const detail = e?.detail || {}
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {}
       if (detail.id) {
         const found = contacts.find(c => c.id === detail.id)
         if (found) {
@@ -633,8 +633,8 @@ function ContactsContent() {
         }, 80)
       }
     }
-    window.addEventListener('open-contact-form', handler as any)
-    return () => window.removeEventListener('open-contact-form', handler as any)
+    window.addEventListener('open-contact-form', handler)
+    return () => window.removeEventListener('open-contact-form', handler)
   }, [contacts])
 
   const toggleExpand = (id: string) => {
@@ -860,7 +860,7 @@ function ContactsContent() {
       {loading ? (
         <div className="text-zinc-500">Loading...</div>
       ) : filteredContacts.length === 0 ? (
-        <div className="text-zinc-500 p-4">No contacts yet. Click "Add Contact" above.</div>
+        <div className="text-zinc-500 p-4">No contacts yet. Click &quot;Add Contact&quot; above.</div>
       ) : (
         <div className="space-y-2">
            {filteredContacts.map(contact => (

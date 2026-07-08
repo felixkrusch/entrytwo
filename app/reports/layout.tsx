@@ -8,5 +8,5 @@ export default function ReportsRedirectLayout({ children }: { children: React.Re
   useEffect(() => {
     router.replace('/app?view=reports')
   }, [router])
-  return null
+  return <>{children}</>
 }

@@ -27,7 +27,7 @@ export async function POST(
 ) {
   const { id } = await params
   try {
-    const { to, subject, body } = await request.json().catch(() => ({} as any))
+    const { to, subject, body } = await request.json().catch(() => ({} as { to?: string; subject?: string; body?: string }))
 
     const invoice = await prisma.invoice.findUnique({
       where: { id },
@@ -65,8 +65,9 @@ export async function POST(
     // User must explicitly use "Mark Sent" when the invoice has been delivered.
 
     return NextResponse.json({ success: true, sentTo: recipient })
-  } catch (error: any) {
-    if (error?.message === 'Email not configured') {
+  } catch (error: unknown) {
+    const err = error as { message?: string }
+    if (err?.message === 'Email not configured') {
       return NextResponse.json({ error: 'Email not configured (set SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM)' }, { status: 503 })
     }
     console.error('Email send error:', error)

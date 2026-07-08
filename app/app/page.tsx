@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import { useNewEntry, NewEntrySuggestion } from './NewEntryContext'
 import { useTranslations } from 'next-intl'
 import { useRouter } from 'next/navigation'
+import { JournalLineInput } from '@/lib/chat/validation'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -21,6 +22,50 @@ interface Message {
   isStreaming?: boolean
   // Small "View in list" button for autonomous creates (contact / invoice / journal)
   navigate?: { label: string; href: string }
+  sourcePdfPath?: string
+  proposedAction?: ProposedAction
+}
+
+type ProposalParams = {
+  lines?: JournalLineInput[]
+  description?: string
+  sourcePdfPath?: string
+}
+
+interface ProposedAction {
+  type?: string
+  params?: ProposalParams
+}
+
+interface ChatResponse {
+  suggestion?: NewEntrySuggestion
+  proposedAction?: ProposedAction
+  proposed?: boolean
+  action?: string
+  response?: string
+  params?: ProposalParams
+  entryId?: string
+  entityId?: string
+  sourcePdfPath?: string
+  threadId?: string
+  createInvoice?: Message['createInvoice']
+  openLedger?: PendingLedger
+  reconciled?: boolean
+  restored?: boolean
+  executed?: boolean
+  createdAutonomously?: boolean
+  lines?: JournalLineInput[]
+  description?: string
+}
+
+type PendingLedger = { code: string; from?: string; to?: string; search?: string; branch?: string; asOf?: string }
+
+declare global {
+  interface Window {
+    __pendingAttachments?: Array<{ file?: File; savedPath: string; name?: string }>
+    __pendingContactForm?: { id: string; prefill: { name: string } }
+    __pendingLedger?: PendingLedger
+  }
 }
 
 export default function ChatPage() {
@@ -165,8 +210,8 @@ export default function ChatPage() {
       const asOf = sp.get('asOf') || sp.get('asof') || undefined
 
       // Collect any pending attachments (files + their saved server paths)
-      const pending = ((window as any).__pendingAttachments || []) as Array<{ file: File; savedPath: string }>
-      ;(window as any).__pendingAttachments = []
+      const pending = window.__pendingAttachments || []
+      window.__pendingAttachments = []
       setPendingAttachments([])
 
       // Proper context management: send ONLY the new user message + threadId.
@@ -184,7 +229,7 @@ export default function ChatPage() {
         if (asOf) fd.append('asOf', asOf)
 
         pending.forEach((p, idx) => {
-          fd.append('file', p.file, p.file.name)
+          if (p.file) fd.append('file', p.file, p.file.name)
           fd.append(`savedPath_${idx}`, p.savedPath)
         })
 
@@ -255,8 +300,8 @@ export default function ChatPage() {
         }
       } else {
         // Handle JSON response (transactions with suggestions)
-        const data = await res.json()
-        const d = data as any
+        const data = await res.json() as ChatResponse
+        const d = data
 
         let synthesizedSuggestion: NewEntrySuggestion | undefined = data.suggestion
 
@@ -271,7 +316,7 @@ export default function ChatPage() {
           if (p && (p.lines || p.description)) {
             synthesizedSuggestion = {
               description: p.description || data.response || 'Journal entry',
-              lines: Array.isArray(p.lines) ? p.lines.map((l: any) => ({
+              lines: Array.isArray(p.lines) ? p.lines.map((l: JournalLineInput) => ({
                 accountCode: l.accountCode,
                 debit: l.debit || 0,
                 credit: l.credit || 0,
@@ -283,7 +328,7 @@ export default function ChatPage() {
                 taxRateId: l.taxRateId,
               })) : [],
               // carry uploaded invoice/receipt so the journal entry can be linked to it
-              sourcePdfPath: p?.sourcePdfPath || (d as any)?.sourcePdfPath || undefined,
+              sourcePdfPath: p?.sourcePdfPath || d.sourcePdfPath || undefined,
             }
           }
         }
@@ -323,8 +368,9 @@ export default function ChatPage() {
               ...(d?.proposedAction && !isCreateJournalProposal ? { proposedAction: d.proposedAction } : {})
             }
             // also surface sourcePdfPath on the message for proposals that don't go through the suggestion path
-            if ((d as any)?.sourcePdfPath && updated[streamingMsgIndex]) {
-              ;(updated[streamingMsgIndex] as any).sourcePdfPath = (d as any).sourcePdfPath
+            if (d.sourcePdfPath) {
+              const msg = updated[streamingMsgIndex]
+              if (msg) msg.sourcePdfPath = d.sourcePdfPath
             }
           }
           return updated
@@ -343,15 +389,15 @@ export default function ChatPage() {
         const act = (d.action || '').toString().toUpperCase()
         if (act === 'CREATE_CONTACT' || act === 'UPDATE_CONTACT') {
           const cid = d.entityId
-          ;(window as any).__pendingContactForm = {
-            id: cid,
+          window.__pendingContactForm = {
+            id: cid ?? '',
             prefill: { name: (d.response || '').replace(/^(Created|Updated) contact.*?:\s*/i, '').trim() }
           }
           setTimeout(() => {
             router.push('/app?view=contacts')
             setTimeout(() => {
               window.dispatchEvent(new CustomEvent('open-contact-form', {
-                detail: (window as any).__pendingContactForm
+                detail: window.__pendingContactForm
               }))
             }, 140)
           }, 40)
@@ -369,9 +415,9 @@ export default function ChatPage() {
         }
 
         // Chat-triggered ledger open (AI-first high-reachability) — Git model: carry branch/asOf
-        if ((data as any)?.openLedger?.code) {
-          const ld = (data as any).openLedger
-          const evt: any = { code: ld.code }
+        if (data.openLedger?.code) {
+          const ld = data.openLedger
+          const evt: PendingLedger = { code: ld.code }
           if (ld.from) evt.from = ld.from
           if (ld.to) evt.to = ld.to
           if (ld.search) evt.search = ld.search
@@ -413,10 +459,10 @@ export default function ChatPage() {
         scrollToBottom(true)
 
       // Local fallback path: also support ledger navigation hints
-      const pending = (window as any).__pendingLedger
+      const pending = window.__pendingLedger
       if (pending?.code) {
         window.dispatchEvent(new CustomEvent('open-ledger', { detail: pending }))
-        delete (window as any).__pendingLedger
+        delete window.__pendingLedger
       }
     } finally {
       setIsLoading(false)
@@ -501,7 +547,7 @@ export default function ChatPage() {
   }
 
   // Handle approval of a proposed autonomous action (destructive / high-impact)
-  const handleApproveProposal = async (msg: any) => {
+  const handleApproveProposal = async (msg: Message) => {
     // Always allow explicit confirmation, even when locked.
     // The server will still re-validate everything.
     const proposed = msg.proposedAction
@@ -549,9 +595,8 @@ export default function ChatPage() {
       // show in yellow pending list
       setPendingAttachments(prev => [...prev, { name, savedPath: detail.savedPath }])
       // stash for next sendMessage (no File object for pre-existing)
-      const win = window as any
-      win.__pendingAttachments = [
-        ...(win.__pendingAttachments || []),
+      window.__pendingAttachments = [
+        ...(window.__pendingAttachments || []),
         { file: undefined, savedPath: detail.savedPath, name }
       ]
     }
@@ -593,12 +638,12 @@ export default function ChatPage() {
       // Keep the actual File objects + their server paths for the next sendMessage
       const toAttach = allowed.map((f, i) => ({
         file: f,
-        savedPath: (data.saved[i] as any)?.savedPath || '',
+        savedPath: data.saved[i]?.savedPath || '',
       }))
 
       // Stash for sendMessage
-      ;(window as any).__pendingAttachments = [
-        ...((window as any).__pendingAttachments || []),
+      window.__pendingAttachments = [
+        ...(window.__pendingAttachments || []),
         ...toAttach,
       ]
 
@@ -682,12 +727,12 @@ export default function ChatPage() {
                     )}
 
                    {/* New autonomous proposal confirmation surface */}
-                   {(msg as any).proposedAction && (
-                     <div className="mt-3 p-2 border border-amber-700 bg-amber-950/30 rounded text-xs">
-                       <div className="mb-1 text-amber-400">Action requires confirmation:</div>
-                       <div className="font-mono text-[10px] mb-2">{JSON.stringify((msg as any).proposedAction)}</div>
-                       <button
-                         onClick={() => handleApproveProposal(msg as any)}
+                   {(msg).proposedAction && (
+                      <div className="mt-3 p-2 border border-amber-700 bg-amber-950/30 rounded text-xs">
+                        <div className="mb-1 text-amber-400">Action requires confirmation:</div>
+                        <div className="font-mono text-[10px] mb-2">{JSON.stringify((msg).proposedAction)}</div>
+                        <button
+                          onClick={() => handleApproveProposal(msg)}
                          className="px-3 py-1 bg-amber-600 text-black rounded-full text-xs hover:bg-amber-500"
                        >
                          Confirm & Execute

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getCompanyProfile } from '@/lib/companyProfile'
-import { buildBalanceSheet, buildProfitLoss, buildCashFlow } from '@/lib/reports'
+import { buildBalanceSheet, buildProfitLoss, buildCashFlow, type ReportAccount, type CashFlowSection } from '@/lib/reports'
 
 function csvCell(value: string | number): string {
   const s = String(value)
@@ -32,7 +32,7 @@ export async function GET(request: Request) {
       const rows: Array<Array<string | number>> = [['Balance Sheet', baseCurrency]]
       if (from || to) rows.push([`Period`, `${from || 'open'} - ${to || 'now'}`])
       rows.push([])
-      const section = (label: string, items: any[], total: number) => {
+      const section = (label: string, items: ReportAccount[], total: number) => {
         rows.push([label])
         items.forEach((i) => rows.push([`${i.code} ${i.name}`, i.balance]))
         rows.push([`Total ${label}`, total])
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
       const rows: Array<Array<string | number>> = [['Cash Flow Statement', baseCurrency]]
       if (from || to) rows.push([`Period`, `${from || 'open'} - ${to || 'now'}`])
       rows.push([])
-      const section = (label: string, items: any[], total: number) => {
+      const section = (label: string, items: CashFlowSection['items'], total: number) => {
         rows.push([label])
         items.forEach((i) => rows.push([`${i.code} ${i.name}`, i.delta]))
         rows.push([`Total ${label}`, total])

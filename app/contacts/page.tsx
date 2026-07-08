@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { useTranslations } from 'next-intl'
 import { Search, Plus } from 'lucide-react'
 
 interface Contact {
@@ -20,7 +19,6 @@ interface Contact {
 }
 
 export default function ContactsPage() {
-  const t = useTranslations('app.panels')
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')

@@ -8,7 +8,7 @@ export async function GET() {
       orderBy: { createdAt: 'desc' },
       take: 100,
     })
-    const templates = rows.map((t: any) => ({
+    const templates = rows.map((t: { id: string; name: string; description: string | null; content: string | null }) => ({
       id: t.id,
       name: t.name,
       description: t.description,

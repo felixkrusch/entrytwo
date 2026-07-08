@@ -60,7 +60,7 @@ interface PLData {
   expenses: { total: number; items: ReportItem[] }
   netIncome: number
   taxSummary: { inputTax: number; outputTax: number; netTax: number }
-  byCurrency?: Record<string, any>
+  byCurrency?: Record<string, { native: number; base: number }>
   comparison?: { netIncomePrior?: number; revenuePrior?: number; expensePrior?: number }
 }
 
@@ -75,6 +75,8 @@ interface CashFlowData {
 }
 
 type Tab = 'balance' | 'pl' | 'cashflow'
+
+type TFn = (key: string) => string
 
 function startOfMonth(d: Date) { return new Date(d.getFullYear(), d.getMonth(), 1) }
 function startOfQuarter(d: Date) { const q = Math.floor(d.getMonth() / 3); return new Date(d.getFullYear(), q * 3, 1) }
@@ -172,14 +174,12 @@ export default function ReportsPanel() {
 
   useEffect(() => {
     void load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buildQuery])
 
   useEffect(() => {
     const handler = () => void load()
     window.addEventListener('journal-updated', handler)
     return () => window.removeEventListener('journal-updated', handler)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load])
 
   // Footnotes are persisted per report + period in localStorage.
@@ -250,7 +250,7 @@ export default function ReportsPanel() {
   const filterZero = <T extends { balance?: number; amount?: number; delta?: number }>(items: T[]): T[] => {
     if (!hideZero) return items
     return items.filter((i) => {
-      const v = (i as any).balance ?? (i as any).amount ?? (i as any).delta ?? 0
+      const v = i.balance ?? i.amount ?? i.delta ?? 0
       return Math.abs(Number(v)) > 0.001
     })
   }
@@ -314,7 +314,7 @@ export default function ReportsPanel() {
         </div>
         <div>
           <label className="block text-zinc-400 mb-1">{tReports('compare')}</label>
-          <select value={comparison} onChange={(e) => setComparison(e.target.value as any)} className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1">
+            <select value={comparison} onChange={(e) => setComparison(e.target.value as 'none' | 'prior' | 'prioryear')} className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1">
             <option value="none">{tReports('compareNone')}</option>
             <option value="prior">{tReports('comparePrior')}</option>
             <option value="prioryear">{tReports('comparePriorYear')}</option>
@@ -352,7 +352,6 @@ export default function ReportsPanel() {
               t={tReports}
               format={fmt}
               openLedger={openLedger}
-              hideZero={hideZero}
               grouped={grouped}
               groupItems={groupItems}
               filterZero={filterZero}
@@ -386,81 +385,100 @@ export default function ReportsPanel() {
 // Balance Sheet view
 // ---------------------------------------------------------------------------
 
-function BalanceSheetView({
-  data, t, format, openLedger, hideZero, grouped, groupItems, filterZero, compareLabel,
-}: {
-  data: BalanceSheetData
-  t: any
+function BalanceSheetRow({ a, t, format, openLedger, baseCurrency, prior, compareLabel }: {
+  a: ReportAccount
+  t: TFn
   format: (n: number, c?: string) => string
   openLedger: (code: string) => void
-  hideZero: boolean
+  baseCurrency: string
+  prior?: number
+  compareLabel: string
+}) {
+  const delta = prior != null ? a.balance - prior : undefined
+  return (
+    <div
+      onClick={() => openLedger(a.code)}
+      className="flex justify-between py-1 border-b border-zinc-800 pl-2 cursor-pointer hover:bg-zinc-800/60"
+      title={t('drillDown')}
+    >
+      <span>{a.code} {a.name}</span>
+      <span className="flex items-center gap-3 font-mono">
+        {compareLabel && prior != null ? (
+          <>
+            <span className="text-zinc-500">{format(prior)}</span>
+            <span className={delta! >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+              {format(a.balance)} ({delta! >= 0 ? '+' : ''}{format(delta!)})
+            </span>
+          </>
+        ) : (
+          <span className="text-zinc-100">{format(a.balance)}</span>
+        )}
+        {a.currency && a.currency !== baseCurrency ? (
+          <span className="text-[10px] text-zinc-500">{a.currency} ~{a.nativeBalance.toFixed(2)}</span>
+        ) : null}
+      </span>
+    </div>
+  )
+}
+
+function BalanceSheetSection({ sec, color, t, format, openLedger, baseCurrency, grouped, groupItems, filterZero, comparisonItems, compareLabel }: {
+  sec: BalanceSheetSection
+  color: string
+  t: TFn
+  format: (n: number, c?: string) => string
+  openLedger: (code: string) => void
+  baseCurrency: string
+  grouped: boolean
+  groupItems: <T extends { group: string }>(items: T[]) => Array<{ group: string; items: T[] }>
+  filterZero: <T extends { balance?: number }>(items: T[]) => T[]
+  comparisonItems?: Record<string, number>
+  compareLabel: string
+}) {
+  const groups = groupItems(filterZero(sec.items))
+  return (
+    <div>
+      <div className={`font-medium mb-2 flex justify-between ${color}`}>
+        <span>{t(sec.label.toLowerCase())}</span>
+        <span className="font-mono">{format(sec.total)}</span>
+      </div>
+      {sec.items.length === 0 ? (
+        <div className="text-zinc-500 pl-2">{t(`no${sec.label}`)}</div>
+      ) : (
+        groups.map((g) => (
+          <div key={g.group} className="mb-1">
+            {grouped && g.group !== 'All' && (
+              <div className="text-[10px] uppercase text-zinc-500 mt-1">{t(`group_${g.group}`)}</div>
+            )}
+            {g.items.map((a) => (
+              <BalanceSheetRow key={a.code} a={a} t={t} format={format} openLedger={openLedger} baseCurrency={baseCurrency} prior={comparisonItems?.[a.code]} compareLabel={compareLabel} />
+            ))}
+          </div>
+        ))
+      )}
+      <div className={`pt-1 border-t border-zinc-700 font-medium flex justify-between ${color}`}>
+        <span>{t('total')} {t(sec.label.toLowerCase())}</span>
+        <span className="font-mono">{format(sec.total)}</span>
+      </div>
+    </div>
+  )
+}
+
+function BalanceSheetView({
+  data, t, format, openLedger, grouped, groupItems, filterZero, compareLabel,
+}: {
+  data: BalanceSheetData
+  t: TFn
+  format: (n: number, c?: string) => string
+  openLedger: (code: string) => void
   grouped: boolean
   groupItems: <T extends { group: string }>(items: T[]) => Array<{ group: string; items: T[] }>
   filterZero: <T extends { balance?: number }>(items: T[]) => T[]
   compareLabel: string
 }) {
-  const priorOf = (code: string) => data.comparison?.items?.[code]
-  const Row = ({ a }: { a: ReportAccount }) => {
-    const prior = priorOf(a.code)
-    const delta = prior != null ? a.balance - prior : undefined
-    return (
-      <div
-        onClick={() => openLedger(a.code)}
-        className="flex justify-between py-1 border-b border-zinc-800 pl-2 cursor-pointer hover:bg-zinc-800/60"
-        title={t('drillDown')}
-      >
-        <span>{a.code} {a.name}</span>
-        <span className="flex items-center gap-3 font-mono">
-          {compareLabel && prior != null ? (
-            <>
-              <span className="text-zinc-500">{format(prior)}</span>
-              <span className={delta! >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                {format(a.balance)} ({delta! >= 0 ? '+' : ''}{format(delta!)})
-              </span>
-            </>
-          ) : (
-            <span className="text-zinc-100">{format(a.balance)}</span>
-          )}
-          {a.currency && a.currency !== data.baseCurrency ? (
-            <span className="text-[10px] text-zinc-500">{a.currency} ~{a.nativeBalance.toFixed(2)}</span>
-          ) : null}
-        </span>
-      </div>
-    )
-  }
-
-  const Section = ({ sec, color }: { sec: BalanceSheetSection; color: string }) => {
-    const groups = groupItems(filterZero(sec.items))
-    return (
-      <div>
-        <div className={`font-medium mb-2 flex justify-between ${color}`}>
-          <span>{t(sec.label.toLowerCase())}</span>
-          <span className="font-mono">{format(sec.total)}</span>
-        </div>
-        {sec.items.length === 0 ? (
-          <div className="text-zinc-500 pl-2">{t(`no${sec.label}`)}</div>
-        ) : (
-          groups.map((g) => (
-            <div key={g.group} className="mb-1">
-              {grouped && g.group !== 'All' && (
-                <div className="text-[10px] uppercase text-zinc-500 mt-1">{t(`group_${g.group}`)}</div>
-              )}
-              {g.items.map((a) => <Row key={a.code} a={a} />)}
-            </div>
-          ))
-        )}
-        <div className={`pt-1 border-t border-zinc-700 font-medium flex justify-between ${color}`}>
-          <span>{t('total')} {t(sec.label.toLowerCase())}</span>
-          <span className="font-mono">{format(sec.total)}</span>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-6">
-      <Section sec={data.assets} color="text-emerald-400" />
-      <Section sec={data.liabilities} color="text-amber-400" />
+      <BalanceSheetSection sec={data.assets} color="text-emerald-400" t={t} format={format} openLedger={openLedger} baseCurrency={data.baseCurrency} grouped={grouped} groupItems={groupItems} filterZero={filterZero} comparisonItems={data.comparison?.items} compareLabel={compareLabel} />
+      <BalanceSheetSection sec={data.liabilities} color="text-amber-400" t={t} format={format} openLedger={openLedger} baseCurrency={data.baseCurrency} grouped={grouped} groupItems={groupItems} filterZero={filterZero} comparisonItems={data.comparison?.items} compareLabel={compareLabel} />
 
       <div>
         <div className="font-medium text-purple-400 mb-2 flex justify-between">
@@ -468,7 +486,9 @@ function BalanceSheetView({
           <span className="font-mono">{format(data.equity.total)}</span>
         </div>
         {data.equity.items.length > 0 ? (
-          filterZero(data.equity.items).map((a) => <Row key={a.code} a={a} />)
+          filterZero(data.equity.items).map((a) => (
+            <BalanceSheetRow key={a.code} a={a} t={t} format={format} openLedger={openLedger} baseCurrency={data.baseCurrency} prior={data.comparison?.items?.[a.code]} compareLabel={compareLabel} />
+          ))
         ) : (
           <div className="text-zinc-500 pl-2">{t('noEquity')}</div>
         )}
@@ -515,7 +535,7 @@ function PLView({
   data, t, format, fmtPct, openLedger, hideZero, grouped, filterZero, comparison,
 }: {
   data: PLData
-  t: any
+  t: TFn
   format: (n: number, c?: string) => string
   fmtPct: (f: number) => string
   openLedger: (code: string) => void
@@ -618,14 +638,12 @@ function PLView({
 // Cash Flow view
 // ---------------------------------------------------------------------------
 
-function CashFlowView({
-  data, t, format,
-}: {
-  data: CashFlowData
-  t: any
+function CashFlowSection({ sec, t, format }: {
+  sec: CashFlowData['operating']
+  t: TFn
   format: (n: number, c?: string) => string
 }) {
-  const Section = ({ sec }: { sec: CashFlowData['operating'] }) => (
+  return (
     <div>
       <div className="font-medium text-zinc-200 mb-2 flex justify-between">
         <span>{t(sec.label.replace(/\s/g, ''))}</span>
@@ -647,12 +665,20 @@ function CashFlowView({
       </div>
     </div>
   )
+}
 
+function CashFlowView({
+  data, t, format,
+}: {
+  data: CashFlowData
+  t: TFn
+  format: (n: number, c?: string) => string
+}) {
   return (
     <div className="space-y-6">
-      <Section sec={data.operating} />
-      <Section sec={data.investing} />
-      <Section sec={data.financing} />
+      <CashFlowSection sec={data.operating} t={t} format={format} />
+      <CashFlowSection sec={data.investing} t={t} format={format} />
+      <CashFlowSection sec={data.financing} t={t} format={format} />
 
       <div className="pt-3 border-t border-zinc-700 text-sm font-medium flex justify-between">
         <span>{t('netChange')}</span>

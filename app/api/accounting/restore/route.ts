@@ -14,7 +14,8 @@ export async function POST(request: Request) {
 
     const result = await restoreBranchToEvent(branch, toEventId)
     return NextResponse.json({ ok: true, ...result })
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Restore failed' }, { status: 400 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: msg || 'Restore failed' }, { status: 400 })
   }
 }

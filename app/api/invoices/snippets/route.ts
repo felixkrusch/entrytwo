@@ -61,10 +61,10 @@ export async function GET(request: Request) {
           text: txt,
         }
       })
-      .filter(Boolean) as any[]
+      .filter(Boolean) as Array<{ id: string; name: string; description: string; quantity: number; unitPrice: number; kind: string; text: string }>
 
     if (kindFilter) {
-      snippets = snippets.filter((s: any) => s.kind === kindFilter)
+      snippets = snippets.filter((s) => s.kind === kindFilter)
     }
 
     return NextResponse.json({ snippets, source: 'db' })
@@ -132,7 +132,7 @@ export async function POST(request: Request) {
       unitPrice: Number(c.unitPrice || 0),
       text: (c.text as string) || '',
     }, { status: 201 })
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'Failed to save snippet' }, { status: 500 })
   }
 }

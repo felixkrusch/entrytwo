@@ -2,7 +2,6 @@ import 'dotenv/config'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { prisma } from '@/lib/prisma'
 import { ensureMainBranch, createBranch, listBranches, setBranchHead } from '@/lib/accounting/branch'
-import { createSnapshot } from '@/lib/accounting/snapshot'
 import { replayToPoint } from '@/lib/accounting/replay'
 import { createAutonomousJournal } from '@/lib/accounting/autonomous'
 import { createTag, listTags } from '@/lib/accounting/tag'
@@ -100,9 +99,9 @@ describe('Git Model for Accounting - Full G4 Coverage', () => {
 
   it('should produce classical reconciliation report via reconcile (when DB ready)', async () => {
     if (!dbReady) return expect(true).toBe(true)
-    const res: any = await reconcileAccount({ accountCode: '1000', autoApplyHighConfidence: false })
+    const res = await reconcileAccount({ accountCode: '1000', autoApplyHighConfidence: false })
     expect(res).toHaveProperty('report')
-    expect(res.report).toHaveProperty('tieOut')
+    expect((res as { report?: { tieOut?: boolean } }).report).toHaveProperty('tieOut')
   })
 
   it('autonomous path should be blocked when chatLocked flag is true (via API surface simulation)', async () => {

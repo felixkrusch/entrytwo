@@ -14,10 +14,11 @@ export async function POST(request: Request) {
 
     const result = await mergeBranch(source, target)
     return NextResponse.json({ ok: true, ...result })
-  } catch (e: any) {
-    const status = typeof e?.status === 'number' ? e.status : 400
+  } catch (e: unknown) {
+    const err = e as { status?: number; message?: string }
+    const status = typeof err?.status === 'number' ? err.status : 400
     return NextResponse.json(
-      { error: e.message || 'Merge failed', blockedReason: e?.status === 422 ? e.message : undefined },
+      { error: err?.message || 'Merge failed', blockedReason: err?.status === 422 ? err.message : undefined },
       { status },
     )
   }

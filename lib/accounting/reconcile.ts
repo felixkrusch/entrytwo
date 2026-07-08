@@ -35,7 +35,7 @@ export async function reconcileAccount(opts: ReconcileOptions): Promise<Reconcil
   const account = await prisma.account.findUnique({ where: { code: accountCode } })
   if (!account) throw new Error(`Account ${accountCode} not found`)
 
-  const dateFilter: any = {}
+  const dateFilter: Record<string, Date> = {}
   if (from) dateFilter.gte = new Date(from)
   if (to) dateFilter.lte = new Date(to)
 
@@ -124,5 +124,5 @@ export async function reconcileAccount(opts: ReconcileOptions): Promise<Reconcil
   return {
     ...base,
     report,
-  } as any
+  } as ReconciliationResult
 }

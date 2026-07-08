@@ -8,7 +8,8 @@ export async function GET(request: Request) {
     const asOf = url.searchParams.get('asOf') || url.searchParams.get('asof') || undefined
     const result = await blameAccount(accountCode, asOf)
     return NextResponse.json(result)
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Blame failed' }, { status: 400 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: msg || 'Blame failed' }, { status: 400 })
   }
 }

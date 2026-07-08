@@ -37,7 +37,7 @@ interface ProfitLossPanelProps {
   asOf?: string
 }
 
-export default function ProfitLossPanel({ onFilterAccount, currentFilterCode, branch = 'main', asOf }: ProfitLossPanelProps) {
+export default function ProfitLossPanel({ currentFilterCode, branch = 'main', asOf }: ProfitLossPanelProps) {
   const t = useTranslations('app.panels.profitLoss')
   const format = useFormatter()
 

@@ -69,8 +69,8 @@ export default function CompanySettingsPage() {
       setTaxId(getSettingValue('company.taxId'))
       setRegNumber(getSettingValue('company.registrationNumber'))
       // logo is stored as data URL in company.logo
-      const logoSetting = s.find((x: any) => x.key === 'company.logo')
-      const logoVal = (logoSetting?.value as any)?.value
+      const logoSetting = s.find((x: { key: string; value: SettingsValue }) => x.key === 'company.logo')
+      const logoVal = (logoSetting?.value as SettingsValue & { value?: string })?.value
       setLogoPreview(typeof logoVal === 'string' ? logoVal : null)
     } catch {
       // ignore
@@ -150,7 +150,7 @@ export default function CompanySettingsPage() {
 
   const updateAddressField = (field: keyof Address | 'street' | 'city' | 'zip' | 'line2' | 'state', value: string) => {
     const next: Address = { ...address } as Address
-    ;(next as any)[field] = value || undefined
+    ;(next as Record<string, unknown>)[field] = value || undefined
     // keep aliases in sync for PDF and other consumers
     if (field === 'street' || field === 'addressStreet') {
       next.street = value || undefined

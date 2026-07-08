@@ -1,18 +1,49 @@
 import { prisma } from '@/lib/prisma'
 
-export async function validateJournalIntent(params: any, branch: string): Promise<{ ok: boolean; error?: string; resolvedLines?: any[] }> {
-  if (!params?.lines || !Array.isArray(params.lines) || params.lines.length < 2) {
+export type JournalLineInput = {
+  accountCode?: string
+  debit?: number | string
+  credit?: number | string
+  description?: string
+  currency?: string
+  fxRateToBase?: number | string | null
+  fxSource?: string
+  fxDate?: string
+  taxRateId?: string | null
+  contactId?: string | null
+  quantity?: number | string
+  unitPrice?: number | string
+}
+
+type ResolvedJournalLine = {
+  accountId: string
+  debit: number
+  credit: number
+  description?: string
+  currency: string
+  fxRateToBase: number | null
+  fxSource: string
+  fxDate: string
+  taxRateId: string | null
+  contactId: string | null
+}
+
+export async function validateJournalIntent(params: unknown, _branch: string): Promise<{ ok: boolean; error?: string; resolvedLines?: ResolvedJournalLine[] }> {
+  void _branch
+  const p = params as { lines?: unknown[] } | null
+  if (!p?.lines || !Array.isArray(p.lines) || p.lines.length < 2) {
     return { ok: false, error: 'Journal must have at least 2 lines' }
   }
 
-  const hasFx = params.lines.some((l: any) => l.currency && l.currency.toUpperCase() !== 'EUR' && l.fxRateToBase != null)
+  const lines = p.lines as JournalLineInput[]
+  const hasFx = lines.some((l) => l.currency && l.currency.toUpperCase() !== 'EUR' && l.fxRateToBase != null)
 
   let totalDebitBase = 0
   let totalCreditBase = 0
   let totalDebitRaw = 0
   let totalCreditRaw = 0
 
-  for (const l of params.lines) {
+  for (const l of lines) {
     const d = Number(l.debit) || 0
     const c = Number(l.credit) || 0
     totalDebitRaw += d
@@ -32,9 +63,9 @@ export async function validateJournalIntent(params: any, branch: string): Promis
   }
 
   const codes: string[] = Array.from(new Set(
-    params.lines
-      .map((l: any) => l.accountCode)
-      .filter((c: any): c is string => typeof c === 'string' && c.length > 0)
+    lines
+      .map((l) => l.accountCode)
+      .filter((c): c is string => typeof c === 'string' && c.length > 0)
   ))
 
   const accounts = await prisma.account.findMany({
@@ -48,13 +79,13 @@ export async function validateJournalIntent(params: any, branch: string): Promis
     return { ok: false, error: `Unknown account code(s): ${missing.join(', ')}` }
   }
 
-  const resolved = params.lines.map((l: any) => ({
-    accountId: codeToId[l.accountCode],
-    debit: l.debit || 0,
-    credit: l.credit || 0,
+  const resolved: ResolvedJournalLine[] = lines.map((l) => ({
+    accountId: codeToId[l.accountCode!],
+    debit: Number(l.debit) || 0,
+    credit: Number(l.credit) || 0,
     description: l.description,
     currency: (l.currency || 'EUR').toUpperCase(),
-    fxRateToBase: l.fxRateToBase ?? null,
+    fxRateToBase: l.fxRateToBase != null ? Number(l.fxRateToBase) : null,
     fxSource: l.fxSource || 'AI_AUTONOMOUS',
     fxDate: l.fxDate || new Date().toISOString().slice(0, 10),
     taxRateId: l.taxRateId || null,
@@ -64,21 +95,48 @@ export async function validateJournalIntent(params: any, branch: string): Promis
   return { ok: true, resolvedLines: resolved }
 }
 
-export async function validateContactIntent(params: any): Promise<{ ok: boolean; error?: string }> {
-  if (!params?.name || typeof params.name !== 'string' || params.name.trim().length < 2) {
+type ContactIntentParams = { name?: string }
+
+export async function validateContactIntent(params: unknown): Promise<{ ok: boolean; error?: string }> {
+  const p = params as ContactIntentParams | null
+  if (!p?.name || typeof p.name !== 'string' || p.name.trim().length < 2) {
     return { ok: false, error: 'Contact name is required' }
   }
   return { ok: true }
 }
 
-export async function validateInvoiceDraftIntent(params: any): Promise<{ ok: boolean; error?: string; resolvedContactId?: string; resolvedContactName?: string; resolvedLines?: any[] }> {
-  const desc = params?.description || (Array.isArray(params?.lines) && params.lines[0]?.description)
+type InvoiceLineInput = {
+  description?: string
+  quantity?: number | string
+  unitPrice?: number | string
+  taxRateId?: string | null
+}
+
+type ResolvedInvoiceLine = {
+  description: string
+  quantity: number
+  unitPrice: number
+  taxRateId: string | null
+  lineTotal: number
+}
+
+type InvoiceDraftParams = {
+  description?: string
+  lines?: InvoiceLineInput[]
+  contactId?: string
+  contactName?: string
+  amount?: number | string
+}
+
+export async function validateInvoiceDraftIntent(params: unknown): Promise<{ ok: boolean; error?: string; resolvedContactId?: string; resolvedContactName?: string; resolvedLines?: ResolvedInvoiceLine[] }> {
+  const p = params as InvoiceDraftParams | null
+  const desc = p?.description || (Array.isArray(p?.lines) && p.lines[0]?.description)
   if (!desc || typeof desc !== 'string' || desc.trim().length < 2) {
     return { ok: false, error: 'Invoice needs a description (or at least one line with description)' }
   }
 
-  let contactId = params?.contactId
-  let contactName = params?.contactName
+  let contactId: string | undefined = p?.contactId
+  let contactName: string | undefined = p?.contactName
 
   if (contactId) {
     const c = await prisma.contact.findUnique({ where: { id: contactId } })
@@ -92,7 +150,7 @@ export async function validateInvoiceDraftIntent(params: any): Promise<{ ok: boo
       const m = all.find(c => c.name.toLowerCase() === ln) ||
                 all.find(c => c.name.toLowerCase().includes(ln)) ||
                 all.find(c => ln.includes(c.name.toLowerCase()))
-      if (m) found = { id: m.id, name: m.name } as any
+      if (m) found = { id: m.id, name: m.name }
     }
     if (found) {
       contactId = found.id
@@ -105,13 +163,13 @@ export async function validateInvoiceDraftIntent(params: any): Promise<{ ok: boo
   }
 
   // Validate taxRateIds if provided in lines (they must be real UUIDs or absent)
-  const rawLines = Array.isArray(params?.lines) && params.lines.length > 0
-    ? params.lines
-    : [{ description: params?.description, quantity: 1, unitPrice: params?.amount || 0, taxRateId: null }]
+  const rawLines: InvoiceLineInput[] = Array.isArray(p?.lines) && p.lines.length > 0
+    ? p.lines
+    : [{ description: p?.description, quantity: 1, unitPrice: p?.amount || 0, taxRateId: null }]
 
   const rawTaxIdStrings: string[] = rawLines
-    .map((l: any) => (typeof l?.taxRateId === 'string' ? l.taxRateId.trim() : ''))
-    .filter((s: string): s is string => s.length > 0)
+    .map((l) => (typeof l?.taxRateId === 'string' ? l.taxRateId.trim() : ''))
+    .filter((s): s is string => s.length > 0)
   const candidateTaxIds: string[] = Array.from(new Set(rawTaxIdStrings))
 
   let validTaxMap = new Map<string, string>()
@@ -127,12 +185,12 @@ export async function validateInvoiceDraftIntent(params: any): Promise<{ ok: boo
     }
   }
 
-  const resolvedLines = rawLines.map((l: any) => {
+  const resolvedLines: ResolvedInvoiceLine[] = rawLines.map((l) => {
     const qty = Number(l.quantity) || 1
     const up = Number(l.unitPrice) || 0
     const taxId = (typeof l.taxRateId === 'string' && validTaxMap.has(l.taxRateId)) ? l.taxRateId : null
     return {
-      description: l.description || params?.description || '',
+      description: l.description || p?.description || '',
       quantity: qty,
       unitPrice: up,
       taxRateId: taxId,

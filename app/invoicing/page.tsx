@@ -1,9 +1,6 @@
 'use client'
 
-import { useTranslations } from 'next-intl'
-
 export default function InvoicingPage() {
-  const t = useTranslations('app.panels')
 
   return (
     <div>

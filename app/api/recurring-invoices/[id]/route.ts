@@ -38,7 +38,7 @@ export async function PUT(
   }
   const data = parsed.data
 
-  const update: any = {}
+  const update: Record<string, unknown> = {}
   if (data.name) update.name = data.name
   if (data.frequency) update.frequency = data.frequency
   if (data.interval) update.interval = data.interval

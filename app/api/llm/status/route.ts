@@ -3,7 +3,7 @@ import { getLlmConfig } from '@/lib/llm'
 
 // Very simple server-side cache so we don't hammer providers from every browser tab.
 // Hybrid approach: real chat outcomes (primary) + occasional cheap probes (secondary).
-let cached: any = null
+let cached: Record<string, unknown> | null = null
 let cachedAt = 0
 const TTL_MS = 90_000 // 90s
 

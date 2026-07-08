@@ -15,7 +15,6 @@ export function rateLimit(request: NextRequest): NextResponse | null {
              request.headers.get('x-real-ip') ?? 
              'unknown'
   
-  const pathname = request.nextUrl.pathname
   const hasAuth = request.cookies.has('authjs.session') ||
                   request.cookies.has('authjs.session_token') ||
                   request.cookies.has('__Secure-authjs.session-token')

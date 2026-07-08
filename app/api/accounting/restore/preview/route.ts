@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getBranch } from '@/lib/accounting/branch'
-import { replayToPoint } from '@/lib/accounting/replay'
+import { replayToPoint, type ReconstructedState } from '@/lib/accounting/replay'
 
 export async function GET(request: Request) {
   try {
@@ -25,13 +25,16 @@ export async function GET(request: Request) {
 
     // Compute current balances vs target point balances for preview
     const currentHead = branch.headEventId || ''
-    const currentState = currentHead ? await replayToPoint(currentHead).catch(() => ({ balances: {} as any })) : { balances: {} as any }
-    const targetState = targetEventId ? await replayToPoint(targetEventId).catch(() => ({ balances: {} as any })) : { balances: {} as any }
+    const emptyBalances: ReconstructedState['balances'] = {}
+    const currentState: ReconstructedState = currentHead ? await replayToPoint(currentHead).catch(() => ({ balances: emptyBalances })) : { balances: emptyBalances }
+    const targetState: ReconstructedState = targetEventId ? await replayToPoint(targetEventId).catch(() => ({ balances: emptyBalances })) : { balances: emptyBalances }
 
     const accounts = Object.keys({ ...currentState.balances, ...targetState.balances })
     const preview = accounts.map(code => {
-      const cur = currentState.balances[code] ? (currentState.balances[code].base ?? currentState.balances[code]) : 0
-      const tgt = targetState.balances[code] ? (targetState.balances[code].base ?? targetState.balances[code]) : 0
+      const curVal = currentState.balances[code]
+      const cur = curVal ? (typeof curVal === 'object' && 'base' in curVal ? curVal.base : curVal) : 0
+      const tgtVal = targetState.balances[code]
+      const tgt = tgtVal ? (typeof tgtVal === 'object' && 'base' in tgtVal ? tgtVal.base : tgtVal) : 0
       return {
         accountCode: code,
         current: Number(cur) || 0,
@@ -46,7 +49,8 @@ export async function GET(request: Request) {
       toEventId: targetEventId,
       preview
     })
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Preview failed' }, { status: 400 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: msg || 'Preview failed' }, { status: 400 })
   }
 }

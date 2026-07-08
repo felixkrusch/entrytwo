@@ -3,6 +3,7 @@
 // See docs/Git-Model-for-Accounting.md
 
 import { prisma } from '@/lib/prisma'
+import type { Prisma } from '@prisma/client'
 
 export interface SnapshotData {
   // Minimal viable state for replay + balances
@@ -65,7 +66,7 @@ export async function createSnapshot(upToEventId?: string): Promise<string> {
 
   const snapshot = await prisma.snapshot.create({
     data: {
-      data: data as any,
+      data: data as unknown as Prisma.InputJsonValue,
       upToEventId: upToEventId || null,
     },
   })

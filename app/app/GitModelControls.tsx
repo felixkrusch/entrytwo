@@ -22,6 +22,10 @@ interface Tag {
 
 interface DiffChange { accountCode: string; accountName?: string; net: number }
 interface BlameEntry { eventId: string; createdAt: string; delta: number; description?: string }
+interface RestorePreview {
+  toEventId?: string
+  preview?: Array<{ accountCode: string; current: number; target: number; delta: number }>
+}
 
 export default function GitModelControls() {
   const router = useRouter()
@@ -37,8 +41,8 @@ export default function GitModelControls() {
   const [mergeTarget, setMergeTarget] = useState('main')
   const [tags, setTags] = useState<Tag[]>([])
   const [newTagName, setNewTagName] = useState('')
-  const [preview, setPreview] = useState<any>(null)
-  const [mergePreview, setMergePreview] = useState<any>(null)
+  const [preview, setPreview] = useState<RestorePreview | null>(null)
+  const [mergePreview, setMergePreview] = useState<{ changes: DiffChange[] } | null>(null)
   const [diffResult, setDiffResult] = useState<{ changes: DiffChange[] } | null>(null)
   const [blameResult, setBlameResult] = useState<BlameEntry[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -79,7 +83,7 @@ export default function GitModelControls() {
       const tagData = await tagRes.json()
 
       const mappedEvents = Array.isArray(evData)
-        ? evData.slice(0, 6).map((e: any) => ({
+        ? (evData as Array<{ id: string; createdAt: string; description?: string | null; eventType?: string }>).slice(0, 6).map((e) => ({
             id: e.id,
             createdAt: e.createdAt,
             description: e.description,
@@ -88,7 +92,7 @@ export default function GitModelControls() {
         : []
 
       const mappedTags = Array.isArray(tagData)
-        ? tagData.slice(0, 4).map((t: any) => ({
+        ? (tagData as Array<{ id: string; eventId?: string; createdAt?: string; name: string }>).slice(0, 4).map((t) => ({
             id: t.eventId || t.id,
             createdAt: t.createdAt || new Date().toISOString(),
             description: `Tag: ${t.name}`,
@@ -514,7 +518,7 @@ export default function GitModelControls() {
           <div className="mt-2 p-2 border border-purple-900 bg-purple-950/30 text-xs rounded">
             <div className="font-medium mb-1">Merge preview — net change of {mergeTarget || 'main'} ← {mergeSource}</div>
             <div className="max-h-28 overflow-auto">
-              {(mergePreview.changes || []).slice(0, 12).map((c: any, i: number) => (
+              {(mergePreview.changes || []).slice(0, 12).map((c, i: number) => (
                 <div key={i}>{c.accountCode}: {c.net}</div>
               ))}
               {(!mergePreview.changes || mergePreview.changes.length === 0) && <div>No net change.</div>}
@@ -594,13 +598,13 @@ export default function GitModelControls() {
         <div className="mt-2 p-2 border border-rose-900 bg-rose-950/30 text-xs rounded">
           <div className="font-medium mb-1">Restore Preview — Time travel to this point (will move branch head)</div>
           <div className="max-h-24 overflow-auto">
-            {(preview.preview || []).slice(0, 10).map((p: any, i: number) => (
+            {(preview.preview || []).slice(0, 10).map((p, i: number) => (
               <div key={i}>{p.accountCode}: {p.current} → {p.target} (Δ {p.delta})</div>
             ))}
           </div>
           <div className="text-[10px] mt-1 text-rose-400">
             This creates a new ROLLBACK commit. History is preserved — you can restore to any earlier point afterward (including before this restore).
-            Click "Confirm Restore" to make this the current state of the branch.
+             Click &quot;Confirm Restore&quot; to make this the current state of the branch.
           </div>
         </div>
       )}

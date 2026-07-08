@@ -20,7 +20,8 @@ export async function GET(
     return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
   }
 
-  const contact = invoice.contact
+  // contact used for potential future extension; currently not needed for QR payload
+  void invoice.contact
 
   // Company creditor info from settings
   const companyNameSetting = await prisma.setting.findUnique({ where: { key: 'company.name' } })
@@ -58,7 +59,7 @@ export async function GET(
       width: 300,
       color: { dark: '#000000', light: '#FFFFFF' },
     })
-  } catch (e) {
+  } catch {
     // Fallback to a simple placeholder if generation fails
     svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300"><rect width="300" height="300" fill="white"/><text x="150" y="150" font-family="monospace" font-size="11" text-anchor="middle">QR ${invoice.invoiceNumber}</text></svg>`
   }

@@ -43,7 +43,7 @@ export async function GET(request: Request) {
     // Use createdAt as the stable secondary key for true reverse-chronological
     // ordering within the same day. This replaces the previous entryNumber
     // secondary key (which is often NULL on legacy data and caused jumping order).
-    const orderBy: any = sortField === 'date'
+    const orderBy: Record<string, string>[] = sortField === 'date'
       ? [{ date: dir }, { createdAt: dir }]
       : [{ [sortField]: dir }, { createdAt: dir }]
 
@@ -66,7 +66,7 @@ export async function GET(request: Request) {
       restrictToVisible = visibleEntryIds.length > 0
     }
 
-    const where: any = {}
+    const where: Record<string, unknown> = {}
     if (restrictToVisible) {
       if (visibleEntryIds.length > 0) {
         where.id = { in: visibleEntryIds }
@@ -330,9 +330,10 @@ export async function POST(request: Request) {
       return { createdEntry: created, commitEventId: createdEvent.id, branchForCommit }
     })
 
-    const createdEntry = (result as any).createdEntry
-    const commitEventId = (result as any).commitEventId
-    const branchForCommit = (result as any).branchForCommit || 'main'
+    const r = result as { createdEntry: { id: string }; commitEventId: string; branchForCommit?: string }
+    const createdEntry = r.createdEntry
+    const commitEventId = r.commitEventId
+    const branchForCommit = r.branchForCommit || 'main'
 
     // Advance branch head using the new commit event (sets parent on the event and advances head)
     if (commitEventId) {

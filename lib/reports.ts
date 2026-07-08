@@ -151,7 +151,7 @@ async function computeAccountBalances(scope: Scope, baseCurrency: string): Promi
     let nativeBal = 0
     const currencies = new Set<string>()
 
-    account.journalLines.forEach((line: any) => {
+    account.journalLines.forEach((line) => {
       const d = Number(line.debit)
       const c = Number(line.credit)
       const baseD = toBase(line, d, baseCurrency)
@@ -222,7 +222,7 @@ async function computePLInner(scope: Scope, baseCurrency: string): Promise<PLInn
     let nativeBalance = 0
     const currencies = new Set<string>()
 
-    account.journalLines.forEach((line: any) => {
+    account.journalLines.forEach((line) => {
       const debit = Number(line.debit)
       const credit = Number(line.credit)
       const baseDebit = toBase(line, debit, baseCurrency)
@@ -277,8 +277,8 @@ async function computePLInner(scope: Scope, baseCurrency: string): Promise<PLInn
       Array.from(currencies).find((c) => c !== baseCurrency.toUpperCase()) ||
       Array.from(currencies)[0] ||
       baseCurrency
-    const hasFeed = account.journalLines.some((l: any) =>
-      (l.fxSource || '').toUpperCase().startsWith('BANK_FEED'),
+    const hasFeed = account.journalLines.some((l) =>
+      ((l as { fxSource?: string }).fxSource || '').toUpperCase().startsWith('BANK_FEED'),
     )
 
     if ((account.type === 'REVENUE' || account.type === 'EXPENSE') && cleanBase !== 0) {
@@ -536,14 +536,12 @@ export async function buildCashFlow(opts: {
 
   let currentAssetsExclCashDelta = 0
   let currentLiabDelta = 0
-  let cashDelta = 0
   let beginningCash = 0
   let endingCash = 0
 
   closing.forEach((a) => {
     const delta = deltaOf(a)
     if (isCashAccount(a.type, a.code)) {
-      cashDelta += delta
       if (from) beginningCash += openingMap.get(a.code) ?? 0
       endingCash += a.balance
       return

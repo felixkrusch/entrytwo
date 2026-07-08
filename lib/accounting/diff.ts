@@ -5,6 +5,11 @@
 
 import { prisma } from '@/lib/prisma'
 
+type EventPayload = {
+  description?: string
+  journalEntry?: { description?: string }
+} | Record<string, unknown> | null
+
 export interface DiffResult {
   from: string
   to: string
@@ -57,8 +62,10 @@ export async function diffPoints(fromEventId: string, toEventId: string): Promis
     to: toEventId,
     changes: Object.values(changesMap).map(v => ({ accountCode: v.code, accountName: v.name, net: parseFloat(v.net.toFixed(2)) })),
     events: events.map(e => {
-      const p = (e.payload as any) || {}
-      return { id: e.id, type: e.eventType, createdAt: e.createdAt.toISOString(), description: p.description || p.journalEntry?.description || undefined }
+      const p = (e.payload as EventPayload) || {}
+      const desc = (p && typeof p === 'object' && 'description' in p ? (p as EventPayload & { description?: string }).description : undefined) ||
+                   (p && typeof p === 'object' && 'journalEntry' in p ? (p as EventPayload & { journalEntry?: { description?: string } }).journalEntry?.description : undefined)
+      return { id: e.id, type: e.eventType, createdAt: e.createdAt.toISOString(), description: desc || undefined }
     })
   }
 }

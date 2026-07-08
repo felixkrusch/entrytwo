@@ -30,7 +30,7 @@ export async function POST(
       return NextResponse.json({ error: 'Schedule ended' }, { status: 400 })
     }
 
-    const tpl = (rec.templateData as any) || {}
+    const tpl = (rec.templateData as Record<string, unknown>) || {}
     const currency = (tpl.currency || 'EUR').toUpperCase()
     const lines = Array.isArray(tpl.lines) ? tpl.lines : []
 
@@ -42,8 +42,8 @@ export async function POST(
     const taxRateIds: string[] = Array.from(
       new Set(
         lines
-          .map((l: any) => l.taxRateId)
-          .filter((x: any): x is string => typeof x === 'string' && x.length > 0)
+          .map((l: Record<string, unknown>) => l.taxRateId)
+          .filter((x): x is string => typeof x === 'string' && x.length > 0)
       )
     )
     const taxRates = taxRateIds.length ? await prisma.taxRate.findMany({ where: { id: { in: taxRateIds } } }) : []
@@ -51,11 +51,11 @@ export async function POST(
 
     let subtotal = 0
     let taxAmount = 0
-    const enriched = lines.map((l: any) => {
+    const enriched = lines.map((l: Record<string, unknown>) => {
       const q = Number(l.quantity) || 1
       const p = Number(l.unitPrice) || 0
       const net = q * p
-      const rate = l.taxRateId ? rateMap.get(l.taxRateId) || 0 : 0
+      const rate = l.taxRateId ? rateMap.get(l.taxRateId as string) || 0 : 0
       const tax = net * rate
       subtotal += net
       taxAmount += tax
@@ -126,7 +126,7 @@ export async function POST(
           notes: tpl.notes || rec.notes || null,
           terms: tpl.terms || null,
           lines: {
-            create: enriched.map((l: any) => ({
+            create: enriched.map((l: Record<string, unknown>) => ({
               description: l.description,
               quantity: l.quantity,
               unitPrice: l.unitPrice,
@@ -139,7 +139,7 @@ export async function POST(
         include: { contact: true, lines: { include: { taxRate: true } } },
       })
 
-      const journalLines: any[] = [
+      const journalLines: Array<Record<string, unknown>> = [
         { accountId: arAccount!.id, debit: total, credit: 0, currency, contactId: rec.contactId, description: `Invoice ${created.invoiceNumber}` },
         { accountId: revenueAccount!.id, debit: 0, credit: subtotal, currency, description: 'Revenue' },
       ]

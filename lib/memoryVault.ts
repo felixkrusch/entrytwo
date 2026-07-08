@@ -4,22 +4,22 @@ import type { CompanyProfile } from '@/lib/companyProfile'
 export interface MemoryEntry {
   id: string
   key: string
-  value: any
+  value: unknown
   scope: string
   category?: string | null
   source?: string | null
-  metadata?: any
+  metadata?: unknown
   createdAt: Date
   updatedAt: Date
 }
 
 export interface SetMemoryInput {
   key: string
-  value: any
+  value: unknown
   scope: string
   category?: string
   source?: string
-  metadata?: any
+  metadata?: unknown
 }
 
 /**
@@ -119,7 +119,7 @@ export const MemoryVault = {
       orderBy: { updatedAt: 'desc' },
       take: 50,
     })
-    return rows.map((r: any) => ({
+    return rows.map((r) => ({
       id: r.id,
       key: r.key,
       value: r.value,
@@ -146,7 +146,7 @@ export const MemoryVault = {
 
     for (const f of facts) {
       if (f.value != null) {
-        await this.set(f as any)
+        await this.set(f as SetMemoryInput)
       }
     }
   },

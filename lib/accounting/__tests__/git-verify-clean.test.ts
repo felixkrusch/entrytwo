@@ -85,16 +85,11 @@ describe('Git Model - Clean DB verification (restore changes current state)', ()
     const visible = await getVisibleJournalEntryIds(main.headEventId)
     expect(visible.length).toBe(3)
 
-    // Quick balance sanity on the visible set
+    // Quick activity sanity on the visible set
     const lines = await prisma.journalLine.findMany({
       where: { journalEntryId: { in: visible } },
       include: { account: { select: { code: true, type: true } } }
     })
-    let cashBal = 0
-    for (const l of lines) {
-      if (l.account.code === '1000') cashBal += Number(l.debit) - Number(l.credit)
-      if (l.account.code === '4000') cashBal += Number(l.credit) - Number(l.debit) // revenue normal sign flip for check
-    }
     // We only care that non-zero activity exists
     expect(lines.length).toBeGreaterThan(0)
   })

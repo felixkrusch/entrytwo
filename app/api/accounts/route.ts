@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
-import { getVisibleJournalEntryIds, getVisibleJournalEntryIdsAtPoint } from '@/lib/accounting/ancestry'
 
 const createAccountSchema = z.object({
   code: z.string().min(1).max(20),
@@ -30,7 +29,7 @@ export async function GET(request: Request) {
       restrictLines = visibleEntryIds.length > 0
     }
 
-    const lineWhere: any = restrictLines && visibleEntryIds.length > 0
+    const lineWhere: Record<string, unknown> = restrictLines && visibleEntryIds.length > 0
       ? { journalEntryId: { in: visibleEntryIds } }
       : {}  // show all lines for this account when no ancestry restriction applies yet
 
@@ -53,7 +52,8 @@ export async function GET(request: Request) {
         else bal += c - d
       }
       const visibleCount = acc.journalLines.length
-      const { journalLines: _jl, ...rest } = acc as any
+      const { journalLines: _journalLines, ...rest } = acc
+      void _journalLines
       return {
         ...rest,
         _count: { journalLines: visibleCount },

@@ -41,9 +41,9 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
 
   const addressLines: string[] = [
     (addr.street || addr.addressStreet) as string | undefined,
-    (addr.addressLine2 || (addr as any).line2) as string | undefined,
+    (addr.addressLine2 || (addr as Record<string, unknown>).line2) as string | undefined,
     [addr.city || addr.addressCity, addr.state || addr.addressState].filter(Boolean).join(', '),
-    [addr.zip || addr.addressZip, (addr as any).postal].filter(Boolean).join(' '),
+    [addr.zip || addr.addressZip, (addr as Record<string, unknown>).postal].filter(Boolean).join(' '),
     addr.country || addr.addressCountry,
   ].filter((x): x is string => Boolean(x))
 
@@ -151,7 +151,8 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
       invoice.contact.addressCountry,
     ].filter((x): x is string => Boolean(x))
     cAddr.forEach((l, i) => doc.fontSize(9).text(l, 40, y + 28 + i * 12))
-    if ((invoice.contact as any).email) doc.fontSize(8).text((invoice.contact as any).email, 40, y + 28 + cAddr.length * 12 + 4)
+    const contactEmail = (invoice.contact as unknown as Record<string, unknown>).email as string | undefined
+    if (contactEmail) doc.fontSize(8).text(contactEmail, 40, y + 28 + cAddr.length * 12 + 4)
     if (invoice.contact.taxId) doc.fontSize(8).text(`VAT: ${invoice.contact.taxId}`, 40, y + 28 + cAddr.length * 12 + 16)
 
     // === LINES ===
@@ -180,11 +181,12 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
 
     // === TOTALS (right column, tight) ===
     y += 12
-    const sub = Number((invoice as any).subtotal ?? (Number((invoice as any).total) || 0) - (Number((invoice as any).taxAmount) || 0)) || 0
+    const inv = invoice as unknown as Record<string, unknown>
+    const sub = Number(inv.subtotal ?? (Number(inv.total) || 0) - (Number(inv.taxAmount) || 0)) || 0
     doc.text('Subtotal', 420, y)
     doc.text(sub.toFixed(2), 520, y)
     y += 14
-    const taxAmt = Number((invoice as any).taxAmount) || 0
+    const taxAmt = Number(inv.taxAmount) || 0
     if (taxAmt > 0) {
       doc.text('Tax', 420, y)
       doc.text(taxAmt.toFixed(2), 520, y)
@@ -192,7 +194,7 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
     }
     use(fontBold)
     doc.fontSize(11).text('Total', 420, y)
-    doc.text(`${invoice.currency} ${Number((invoice as any).total || 0).toFixed(2)}`, 520, y)
+    doc.text(`${invoice.currency} ${Number(inv.total || 0).toFixed(2)}`, 520, y)
     use(fontReg)
 
     // === PAYMENT / BANK (clean block, below totals) ===
@@ -214,11 +216,12 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
     }
 
     // === NOTES (free text) ===
-    if ((invoice as any).notes) {
+    const invNotes = (invoice as unknown as Record<string, unknown>).notes as string | undefined
+    if (invNotes) {
       y += 4
       doc.fontSize(9).text('Notes', 40, y)
       y += 12
-      doc.fontSize(8).text(String((invoice as any).notes), 40, y, { width: 515 })
+      doc.fontSize(8).text(String(invNotes), 40, y, { width: 515 })
       y += 24
     }
 

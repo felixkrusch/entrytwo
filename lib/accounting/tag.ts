@@ -62,7 +62,7 @@ export async function createTag(input: CreateTagInput) {
 }
 
 export async function listTags(branch?: string) {
-  const where: any = { eventType: 'TAG_CREATED' }
+  const where: Record<string, unknown> = { eventType: 'TAG_CREATED' }
   if (branch) {
     where.payload = { path: ['branch'], equals: branch }
   }
@@ -73,13 +73,13 @@ export async function listTags(branch?: string) {
   })
 
   return events.map(e => {
-    const p = (e.payload as any) || {}
+    const p = (e.payload as Record<string, unknown>) || {}
     return {
       id: e.id,
-      name: p.name,
-      branch: p.branch || 'main',
-      eventId: p.eventId,
-      description: p.description,
+      name: (p as { name?: string }).name,
+      branch: (p as { branch?: string }).branch || 'main',
+      eventId: (p as { eventId?: string }).eventId,
+      description: (p as { description?: string }).description,
       createdAt: e.createdAt,
     }
   })

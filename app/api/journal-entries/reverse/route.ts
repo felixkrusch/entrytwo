@@ -109,17 +109,17 @@ export async function POST(request: Request) {
       return { created, commitEventId: revEvent.id, branchForCommit }
     })
 
-    const created = (reversingEntry as any).created
-    const commitEventId = (reversingEntry as any).commitEventId
-    const b = (reversingEntry as any).branchForCommit || branchForCommit
+    const r = reversingEntry as { created: { id: string }; commitEventId: string; branchForCommit?: string }
+    const commitEventId = r.commitEventId
+    const b = r.branchForCommit || branchForCommit
 
     if (commitEventId) {
-      await recordCommitOnBranch(created.id, b, commitEventId)
+      await recordCommitOnBranch(r.created.id, b, commitEventId)
     } else {
-      await recordCommitOnBranch(created.id, b)
+      await recordCommitOnBranch(r.created.id, b)
     }
 
-    return NextResponse.json(created, { status: 201 })
+    return NextResponse.json(r.created, { status: 201 })
   } catch (error) {
     console.error('Reverse error:', error)
     return NextResponse.json({ error: 'Failed to reverse entry' }, { status: 500 })

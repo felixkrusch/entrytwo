@@ -47,8 +47,9 @@ export default function ReceiptsPanel() {
       if (!res.ok) throw new Error(await res.text())
       toast.success('Deleted')
       load()
-    } catch (e: any) {
-      toast.error(e?.message || 'Delete failed')
+    } catch (e: unknown) {
+      const msg = (e as Error)?.message || 'Delete failed'
+      toast.error(msg)
     }
   }
 

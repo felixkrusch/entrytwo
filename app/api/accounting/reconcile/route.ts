@@ -3,7 +3,7 @@ import { reconcileAccount } from '@/lib/accounting/reconcile'
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
+    const body = (await request.json()) as { accountCode?: string; from?: string; to?: string; autoApplyHighConfidence?: boolean }
     const { accountCode, from, to, autoApplyHighConfidence } = body
 
     const result = await reconcileAccount({
@@ -14,7 +14,8 @@ export async function POST(request: Request) {
     })
 
     return NextResponse.json(result)
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Reconciliation failed' }, { status: 400 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: msg || 'Reconciliation failed' }, { status: 400 })
   }
 }
