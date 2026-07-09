@@ -31,6 +31,7 @@ export default function CompanySettingsPage() {
   const [taxId, setTaxId] = useState('')
   const [regNumber, setRegNumber] = useState('')
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
+  const [defaultLanguage, setDefaultLanguage] = useState<'en' | 'de'>('en')
 
   // Bank detail fields (internationalized: IBAN+BIC for EU, routing+account for US/CA)
   const [bankName, setBankName] = useState('')
@@ -68,6 +69,8 @@ export default function CompanySettingsPage() {
       setAccountNumber((bankObj.accountNumber as string) || (bankObj.account as string) || '')
       setTaxId(getSettingValue('company.taxId'))
       setRegNumber(getSettingValue('company.registrationNumber'))
+      const lang = getSettingValue('company.defaultLanguage') || 'en'
+      setDefaultLanguage(lang === 'de' ? 'de' : 'en')
       // logo is stored as data URL in company.logo
       const logoSetting = s.find((x: { key: string; value: SettingsValue }) => x.key === 'company.logo')
       const logoVal = (logoSetting?.value as SettingsValue & { value?: string })?.value
@@ -183,6 +186,11 @@ export default function CompanySettingsPage() {
   const saveReg = (v: string) => {
     setRegNumber(v)
     void save('company.registrationNumber', v)
+  }
+
+  const saveDefaultLanguage = (v: 'en' | 'de') => {
+    setDefaultLanguage(v)
+    void save('company.defaultLanguage', v)
   }
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -383,20 +391,32 @@ export default function CompanySettingsPage() {
             </div>
           </div>
 
-          <div className="flex items-start gap-3">
-            <label className="w-48 text-zinc-400 pt-1">Company Logo (PNG/JPG/SVG)</label>
-            <div>
-              <input type="file" accept="image/*,.svg" onChange={handleLogoUpload} className="text-sm" />
-              {logoPreview && (
-                <div className="mt-2">
-                  <img src={logoPreview} alt="logo preview" className="max-h-12 border border-zinc-700 rounded bg-white p-1" />
-                  <div className="text-[10px] text-zinc-500">Will appear on invoices</div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+           <div className="flex items-start gap-3">
+             <label className="w-48 text-zinc-400 pt-1">Company Logo (PNG/JPG/SVG)</label>
+             <div>
+               <input type="file" accept="image/*,.svg" onChange={handleLogoUpload} className="text-sm" />
+               {logoPreview && (
+                 <div className="mt-2">
+                   <img src={logoPreview} alt="logo preview" className="max-h-12 border border-zinc-700 rounded bg-white p-1" />
+                   <div className="text-[10px] text-zinc-500">Will appear on invoices</div>
+                 </div>
+               )}
+             </div>
+           </div>
+
+           <div className="flex items-center gap-3">
+             <label className="w-48 text-zinc-400">Default Invoice Language</label>
+             <select
+               value={defaultLanguage}
+               onChange={e => saveDefaultLanguage((e.target.value as 'en' | 'de'))}
+               className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-sm"
+             >
+               <option value="en">English</option>
+               <option value="de">Deutsch</option>
+             </select>
+           </div>
+         </div>
+       </div>
 
       <div className="text-[10px] text-zinc-500 mt-6">All changes are saved immediately and audited. Bank details (IBAN+BIC or routing+account), Tax ID, address and Logo are used for branded, jurisdiction-compliant invoices. Due date is shown on invoices; no default terms text.</div>
     </div>

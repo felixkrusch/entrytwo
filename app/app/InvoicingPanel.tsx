@@ -58,6 +58,7 @@ interface Invoice {
   paidDate?: string
   notes?: string | null
   createdAt?: string
+  language?: string
   contact: { id: string; name: string }
   lines: { description: string; quantity: number; unitPrice: number; lineTotal: number; taxRate?: { name: string; rate: number } | null }[]
   journalEntry?: {
@@ -187,6 +188,7 @@ export default function InvoicingPanel() {
   // Invoice-level free text (notes/message) + its text snippets
   const [notes, setNotes] = useState('')
   const [textSnippets, setTextSnippets] = useState<SavedSnippet[]>([])
+  const [invoiceLanguage, setInvoiceLanguage] = useState<'en' | 'de'>('en')
 
   // --- All useCallback definitions FIRST (before any useEffect that references them) ---
   const fetchContacts = useCallback(async () => {
@@ -219,6 +221,14 @@ export default function InvoicingPanel() {
     // Email availability (SMTP configured) — gates Email button
     fetch('/api/invoices/email/status').then(r => r.json()).then(d => setEmailEnabled(!!d.configured)).catch(() => {})
     // Text snippets are loaded only when the create form opens (see showCreate effect)
+    // Load default invoice language from company settings
+    fetch('/api/settings').then(r => r.json()).then((s: any[]) => {
+      if (Array.isArray(s)) {
+        const langSetting = s.find(x => x.key === 'company.defaultLanguage')
+        const v = (langSetting?.value as any)?.value
+        if (v === 'de' || v === 'en') setInvoiceLanguage(v)
+      }
+    }).catch(() => {})
   }, [])
 
   const fetchTaxRates = useCallback(async () => {
@@ -516,6 +526,7 @@ export default function InvoicingPanel() {
         issueDate: formIssueDate ? new Date(formIssueDate).toISOString() : undefined,
         dueDate: formDueDate ? new Date(formDueDate).toISOString() : undefined,
         notes: notes || undefined,
+        language: invoiceLanguage,
         lines: validLines.map(l => ({
           description: l.description,
           quantity: l.quantity,
@@ -842,10 +853,23 @@ export default function InvoicingPanel() {
                    <option key={c.id} value={c.id}>{c.name}{c.email ? ` (${c.email})` : ''}</option>
                  ))}
                </select>
-             </div>
+              </div>
 
-             {/* Issue / Due dates */}
-             <div className="grid grid-cols-2 gap-3">
+              {/* Invoice language */}
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1">Language</label>
+                <select
+                  value={invoiceLanguage}
+                  onChange={e => setInvoiceLanguage(e.target.value as 'en' | 'de')}
+                  className="w-full px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-sm"
+                >
+                  <option value="en">English</option>
+                  <option value="de">Deutsch</option>
+                </select>
+              </div>
+
+              {/* Issue / Due dates */}
+              <div className="grid grid-cols-2 gap-3">
                <div>
                  <label className="text-xs text-zinc-400 block mb-1">Issue Date</label>
                  <input
@@ -1046,12 +1070,13 @@ export default function InvoicingPanel() {
                                taxRateId: l.taxRateId || null,
                              }));
                              setNewLines(mapped.length ? mapped : [{ description: '', quantity: 1, unitPrice: 0, taxRateId: null }]);
-                             setFormIssueDate(full.issueDate ? new Date(full.issueDate).toISOString().slice(0,10) : '');
-                             setFormDueDate(full.dueDate ? new Date(full.dueDate).toISOString().slice(0,10) : '');
-                             setNotes(full.notes || '');
-                             setShowCreate(true);
-                             setCreatedInvoiceId(null);
-                             setExpandedId(null); setExpandedData(null);
+                              setFormIssueDate(full.issueDate ? new Date(full.issueDate).toISOString().slice(0,10) : '');
+                              setFormDueDate(full.dueDate ? new Date(full.dueDate).toISOString().slice(0,10) : '');
+                              setNotes(full.notes || '');
+                              setInvoiceLanguage(full.language === 'de' ? 'de' : 'en');
+                              setShowCreate(true);
+                              setCreatedInvoiceId(null);
+                              setExpandedId(null); setExpandedData(null);
                            });
                          }} className="px-2 py-1 rounded text-xs text-emerald-400 hover:text-emerald-300">Edit Invoice</button>
 
@@ -1145,12 +1170,13 @@ export default function InvoicingPanel() {
                                taxRateId: l.taxRateId || null,
                              }))
                              setNewLines(mapped.length ? mapped : [{ description: '', quantity: 1, unitPrice: 0, taxRateId: null }])
-                              setFormIssueDate(expandedData.issueDate ? new Date(expandedData.issueDate).toISOString().slice(0,10) : '')
-                              setFormDueDate(expandedData.dueDate ? new Date(expandedData.dueDate).toISOString().slice(0,10) : '')
-                              setNotes(expandedData.notes || '')
-                              setShowCreate(true)
-                              setCreatedInvoiceId(null)
-                              setExpandedId(null); setExpandedData(null)
+                               setFormIssueDate(expandedData.issueDate ? new Date(expandedData.issueDate).toISOString().slice(0,10) : '')
+                               setFormDueDate(expandedData.dueDate ? new Date(expandedData.dueDate).toISOString().slice(0,10) : '')
+                               setNotes(expandedData.notes || '')
+                               setInvoiceLanguage(expandedData.language === 'de' ? 'de' : 'en')
+                               setShowCreate(true)
+                               setCreatedInvoiceId(null)
+                               setExpandedId(null); setExpandedData(null)
                            }} className="px-3 py-1 text-xs rounded bg-emerald-700">Edit Invoice</button>
 
                          <button onClick={() => void deleteDraft(expandedData.id)} className="px-3 py-1 text-xs rounded bg-rose-900 text-rose-200">Delete Draft</button>

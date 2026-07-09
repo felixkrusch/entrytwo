@@ -265,6 +265,7 @@ model Invoice {
   contactId       String
   status          String // DRAFT, SENT, PAID, OVERDUE, CANCELLED
   currency        String    @default("EUR") // ISO 4217
+  language        String    @default("en") // 'en' | 'de' for invoice text/labels
   subtotal        Decimal
   taxAmount       Decimal
   total           Decimal

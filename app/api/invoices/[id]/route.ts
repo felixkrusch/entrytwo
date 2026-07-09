@@ -14,6 +14,7 @@ const InvoiceUpdateSchema = z.object({
   paidDate: z.string().datetime().optional().nullable(),
   contactId: z.string().optional(),
   currency: z.string().length(3).optional(),
+  language: z.enum(['en', 'de']).optional(),
   issueDate: z.string().datetime().optional(),
   dueDate: z.string().datetime().optional(),
   notes: z.string().optional().nullable(),
@@ -119,6 +120,7 @@ export async function PUT(
         data: {
           contactId: data.contactId || existing.contactId,
           currency: data.currency || existing.currency,
+          language: data.language || existing.language || 'en',
           issueDate: data.issueDate ? new Date(data.issueDate) : existing.issueDate,
           dueDate: data.dueDate ? new Date(data.dueDate) : existing.dueDate,
           notes: data.notes !== undefined ? data.notes : existing.notes,
