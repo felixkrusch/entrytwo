@@ -86,6 +86,7 @@ export default function SignInPage() {
     return (
       <div className="flex h-screen items-center justify-center bg-zinc-900 text-white">
         <form onSubmit={handleBootstrap} className="space-y-4 w-80">
+          <img src="/entrytwo-logo.svg" alt="entrytwo" className="h-8 w-auto mx-auto mb-2" />
           <h1 className="text-xl font-semibold">{t('firstAdminTitle') || 'Create First Admin'}</h1>
           <p className="text-sm text-zinc-400">{t('firstAdminDesc') || 'No admin exists. Create the initial admin user.'}</p>
           <input
@@ -113,6 +114,7 @@ export default function SignInPage() {
     return (
       <div className="flex h-screen items-center justify-center bg-zinc-900 text-white">
         <div className="text-center">
+          <img src="/entrytwo-logo.svg" alt="entrytwo" className="h-8 w-auto mx-auto mb-3" />
           <h1 className="text-xl mb-2">{t('checkEmail')}</h1>
           <p className="text-zinc-400">{t('magicSent', { email })}</p>
         </div>
@@ -123,6 +125,8 @@ export default function SignInPage() {
 return (
     <div className="flex h-screen items-center justify-center bg-zinc-900 text-white">
       <div className="space-y-4 w-80">
+        <img src="/entrytwo-logo.svg" alt="entrytwo" className="h-8 w-auto mx-auto" />
+        <p className="text-sm text-zinc-400 mt-[50px]">{t('description')}</p>
         {hasGoogle && (
           <button
             type="button"
@@ -155,8 +159,6 @@ return (
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <h1 className="text-xl font-semibold">{t('title')}</h1>
-          <p className="text-sm text-zinc-400">{t('description')}</p>
           <input
             type="email"
             value={email}

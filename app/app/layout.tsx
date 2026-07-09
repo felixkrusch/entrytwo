@@ -392,7 +392,6 @@ function ContactsContent() {
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'CUSTOMER' | 'VENDOR'>('ALL')
   const [showForm, setShowForm] = useState(false)
   const [editingContact, setEditingContact] = useState<ContactItem | null>(null)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   // Quick stats like InvoicingPanel
   const [stats, setStats] = useState<{ total: number; customers: number; vendors: number }>({ total: 0, customers: 0, vendors: 0 })
@@ -623,9 +622,7 @@ function ContactsContent() {
     return () => window.removeEventListener('open-contact-form', handler)
   }, [contacts])
 
-  const toggleExpand = (id: string) => {
-    setExpandedId(expandedId === id ? null : id)
-  }
+
 
   return (
     <div>
@@ -848,99 +845,63 @@ function ContactsContent() {
       ) : filteredContacts.length === 0 ? (
         <div className="text-zinc-500 p-4">No contacts yet. Click &quot;Add Contact&quot; above.</div>
       ) : (
-        <div className="space-y-2">
-           {filteredContacts.map(contact => (
-             <div
-               key={contact.id}
-               className="border border-zinc-800 rounded-lg p-4 bg-zinc-950 hover:border-zinc-700 transition-colors cursor-pointer"
-               onClick={() => toggleExpand(contact.id)}
-             >
-               <div className="flex items-start justify-between">
-                 <div>
-                   <div className="font-medium">{contact.name}</div>
-                   <div className="flex items-center gap-2 mt-1 text-xs">
-                     <span className={`px-2 py-0.5 rounded ${
-                       contact.type === 'CUSTOMER' 
-                         ? 'bg-emerald-950 text-emerald-400' 
-                         : 'bg-amber-950 text-amber-400'
-                     }`}>
-                       {contact.type === 'CUSTOMER' ? 'Customer' : 'Vendor'}
-                     </span>
-                     {contact.entryCount > 0 && (
-                       <span className="text-zinc-500">{contact.entryCount} entries</span>
-                     )}
-                   </div>
-                   {contact.email && (
-                     <a href={`mailto:${contact.email}`} className="text-xs text-blue-400 hover:underline mt-1 block" onClick={e => e.stopPropagation()}>
-                       {contact.email}
-                     </a>
-                   )}
-                   {contact.phone && (
-                     <span className="text-xs text-zinc-400 mt-1 block">{contact.phone}</span>
-                   )}
-                   {formatAddress(contact) && (
-                     <span className="text-xs text-zinc-500 mt-1 block" onClick={e => e.stopPropagation()}>
-                       {formatAddress(contact)}
-                     </span>
-                   )}
-                   {contact.website && (
-                     <a href={contact.website} className="text-xs text-blue-400 hover:underline mt-1 block" onClick={e => e.stopPropagation()} target="_blank" rel="noopener noreferrer">
-                       {contact.website}
-                     </a>
-                   )}
-                   {contact.taxId && (
-                     <span className="text-xs text-zinc-400 mt-1 block">Tax: {contact.taxId}</span>
-                   )}
-                 </div>
-                 <div className="flex flex-col items-end gap-1">
-                   {contact.taxId && (
-                     <button
-                       onClick={e => { e.stopPropagation(); void validateVat(contact.taxId!) }}
-                       className="text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                       title="Validate VAT"
-                     >
-                       Verify VAT
-                     </button>
-                   )}
-                   {contact.vatValidated !== undefined && (
-                     <span className={`text-xs ${contact.vatValid ? 'text-emerald-400' : 'text-rose-400'}`} title={contact.vatValid ? 'VAT valid' : 'VAT invalid'} onClick={e => e.stopPropagation()}>
-                       {contact.vatValid ? '✓' : '✗'}
-                     </span>
-                   )}
-                 </div>
-               </div>
+         <div className="grid grid-cols-1 gap-3">
+            {filteredContacts.map(contact => (
+              <div
+                key={contact.id}
+                className="border border-zinc-800 rounded-lg p-4 bg-zinc-950"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-medium">{contact.name}</div>
+                    <div className="flex items-center gap-2 mt-1 text-xs">
+                      <span className={`px-2 py-0.5 rounded ${
+                        contact.type === 'CUSTOMER' 
+                          ? 'bg-emerald-950 text-emerald-400' 
+                          : 'bg-amber-950 text-amber-400'
+                      }`}>
+                        {contact.type === 'CUSTOMER' ? 'Customer' : 'Vendor'}
+                      </span>
+                      {contact.entryCount > 0 && (
+                        <span className="text-zinc-500">{contact.entryCount} entries</span>
+                      )}
+                    </div>
 
-               {/* Inline accordion details (no modal) */}
-               {expandedId === contact.id && (
-                 <div className="mt-4 border-t border-zinc-800 pt-4 text-sm" onClick={e => e.stopPropagation()}>
-                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-xs text-zinc-300">
-                     {contact.email && <div>Email: <a href={`mailto:${contact.email}`} className="text-blue-400 hover:underline">{contact.email}</a></div>}
-                     {contact.phone && <div>Phone: {contact.phone}</div>}
-                     {contact.taxId && <div>Tax ID: {contact.taxId}</div>}
-                     {contact.website && <div>Website: <a href={contact.website} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">{contact.website}</a></div>}
-                     {formatAddress(contact) && <div className="sm:col-span-2">Address: {formatAddress(contact)}</div>}
-                     <div>Entries: {contact.entryCount}</div>
-                     <div>Type: {contact.type}</div>
-                   </div>
-                   <div className="mt-3 flex flex-wrap gap-2">
-                     <button
-                       onClick={() => { populateForm(contact); setShowForm(true); setExpandedId(null) }}
-                       className="px-3 py-1 text-xs rounded bg-emerald-700"
-                     >
-                       Edit Contact
-                     </button>
-                     <button
-                       onClick={(e) => { e.stopPropagation(); void deleteContact(contact.id, e); }}
-                       className="px-3 py-1 text-xs rounded bg-rose-900 text-rose-200"
-                     >
-                       Delete
-                     </button>
-                   </div>
-                 </div>
-               )}
-             </div>
-           ))}
-        </div>
+                    <div className="mt-3 space-y-1 text-xs text-zinc-300">
+                      {contact.email && (
+                        <div>
+                          Email: <a href={`mailto:${contact.email}`} className="text-blue-400 hover:underline">{contact.email}</a>
+                        </div>
+                      )}
+                      {contact.phone && <div>Phone: {contact.phone}</div>}
+                      {contact.taxId && <div>Tax ID: {contact.taxId}</div>}
+                      {contact.website && (
+                        <div>
+                          Website: <a href={contact.website} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">{contact.website}</a>
+                        </div>
+                      )}
+                      {formatAddress(contact) && <div>Address: {formatAddress(contact)}</div>}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <button
+                      onClick={() => { populateForm(contact); setShowForm(true) }}
+                      className="px-3 py-1 text-xs rounded bg-emerald-700 hover:bg-emerald-600"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); void deleteContact(contact.id, e) }}
+                      className="px-3 py-1 text-xs rounded bg-rose-900 text-rose-200 hover:bg-rose-800"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+         </div>
       )}
 
 
