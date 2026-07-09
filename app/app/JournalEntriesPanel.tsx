@@ -5,6 +5,7 @@ import { useNewEntry } from './NewEntryContext'
 import toast from 'react-hot-toast'
 import { useTranslations, useFormatter } from 'next-intl'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { RefreshCw } from 'lucide-react'
 
 interface JournalLine {
   id: string
@@ -219,10 +220,10 @@ export default function JournalEntriesPanel({
           )}
           <button
             onClick={refresh}
-            className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 hover:bg-zinc-800 text-zinc-400"
+            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
             title="Refresh journal"
           >
-            ↻
+            <RefreshCw className="w-4 h-4" />
           </button>
         </div>
         <div className="flex items-center gap-2">
@@ -537,17 +538,17 @@ export default function JournalEntriesPanel({
                          </div>
                        )}
 
-                        {reversalMap.has(entry.id) && (
-                          <div className="text-rose-400">
-                            {t('reversedBy').replace('{description}', reversalMap.get(entry.id) || '')}
-                          </div>
-                        )}
+                         {reversalMap.has(entry.id) && (
+                           <div className="text-rose-400">
+                             {t('reversedBy', { description: reversalMap.get(entry.id) || '' })}
+                           </div>
+                         )}
 
-                        {entry.reversalOfEntryNumber && (
-                          <div className="text-rose-400">
-                            {t('reverses').replace('{ref}', entry.reversalOfEntryNumber)}
-                          </div>
-                        )}
+                         {entry.reversalOfEntryNumber && (
+                           <div className="text-rose-400">
+                             {t('reverses', { ref: entry.reversalOfEntryNumber })}
+                           </div>
+                         )}
 
                         {entry.lines.some(l => l.cleared) && (
                           <div className="text-emerald-400">

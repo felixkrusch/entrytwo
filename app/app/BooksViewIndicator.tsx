@@ -120,12 +120,12 @@ export default function BooksViewIndicator() {
   else label = `${branch}${asOf ? ` • as of ${asOf}` : ' branch'}`
 
   const lastCommitLabel = lastCommit
-    ? `${(lastCommit.description || lastCommit.eventType || 'commit').toString().slice(0, 40)} · ${new Date(lastCommit.createdAt || '').toLocaleDateString()}`
+    ? (lastCommit.description || lastCommit.eventType || 'commit').toString()
     : null
 
   return (
     <div
-      className={`mb-3 rounded-lg border px-3 py-2 text-xs flex flex-wrap items-center gap-2 ${
+      className={`mb-3 rounded-lg border px-3 py-2 text-xs flex items-center gap-2 overflow-hidden flex-nowrap w-full whitespace-nowrap min-w-0 ${
         isMainCurrent
           ? 'border-emerald-800 bg-emerald-950/40 text-emerald-300'
           : 'border-amber-700 bg-amber-950/40 text-amber-200'
@@ -147,7 +147,7 @@ export default function BooksViewIndicator() {
       )}
 
       {lastCommitLabel && (
-        <span className="text-zinc-400" title="Most recent commit in this view">
+        <span className="text-zinc-400 truncate flex-1 min-w-0" title="Most recent commit in this view">
           last: {lastCommitLabel}
         </span>
       )}

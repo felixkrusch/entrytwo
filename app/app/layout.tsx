@@ -163,20 +163,13 @@ function AppContent({ children }: { children: ReactNode }) {
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-zinc-500">Dashboard • Live</div>
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => window.dispatchEvent(new CustomEvent('journal-updated'))}
-                      className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
-                      title="Refresh all panels"
-                    >
-                      Refresh all
-                    </button>
-                    <button
-                      onClick={() => openNewEntry()}
-                      className="text-xs px-3 py-0.5 rounded bg-white text-black hover:bg-zinc-200 transition font-medium"
-                      title="Create manual journal entry"
-                    >
-                      + Create manual entry
-                    </button>
+                     <button
+                       onClick={() => window.dispatchEvent(new CustomEvent('journal-updated'))}
+                       className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+                       title="Refresh all panels"
+                     >
+                       Refresh all
+                     </button>
                     {(selectedAccount) && (
                       <button
                         onClick={() => {
@@ -223,20 +216,13 @@ function AppContent({ children }: { children: ReactNode }) {
                     <div className="flex items-center justify-between mb-2">
                       <div className="text-sm font-medium text-zinc-300">Recent entries</div>
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => router.push('/app?view=journal')}
-                          className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
-                          title="Open the full journal with pagination"
-                        >
-                          {t('summary.viewAll')}
-                        </button>
-                        <button
-                          onClick={() => openNewEntry()}
-                          className="text-xs px-3 py-1 rounded bg-white text-black hover:bg-zinc-200 transition font-medium"
-                          title="Create manual journal entry"
-                        >
-                          + Create manual entry
-                        </button>
+                         <button
+                           onClick={() => router.push('/app?view=journal')}
+                           className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+                           title="Open the full journal with pagination"
+                         >
+                           {t('summary.viewAll')}
+                         </button>
                       </div>
                     </div>
                     <ErrorBoundary>
