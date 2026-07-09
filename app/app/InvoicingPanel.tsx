@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { formatCurrency } from '@/lib/utils'
 
 interface ContactItem {
@@ -74,6 +75,7 @@ interface Invoice {
 }
 
 export default function InvoicingPanel() {
+  const router = useRouter()
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'SENT' | 'PAID' | 'OVERDUE' | 'CANCELLED'>('ALL')
@@ -841,31 +843,35 @@ export default function InvoicingPanel() {
            </div>
 
           <div className="max-w-2xl space-y-4">
-             <div>
-               <label className="text-xs text-zinc-400 block mb-1">Customer *</label>
-               <select
-                 value={newContactId}
-                 onChange={e => setNewContactId(e.target.value)}
-                 className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700 text-sm"
-               >
-                 <option value="">Select a customer...</option>
-                 {contacts.map(c => (
-                   <option key={c.id} value={c.id}>{c.name}{c.email ? ` (${c.email})` : ''}</option>
-                 ))}
-               </select>
-              </div>
-
-              {/* Invoice language */}
               <div>
-                <label className="text-xs text-zinc-400 block mb-1">Language</label>
-                <select
-                  value={invoiceLanguage}
-                  onChange={e => setInvoiceLanguage(e.target.value as 'en' | 'de')}
-                  className="w-full px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-sm"
-                >
-                  <option value="en">English</option>
-                  <option value="de">Deutsch</option>
-                </select>
+                <label className="text-xs text-zinc-400 block mb-1">Customer *</label>
+                <div className="flex items-end gap-2">
+                   <div className="w-[83%]">
+                     <select
+                       value={newContactId}
+                       onChange={e => setNewContactId(e.target.value)}
+                       className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700 text-sm"
+                     >
+                       <option value="">Select a customer...</option>
+                       {contacts.map(c => (
+                         <option key={c.id} value={c.id}>{c.name}{c.email ? ` (${c.email})` : ''}</option>
+                       ))}
+                     </select>
+                   </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      router.push('/app?view=contacts')
+                      // open the add-contact form in the contacts view
+                      setTimeout(() => {
+                        window.dispatchEvent(new CustomEvent('open-contact-form', { detail: { prefill: {} } }))
+                      }, 80)
+                    }}
+                    className="px-2 py-1.5 rounded bg-emerald-700 text-emerald-100 text-xs hover:bg-emerald-600 whitespace-nowrap"
+                  >
+                    + Add new customer
+                  </button>
+                </div>
               </div>
 
               {/* Issue / Due dates */}
@@ -934,26 +940,39 @@ export default function InvoicingPanel() {
                      {newLines.length > 1 && (
                        <button type="button" onClick={() => removeLine(index)} className="px-2 text-rose-400 hover:text-rose-300">×</button>
                      )}
-                  </div>
-                ))}
+                   </div>
+                 ))}
+                </div>
+               </div>
+ 
+               {/* Invoice language — small (~30%), placed just above snippets */}
+              <div className="w-[30%]">
+                <label className="text-xs text-zinc-400 block mb-1">Language</label>
+                <select
+                  value={invoiceLanguage}
+                  onChange={e => setInvoiceLanguage(e.target.value as 'en' | 'de')}
+                  className="w-full px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-sm"
+                >
+                  <option value="en">English</option>
+                  <option value="de">Deutsch</option>
+                </select>
               </div>
-             </div>
 
-               {snippets.length > 0 && (
-                 <div>
-                   <div className="flex items-center justify-between mb-2">
-                     <label className="text-xs text-zinc-400">Saved Snippets</label>
-                     <button type="button" onClick={saveAsSnippet} className="text-[10px] text-emerald-400 hover:text-emerald-300">Save current line as snippet</button>
-                   </div>
-                   <div className="flex flex-wrap gap-1">
-                     {snippets.map(s => (
-                       <button key={s.id} type="button" onClick={() => applySnippet(s)} className="px-2 py-1 rounded bg-zinc-800 text-xs text-zinc-300 hover:bg-zinc-700" title={(s.description || s.text || '')}>
-                         {s.name}
-                       </button>
-                     ))}
-                   </div>
-                 </div>
-               )}
+              {snippets.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs text-zinc-400">Saved Snippets</label>
+                      <button type="button" onClick={saveAsSnippet} className="text-[10px] text-emerald-400 hover:text-emerald-300">Save current line as snippet</button>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {snippets.map(s => (
+                        <button key={s.id} type="button" onClick={() => applySnippet(s)} className="px-2 py-1 rounded bg-zinc-800 text-xs text-zinc-300 hover:bg-zinc-700" title={(s.description || s.text || '')}>
+                          {s.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                {/* Invoice-level free text field + its own text snippets (parallel to line snippets) */}
                <div>
