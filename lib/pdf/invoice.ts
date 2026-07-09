@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import QRCode from 'qrcode'
 import fs from 'fs'
 import path from 'path'
+import sharp from 'sharp'
 
 export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
   const invoice = await prisma.invoice.findUnique({
@@ -36,6 +37,22 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
   const routing = ((bank as Record<string, unknown>).routing as string) || ((bank as Record<string, unknown>).transit as string) || ''
   const accountNumber = ((bank as Record<string, unknown>).accountNumber as string) || ((bank as Record<string, unknown>).account as string) || ''
   const logoData = (logoS?.value as Record<string, unknown>)?.value as string | undefined
+
+  let logoForPdf: Buffer | null = null
+  if (logoData && typeof logoData === 'string' && logoData.startsWith('data:')) {
+    try {
+      const base64 = logoData.split(',')[1] || ''
+      const raw = Buffer.from(base64, 'base64')
+      // Convert any uploaded format (PNG/JPG/SVG/WebP/...) to PNG.
+      // pdfkit's standalone bundle here only works reliably with PNG/JPEG passed as a data: URL *string* (Buffers trigger fs shim error).
+      logoForPdf = await sharp(raw)
+        .resize(440, 144, { fit: 'inside', withoutEnlargement: true })
+        .png()
+        .toBuffer()
+    } catch (e) {
+      console.error('Logo processing failed, skipping logo on invoice:', e)
+    }
+  }
   const sellerTaxId = ((taxIdS?.value as Record<string, unknown>)?.value as string) || ''
   const regNumber = ((regS?.value as Record<string, unknown>)?.value as string) || ''
 
@@ -104,11 +121,15 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
     const use = (name: string) => { try { doc.font(name) } catch {} }
 
     // === HEADER (logo left, seller right) - matches example style ===
-    if (logoData && logoData.startsWith('data:image')) {
+    if (logoForPdf) {
       try {
-        const logoBuf = Buffer.from(logoData.split(',')[1], 'base64')
-        doc.image(logoBuf, 40, 30, { width: 110, height: 36, fit: [110, 36] })
-      } catch {}
+        // Must pass data URL string (not Buffer) because the pdfkit standalone bundle
+        // has a broken fs shim and throws on Buffers for image embedding.
+        const logoDataUrl = 'data:image/png;base64,' + logoForPdf.toString('base64')
+        doc.image(logoDataUrl, 40, 30, { fit: [110, 36] })
+      } catch (e) {
+        console.error('Failed to embed logo in PDF:', e)
+      }
     }
 
     use(fontBold)
