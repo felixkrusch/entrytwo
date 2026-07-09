@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
-import { generateText, tool, stepCountIs, type ModelMessage } from 'ai'
+import { generateText, tool, stepCountIs, type ModelMessage, uploadFile } from 'ai'
+import { xai, createXai } from '@ai-sdk/xai'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { getLlmConfig, createLlmModel } from '@/lib/llm'
@@ -184,6 +185,33 @@ export async function POST(req: NextRequest) {
 
     const model = createLlmModel(llmConfig)
 
+    // xAI: upload PDFs via official Files API so we can reference them with providerReference (input_file).
+    // This lets xAI's attachment layer handle ingestion. Only PDFs; images stay as raw vision parts.
+    // Non-xai providers keep previous (raw) behaviour for their own file support.
+    if (attachedFiles.length > 0) {
+      const isXai = (llmConfig.provider || '').toLowerCase() === 'xai' || !llmConfig.provider
+      const xaiKey = llmConfig.apiKey || process.env.XAI_API_KEY || process.env.LLM_API_KEY || ''
+      if (isXai && xaiKey) {
+        const xaiProvider = createXai({ apiKey: xaiKey })
+        for (const f of attachedFiles) {
+          const mt = (f.mimeType || '').toLowerCase()
+          if (mt === 'application/pdf' && !(f as any).__providerRef) {
+            try {
+              const { providerReference } = await uploadFile({
+                api: xaiProvider.files(),
+                data: f.buffer,
+                mediaType: 'application/pdf',
+                filename: f.name,
+              })
+              ;(f as any).__providerRef = providerReference
+            } catch (e) {
+              console.error('xAI Files API upload failed for PDF attachment:', e)
+            }
+          }
+        }
+      }
+    }
+
     // Trillion gets the full conversation + live data every turn.
     // She reasons freely. Structured actions only when she decides to mutate.
     // Safety (lock, validation, proposals) is enforced here on the server.
@@ -264,18 +292,41 @@ export async function POST(req: NextRequest) {
     const contextTurns = getContextForModel(thread, 40)
 
     // Prepare messages for the model.
-    type LlmPart = { type: string; image?: Buffer; data?: Buffer; mimeType?: string; text?: string }
+    // - Images: use vision parts (works today).
+    // - PDFs on xAI: use proper FilePart with providerReference (from uploadFile + xai.files).
+    //   This produces the official input_file reference that xAI's attachment layer expects.
+    // - Other files: fall back to raw (provider dependent).
+    type LlmPart =
+      | { type: 'image'; image: Buffer; mediaType?: string }
+      | { type: 'file'; data: any; mediaType: string; filename?: string }
+      | { type: 'text'; text: string }
     type LlmMsg = { role: 'user' | 'assistant' | 'system' | 'tool'; content: string | LlmPart[] }
     const llmMessages: LlmMsg[] = contextTurns.map((turn, idx) => {
       const isLast = idx === contextTurns.length - 1
       const attachFilesHere = isLast && attachedFiles.length > 0 && turn.role === 'user'
 
       if (attachFilesHere) {
-        const parts: LlmPart[] = attachedFiles.map(f =>
-          f.mimeType?.startsWith('image/')
-            ? { type: 'image', image: f.buffer }
-            : { type: 'file', data: f.buffer, mimeType: f.mimeType }
-        )
+        const parts: LlmPart[] = attachedFiles.map(f => {
+          const mt = f.mimeType || ''
+          if (mt.startsWith('image/')) {
+            return { type: 'image', image: f.buffer, mediaType: mt }
+          }
+          if (mt === 'application/pdf') {
+            const ref = (f as any).__providerRef
+            if (ref) {
+              // Official supported path: reference after Files API upload.
+              return {
+                type: 'file',
+                data: { type: 'reference', reference: ref },
+                mediaType: 'application/pdf',
+                filename: f.name,
+              }
+            }
+            // No reference (upload failed or non-xai): fall through with raw buffer (will likely 422 on xai).
+            return { type: 'file', data: f.buffer, mediaType: mt, filename: f.name }
+          }
+          return { type: 'file', data: f.buffer, mediaType: mt, filename: f.name }
+        })
         if (turn.content) parts.push({ type: 'text', text: turn.content })
         return { role: turn.role, content: parts }
       }
