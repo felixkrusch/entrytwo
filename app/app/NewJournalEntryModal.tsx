@@ -520,7 +520,13 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
         date,
         description: description || undefined,
         branch,
-        sourcePdfPath: (initialSuggestion as { sourcePdfPath?: string } | undefined)?.sourcePdfPath || attachedFile?.savedPath || undefined,
+        // Prefer an explicit suggestion / attached file from this open.
+        // Otherwise pull from the global staged receipts so "pending receipt state" works for manual entries too.
+        sourcePdfPath:
+          (initialSuggestion as { sourcePdfPath?: string } | undefined)?.sourcePdfPath ||
+          attachedFile?.savedPath ||
+          (typeof window !== 'undefined' && (window as any).__stagedReceipts?.[0]?.savedPath) ||
+          undefined,
         lines: lines.map(l => ({
           accountId: l.accountId,
           debit: Number(l.debit),
@@ -545,6 +551,17 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
       if (!res.ok) {
         const data = await res.json()
         throw new Error(data.error || 'Failed to create entry')
+      }
+
+      // Consume the staged receipt that was used for this manual entry (if any).
+      // This keeps the global "pending receipt state" in sync even when creating manually.
+      const usedPath = payload.sourcePdfPath
+      if (usedPath && typeof window !== 'undefined') {
+        const currentStaged: Array<{ savedPath: string }> = (window as any).__stagedReceipts || []
+        const nextStaged = currentStaged.filter(r => r.savedPath !== usedPath)
+        ;(window as any).__stagedReceipts = nextStaged
+        // Notify chat UI so the staged list updates live
+        window.dispatchEvent(new CustomEvent('staged-receipt-used', { detail: { savedPath: usedPath } }))
       }
 
       // If the user asked to repeat this on a schedule, create the recurring schedule.

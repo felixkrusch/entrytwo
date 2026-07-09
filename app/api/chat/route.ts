@@ -158,6 +158,22 @@ export async function POST(req: NextRequest) {
           })
         }
       }
+
+      // Also capture pure savedPath references (e.g. "attach receipt" from the receipts list in this turn,
+      // where the client sends only the path without re-uploading the bytes).
+      // These must land in attachedFiles so the auto-attach logic below can use them for new journal entries.
+      for (const [key, val] of form.entries()) {
+        if (typeof key === 'string' && key.startsWith('savedPath_') && typeof val === 'string') {
+          if (!attachedFiles.some(a => a.savedPath === val)) {
+            attachedFiles.push({
+              name: val.split('/').pop() || 'receipt',
+              buffer: Buffer.alloc(0),
+              savedPath: val,
+              mimeType: 'application/octet-stream',
+            })
+          }
+        }
+      }
     } else {
       const jsonBody = await req.json()
       userMessage = jsonBody?.message || ''
@@ -381,6 +397,22 @@ export async function POST(req: NextRequest) {
       const confidence = extracted.confidence ?? 0.8
       const reasoning = extracted.reasoning
 
+      // Auto-attach the receipt from this chat turn (PDF or image) to journal entries
+      // created by the model. This works for both autonomous execution and proposals.
+      // We still respect an explicit sourcePdfPath if the model provided one.
+      if (action === 'CREATE_JOURNAL') {
+        const p = params as { sourcePdfPath?: string | null }
+        if (!p.sourcePdfPath && attachedFiles.length > 0) {
+          const receipt = attachedFiles.find(f => {
+            const m = (f.mimeType || '').toLowerCase()
+            return m.startsWith('image/') || m === 'application/pdf'
+          })
+          if (receipt?.savedPath) {
+            p.sourcePdfPath = receipt.savedPath
+          }
+        }
+      }
+
       // Server-side policy and validation (unchanged).
       if (isMasterDataAction(action)) {
         return Response.json({
@@ -442,7 +474,7 @@ export async function POST(req: NextRequest) {
           proposalText = `Create this journal entry?`
         }
 
-        return Response.json({
+        const proposalResponse: any = {
           response: validationError
             ? `Understood. Cannot proceed automatically: ${validationError}.`
             : proposalText,
@@ -452,13 +484,22 @@ export async function POST(req: NextRequest) {
           proposedAction: finalPayload,
           understanding: reasoning,
           threadId: thread.id,
-        })
+        }
+        // Surface sourcePdfPath at top level so the client message and proposal card pick it up.
+        if ((finalPayload.params as any)?.sourcePdfPath) {
+          proposalResponse.sourcePdfPath = (finalPayload.params as any).sourcePdfPath
+        }
+        return Response.json(proposalResponse)
       }
 
       // Execute directly (no proposal, no confidence gate for safe actions)
       try {
         const execResult = await executeAction(action, finalPayload.params, { branch, asOf })
-        return Response.json({ ...execResult, threadId: thread.id })
+        const execResponse: any = { ...execResult, threadId: thread.id }
+        if ((finalPayload.params as any)?.sourcePdfPath) {
+          execResponse.sourcePdfPath = (finalPayload.params as any).sourcePdfPath
+        }
+        return Response.json(execResponse)
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e)
         return Response.json({
@@ -556,6 +597,7 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
       entityId: created.id,
       branch,
       createdAutonomously: true,
+      sourcePdfPath: p.sourcePdfPath || null,
     }
   }
 

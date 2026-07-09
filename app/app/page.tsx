@@ -95,6 +95,50 @@ export default function ChatPage() {
   // Actual files + paths are stashed in (window as any).__pendingAttachments for send.
   const [pendingAttachments, setPendingAttachments] = useState<Array<{ name: string; savedPath: string }>>([])
 
+  // Staged receipts (pending receipt state): survive multiple turns until attached to a journal or cleared by user.
+  // Goal: user can attach a receipt, discuss over several messages, then create the entry (AI or manual) and it gets linked.
+  const [stagedReceipts, setStagedReceipts] = useState<Array<{ name: string; savedPath: string }>>(() => {
+    if (typeof window !== 'undefined') {
+      return (window as any).__stagedReceipts || []
+    }
+    return []
+  })
+
+  const syncStagedToWindow = (next: Array<{ name: string; savedPath: string }>) => {
+    if (typeof window !== 'undefined') {
+      (window as any).__stagedReceipts = next
+    }
+  }
+
+  const addToStaged = (item: { name: string; savedPath: string }) => {
+    setStagedReceipts(prev => {
+      if (prev.some(r => r.savedPath === item.savedPath)) return prev
+      const next = [...prev, item]
+      syncStagedToWindow(next)
+      return next
+    })
+  }
+
+  const removeFromStaged = (savedPath: string) => {
+    setStagedReceipts(prev => {
+      const next = prev.filter(r => r.savedPath !== savedPath)
+      syncStagedToWindow(next)
+      return next
+    })
+  }
+
+  // Consume (remove) a specific receipt path after it has been attached to a journal.
+  const consumeStagedReceipt = (savedPath?: string | null) => {
+    if (!savedPath) return
+    removeFromStaged(savedPath)
+  }
+
+  // Clear all staged (user action)
+  const clearAllStaged = () => {
+    setStagedReceipts([])
+    syncStagedToWindow([])
+  }
+
   // LLM live connection indicator (hybrid: real outcomes + cheap intent-driven probes + server cache)
   const [llmStatus, setLlmStatus] = useState<{
     connected: boolean
@@ -209,18 +253,32 @@ export default function ChatPage() {
       const branch = sp.get('branch') || 'main'
       const asOf = sp.get('asOf') || sp.get('asof') || undefined
 
-      // Collect any pending attachments (files + their saved server paths)
+      // Collect any pending attachments (files + their saved server paths) for *this message*.
       const pending = window.__pendingAttachments || []
       window.__pendingAttachments = []
       setPendingAttachments([])
+
+      // Collect staged receipts (the persistent "pending receipt state").
+      // These stay until a journal entry is created with them or the user clears them.
+      const stagedNow: Array<{ name: string; savedPath: string }> = ((window as any).__stagedReceipts || []);
+
+      // Merge staged into the outgoing request. The server will use them for sourcePdfPath
+      // on CREATE_JOURNAL even if several messages were sent after the user attached the receipt.
+      const combinedForSend = [...pending];
+      stagedNow.forEach(s => {
+        if (!combinedForSend.some(p => p.savedPath === s.savedPath)) {
+          combinedForSend.push({ file: undefined, savedPath: s.savedPath, name: s.name });
+        }
+      });
 
       // Proper context management: send ONLY the new user message + threadId.
       // Server owns the full thread and will append + call the LLM with appropriate context.
       const userMessageText = current
 
-      // Build FormData if we have attachments, otherwise plain JSON
+      // Build FormData if we have attachments (including staged), otherwise plain JSON
       let res: Response
-      if (pending.length > 0) {
+      const hasAnyFiles = combinedForSend.length > 0;
+      if (hasAnyFiles) {
         const fd = new FormData()
         fd.append('message', userMessageText)
         if (threadId) fd.append('threadId', threadId)
@@ -228,7 +286,7 @@ export default function ChatPage() {
         fd.append('branch', branch)
         if (asOf) fd.append('asOf', asOf)
 
-        pending.forEach((p, idx) => {
+        combinedForSend.forEach((p, idx) => {
           if (p.file) fd.append('file', p.file, p.file.name)
           fd.append(`savedPath_${idx}`, p.savedPath)
         })
@@ -383,6 +441,13 @@ export default function ChatPage() {
             localStorage.setItem('chatThreadId', data.threadId)
           }
         }
+
+        // Consume staged receipt if a journal was created (autonomous or via this response)
+        const usedPath = data?.sourcePdfPath || (data as any)?.entity?.sourcePdfPath || synthesizedSuggestion?.sourcePdfPath
+        if (usedPath && (d?.createdAutonomously || d?.executed || d?.action === 'CREATE_JOURNAL')) {
+          consumeStagedReceipt(usedPath)
+        }
+
         scrollToBottom(true)
 
         // When chat just created or updated a contact, open the form in the contacts view in focus
@@ -493,7 +558,13 @@ export default function ChatPage() {
       toast.error(t('lockedToast') || 'Chat is locked. Proposals only — confirm to execute.')
       return
     }
-    openNewEntry(suggestion)
+    // If there are staged receipts and the suggestion doesn't already carry one,
+    // inject the first staged one so the manual journal modal also gets the receipt.
+    const s = suggestion ? { ...suggestion } : {}
+    if (!s.sourcePdfPath && stagedReceipts.length > 0) {
+      s.sourcePdfPath = stagedReceipts[0].savedPath
+    }
+    openNewEntry(s as any)
   }
 
   const handleCreateInvoice = async (prefill?: { contactName?: string; amount?: number; description?: string; currency?: string }) => {
@@ -587,21 +658,39 @@ export default function ChatPage() {
   }
 
   // Listen for "attach from receipts list" (manual selection of already-uploaded files)
+  // These go to the persistent *staged* list (pending receipt state) and also to this-turn pending.
   useEffect(() => {
     const onAttachReceipt = (e: Event) => {
       const detail = (e as CustomEvent).detail as { name?: string; savedPath: string } | undefined
       if (!detail?.savedPath) return
       const name = detail.name || detail.savedPath.split('/').pop() || 'file'
-      // show in yellow pending list
-      setPendingAttachments(prev => [...prev, { name, savedPath: detail.savedPath }])
-      // stash for next sendMessage (no File object for pre-existing)
+      const item = { name, savedPath: detail.savedPath }
+
+      // Persistent staged receipts ("pending receipt state")
+      addToStaged(item)
+
+      // Also available for the immediate next message sent to the model
+      setPendingAttachments(prev => [...prev, item])
       window.__pendingAttachments = [
         ...(window.__pendingAttachments || []),
         { file: undefined, savedPath: detail.savedPath, name }
       ]
     }
     window.addEventListener('attach-receipt', onAttachReceipt as EventListener)
-    return () => window.removeEventListener('attach-receipt', onAttachReceipt as EventListener)
+
+    // When manual journal entry consumes a staged receipt (from NewJournalEntryModal)
+    const onStagedUsed = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { savedPath?: string } | undefined
+      if (detail?.savedPath) {
+        removeFromStaged(detail.savedPath)
+      }
+    }
+    window.addEventListener('staged-receipt-used', onStagedUsed as EventListener)
+
+    return () => {
+      window.removeEventListener('attach-receipt', onAttachReceipt as EventListener)
+      window.removeEventListener('staged-receipt-used', onStagedUsed as EventListener)
+    }
   }, [])
 
   // Attachments: multiple files (PDFs + images) are attached to the *next* user message.
@@ -760,14 +849,41 @@ export default function ChatPage() {
          </div>
          <div ref={messagesEndRef} />
 
-         {/* Pending attachment filenames (yellow, small, stacked) shown just above LLM indicator */}
-        {pendingAttachments.length > 0 && (
-          <div className="mt-auto mb-px text-[10px] text-amber-400 leading-tight">
-            {pendingAttachments.map((a, i) => (
-              <div key={i}>{a.name}</div>
-            ))}
-          </div>
-        )}
+          {/* Staged receipts (persistent pending receipt state) */}
+          {stagedReceipts.length > 0 && (
+            <div className="mt-auto mb-1 text-[10px] text-emerald-400">
+              <div className="flex items-center gap-2 mb-0.5">
+                <span>Staged for next journal entry:</span>
+                <button
+                  onClick={clearAllStaged}
+                  className="text-[9px] px-1.5 py-px border border-emerald-800 text-emerald-400 hover:bg-emerald-950 rounded"
+                >
+                  clear all
+                </button>
+              </div>
+              {stagedReceipts.map((r, i) => (
+                <div key={i} className="flex items-center gap-1">
+                  <span className="truncate">{r.name}</span>
+                  <button
+                    onClick={() => removeFromStaged(r.savedPath)}
+                    className="text-emerald-400 hover:text-rose-400 px-1"
+                    title="Unstage this receipt"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Pending attachment filenames for the *next message* only (yellow, this-turn) */}
+          {pendingAttachments.length > 0 && (
+            <div className="mt-auto mb-px text-[10px] text-amber-400 leading-tight">
+              {pendingAttachments.map((a, i) => (
+                <div key={i}>{a.name}</div>
+              ))}
+            </div>
+          )}
 
         {/* LLM indicator at the very bottom of this div */}
         <div className="pt-1 text-[10px]">
