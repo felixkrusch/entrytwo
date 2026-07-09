@@ -205,21 +205,20 @@ export default function InvoicingPanel() {
     } catch {}
   }, [])
 
-  const fetchTextSnippets = async () => {
+  const fetchTextSnippets = useCallback(async () => {
     try {
       const res = await fetch('/api/invoices/snippets?kind=text')
       const data = await res.json()
       setTextSnippets((data.snippets || []) as SavedSnippet[])
     } catch {}
-  }
+  }, [])
 
   useEffect(() => {
     fetch('/api/payments/stripe/status').then(r => r.json()).then(d => setStripeEnabled(!!d.configured)).catch(() => {})
     fetch('/api/payments/paypal/status').then(r => r.json()).then(d => setPaypalEnabled(!!d.configured)).catch(() => {})
     // Email availability (SMTP configured) — gates Email button
     fetch('/api/invoices/email/status').then(r => r.json()).then(d => setEmailEnabled(!!d.configured)).catch(() => {})
-    // Preload text snippets so they are ready when opening the create form
-    void fetchTextSnippets()
+    // Text snippets are loaded only when the create form opens (see showCreate effect)
   }, [])
 
   const fetchTaxRates = useCallback(async () => {
@@ -384,7 +383,10 @@ export default function InvoicingPanel() {
       void fetchTextSnippets()
       void fetchTaxRates()
     }
-  }, [showCreate, fetchContacts, fetchSnippets, fetchTextSnippets, fetchTaxRates])
+    // Only react to showCreate flips.
+    // All fetch* are stable useCallback([]) so we intentionally omit them from deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCreate])
 
   const addLine = () => {
     setNewLines([...newLines, { description: '', quantity: 1, unitPrice: 0, taxRateId: null }])
