@@ -21,6 +21,9 @@ const SKILL_PATHS: Record<string, string[]> = {
   'create-invoice-draft': [
     join(SKILL_BASE, 'actions', 'create-invoice-draft', 'SKILL.md'),
   ],
+  'extract-bank-statement': [
+    join(SKILL_BASE, 'actions', 'extract-bank-statement', 'SKILL.md'),
+  ],
 }
 
 export async function loadSkill(skill: string): Promise<string> {

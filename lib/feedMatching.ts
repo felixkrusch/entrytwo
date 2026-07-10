@@ -40,10 +40,14 @@ export async function findRecentBankFeedRateForMerchant(merchantLower: string, i
           date: { gte: since },
         },
       },
+      orderBy: [
+        // Prefer explicit statement sources when multiple candidates exist
+        { fxSource: 'desc' }, // 'BANK_FEED:statement:...' sorts after generic BANK_FEED
+        { journalEntry: { date: 'desc' } },
+      ],
       include: {
         journalEntry: { select: { description: true, date: true } },
       },
-      orderBy: { journalEntry: { date: 'desc' } },
       take: 80,
     })
 
@@ -64,6 +68,22 @@ export async function findRecentBankFeedRateForMerchant(merchantLower: string, i
             fxDate: line.fxDate.toISOString().slice(0, 10),
             currency: (line.currency || 'EUR').toUpperCase(),
           }
+        }
+      }
+
+      // If we reach here without a strong merchant match, fall back to the most recent
+      // statement-sourced rate (highest quality for credit card / bank statements).
+      // This helps when the user pastes/uploads a statement but the merchant name is noisy.
+      const statementLine = lines.find(l =>
+        (l.fxSource || '').startsWith('BANK_FEED:statement') &&
+        l.fxRateToBase != null && l.currency && l.fxDate
+      )
+      if (statementLine && statementLine.fxDate) {
+        return {
+          fxRateToBase: Number(statementLine.fxRateToBase),
+          fxSource: statementLine.fxSource || 'BANK_FEED',
+          fxDate: statementLine.fxDate.toISOString().slice(0, 10),
+          currency: (statementLine.currency || 'EUR').toUpperCase(),
         }
       }
     }

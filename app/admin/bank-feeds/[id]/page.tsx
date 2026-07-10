@@ -13,12 +13,13 @@ interface Connection {
   account: { code: string; name: string }
 }
 
+// Only Stripe and PayPal are actively supported for bank feeds right now.
 const PROVIDERS: Record<string, string> = {
   stripe: 'Stripe',
   paypal: 'PayPal',
-  plaid: 'Plaid',
-  'salt-edge': 'Salt Edge',
-  csv: 'CSV Import',
+  // plaid: 'Plaid',
+  // 'salt-edge': 'Salt Edge',
+  // csv: 'CSV Import',
 }
 
 export default function ConnectionDetailPage() {
@@ -92,6 +93,12 @@ export default function ConnectionDetailPage() {
         <button onClick={handleSyncNow} className="w-full px-3 py-1.5 rounded bg-white text-black text-sm">
           Sync Now
         </button>
+
+        {(connection.provider === 'stripe' || connection.provider === 'paypal') && (
+          <div className="text-[10px] text-zinc-500 pt-2 border-t border-zinc-800">
+            This connection uses API keys from .env, not stored credentials.
+          </div>
+        )}
       </div>
     </div>
   )

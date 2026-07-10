@@ -28,10 +28,14 @@ export function verifyPaypalSignature(body: string, headers: Record<string, stri
 
   if (!certUrl || !transmissionId || !transmissionTime || !transmissionSig) return false
 
-  // In production, fetch cert from certUrl and verify signature
-  // For dev mode, trust the webhook
-  if (!process.env.SMTP_HOST) return true
+  // Production: must verify using PayPal's cert (not implemented in this stub yet).
+  // For now we fail closed in production (SMTP_HOST set).
+  if (process.env.SMTP_HOST) {
+    // TODO (Phase 1+): implement real PayPal cert validation using certUrl + transmissionSig
+    // For safety we currently reject when running in "production-like" mode.
+    return false
+  }
 
-  // Placeholder - actual verification would require PayPal cert validation
-  return false
+  // Dev / no SMTP: accept (same as before, clearly documented).
+  return true
 }

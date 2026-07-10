@@ -109,9 +109,17 @@ When you need to create or change records (journal, contact, invoice, etc.):
 - After receiving the skill instructions, output **exactly one** clean JSON action object (or a \`\`\`json block).
 - The server will parse, validate, and respect the lock.
 
+Special case — bank and credit card **statements** (PDF uploads or pasted HTML tables from the bank website):
+- When the user attaches a bank/credit card statement PDF or pastes an HTML/table of transactions, first call get_skill("extract-bank-statement").
+- Extract individual transactions + explicit fee lines.
+- Capture any FX/conversion rates shown on the statement itself.
+- For resulting journal lines, set fxSource starting with "BANK_FEED:statement:" (e.g. "BANK_FEED:statement:visa-1234-2026-06", "mastercard-...", bank name).
+- When a PDF was attached this turn, set sourcePdfPath on the journal entry.
+- These statement-derived rates are authoritative (they win over ECB/manual).
+
 Otherwise just answer normally in clear text.
 
-Bank/credit card feed rates are authoritative for FX when available.
+Bank/credit card feed rates (including from uploaded or pasted statements) are authoritative for FX when available.
 Never mutate master data (accounts, tax rates, settings, users) from chat.
 Normal conversation → normal text. Real actions → look up the skill if needed → one JSON action object.
 `.trim()
@@ -352,9 +360,9 @@ export async function POST(req: NextRequest) {
     // Define the on-demand skill retrieval tool (Grok skills style).
     // The model decides when it needs precise action schemas and calls this.
     const getSkillTool = tool({
-      description: 'Fetch the exact instructions, rules, and JSON shape for a Trillion action skill. Call this by name (core, create-contact, create-journal, create-invoice-draft, update-contact) right before you need to emit a structured action. The result contains the authoritative schema and examples.',
+      description: 'Fetch the exact instructions, rules, and JSON shape for a Trillion action skill. Call this by name (core, create-contact, create-journal, create-invoice-draft, update-contact, extract-bank-statement) right before you need to emit a structured action. Use extract-bank-statement when the user provided a bank/credit card statement (PDF or pasted HTML table).',
       inputSchema: z.object({
-        skill: z.string().describe('The skill name to load, e.g. "create-contact", "create-journal", "core".'),
+        skill: z.string().describe('The skill name to load, e.g. "create-journal", "extract-bank-statement", "core".'),
       }),
       execute: async ({ skill }) => {
         const content = await loadSkill(skill)
@@ -401,7 +409,7 @@ export async function POST(req: NextRequest) {
       // created by the model. This works for both autonomous execution and proposals.
       // We still respect an explicit sourcePdfPath if the model provided one.
       if (action === 'CREATE_JOURNAL') {
-        const p = params as { sourcePdfPath?: string | null }
+        const p = params as { sourcePdfPath?: string | null; lines?: any[] }
         if (!p.sourcePdfPath && attachedFiles.length > 0) {
           const receipt = attachedFiles.find(f => {
             const m = (f.mimeType || '').toLowerCase()
@@ -410,6 +418,35 @@ export async function POST(req: NextRequest) {
           if (receipt?.savedPath) {
             p.sourcePdfPath = receipt.savedPath
           }
+        }
+
+        // Statement upload hardening:
+        // If this looks like a bank/credit card statement (PDF or pasted HTML),
+        // ensure any line carrying FX gets fxSource starting with BANK_FEED:statement:
+        // and preserve user-provided sourcePdfPath for provenance.
+        const msgLower = (userMessage || '').toLowerCase()
+        const hasStatementFile = attachedFiles.some(f =>
+          (f.mimeType || '').toLowerCase().includes('pdf') ||
+          /statement|visa|mastercard|amex|credit.?card/i.test(f.name || '')
+        )
+        const looksLikeStatement = hasStatementFile ||
+          /statement|visa|mastercard|amex.*statement|credit card|bank statement/i.test(msgLower)
+
+        if (Array.isArray(p.lines)) {
+          p.lines = p.lines.map((ln: any) => {
+            const hasFx = ln.fxRateToBase != null || (ln.fxSource && /feed|statement/i.test(String(ln.fxSource)))
+            if (hasFx && looksLikeStatement) {
+              let src = String(ln.fxSource || '')
+              if (!src.startsWith('BANK_FEED:statement')) {
+                // Normalize to proper prefix. Keep any detail the model provided (e.g. visa-2026-06)
+                const detail = src.replace(/^.*(statement|feed)[:\-]?/i, '') || 'upload'
+                ln.fxSource = `BANK_FEED:statement:${detail}`.replace(/:+$/, '')
+              }
+            } else if (ln.fxSource && /statement/i.test(String(ln.fxSource)) && !String(ln.fxSource).startsWith('BANK_FEED')) {
+              ln.fxSource = 'BANK_FEED:' + String(ln.fxSource).replace(/^BANK_FEED:?/i, '')
+            }
+            return ln
+          })
         }
       }
 
@@ -563,18 +600,37 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
     const lines = Array.isArray(p.lines) ? p.lines : []
     if (lines.length < 2) throw new Error('Journal must have at least 2 lines')
 
-    const resolvedLines = lines.map((l) => ({
-      accountId: l.accountId, // already resolved by validation in the main path
-      debit: l.debit || 0,
-      credit: l.credit || 0,
-      description: l.description,
-      currency: (l.currency || 'EUR').toUpperCase(),
-      fxRateToBase: l.fxRateToBase ?? null,
-      fxSource: l.fxSource || 'AI_AUTONOMOUS',
-      fxDate: l.fxDate || new Date().toISOString().slice(0, 10),
-      taxRateId: l.taxRateId || null,
-      contactId: l.contactId || null,
-    }))
+    const resolvedLines = lines.map((l) => {
+      let fxSource = l.fxSource || 'AI_AUTONOMOUS'
+
+      // Never downgrade an explicit BANK_FEED source (from statements, Stripe, PayPal, etc.)
+      if (l.fxSource && l.fxSource.startsWith('BANK_FEED')) {
+        fxSource = l.fxSource
+      }
+
+      // If this came from a statement context (sourcePdfPath or obvious statement fx), force the prefix
+      const looksLikeStatement = p.sourcePdfPath ||
+        (l.fxSource && /statement/i.test(l.fxSource)) ||
+        /statement|visa|mastercard|amex|credit card/i.test((p.description || '').toLowerCase())
+
+      if (looksLikeStatement && (!fxSource || !fxSource.startsWith('BANK_FEED:statement'))) {
+        const detail = (l.fxSource || '').replace(/^.*BANK_FEED:?/i, '') || 'upload'
+        fxSource = `BANK_FEED:statement:${detail}`.replace(/:+$/, '')
+      }
+
+      return {
+        accountId: l.accountId,
+        debit: l.debit || 0,
+        credit: l.credit || 0,
+        description: l.description,
+        currency: (l.currency || 'EUR').toUpperCase(),
+        fxRateToBase: l.fxRateToBase ?? null,
+        fxSource,
+        fxDate: l.fxDate || new Date().toISOString().slice(0, 10),
+        taxRateId: l.taxRateId || null,
+        contactId: l.contactId || null,
+      }
+    })
 
     // Business date: always store as midnight UTC for the given calendar day.
     // The actual creation time is recorded in createdAt (used for stable ordering).

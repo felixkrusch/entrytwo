@@ -31,11 +31,16 @@ interface BankConnection {
   account: Account
 }
 
+// Only Stripe and PayPal feeds are implemented for bank feeds.
+// API keys MUST come from .env (never stored in DB for these two).
+// All other providers are disabled / commented because they are not wired
+// for reliable transaction sync + BANK_FEED FX rates + Git model journaling.
 const PROVIDERS = [
   { id: 'stripe', name: 'Stripe', color: 'bg-purple-950 text-purple-400' },
   { id: 'paypal', name: 'PayPal', color: 'bg-blue-950 text-blue-400' },
-  { id: 'plaid', name: 'Plaid (US/Canada)', color: 'bg-emerald-950 text-emerald-400' },
-  { id: 'salt-edge', name: 'Salt Edge (EU)', color: 'bg-amber-950 text-amber-400' },
+  // Plaid, Salt Edge, CSV etc. are not implemented for feed processing.
+  // { id: 'plaid', name: 'Plaid (US/Canada)', color: 'bg-emerald-950 text-emerald-400' },
+  // { id: 'salt-edge', name: 'Salt Edge (EU)', color: 'bg-amber-950 text-amber-400' },
 ]
 
 export default function BankFeedsPage() {
@@ -46,30 +51,50 @@ export default function BankFeedsPage() {
   const [showConnect, setShowConnect] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState('stripe')
   const [selectedAccount, setSelectedAccount] = useState('')
-  const [credentials, setCredentials] = useState('{}')
+
+  // Stripe/PayPal feeds use global keys from .env only.
+  // No per-connection secrets should ever be stored for them.
+  const [stripeConfigured, setStripeConfigured] = useState(false)
+  const [paypalConfigured, setPaypalConfigured] = useState(false)
+
+  // Only these two providers are supported for feeds, and only when their keys are in .env.
+  const availableProviders = PROVIDERS.filter(p =>
+    (p.id === 'stripe' && stripeConfigured) || (p.id === 'paypal' && paypalConfigured)
+  )
 
   useEffect(() => {
     Promise.all([
       fetch('/api/bank-feeds/connections').then(r => r.json()),
       fetch('/api/accounts').then(r => r.json()),
       fetch('/api/bank-feeds/transactions').then(r => r.json()),
-    ]).then(([conns, accs, txs]) => {
+      fetch('/api/payments/stripe/status').then(r => r.json()).catch(() => ({ configured: false })),
+      fetch('/api/payments/paypal/status').then(r => r.json()).catch(() => ({ configured: false })),
+    ]).then(([conns, accs, txs, stripeStatus, paypalStatus]) => {
       setConnections(conns)
       setAccounts(accs)
       setTransactions(txs)
+      setStripeConfigured(!!stripeStatus?.configured)
+      setPaypalConfigured(!!paypalStatus?.configured)
+
+      // Default the selector to the first actually available provider
+      if (stripeStatus?.configured) {
+        setSelectedProvider('stripe')
+      } else if (paypalStatus?.configured) {
+        setSelectedProvider('paypal')
+      }
+
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [])
 
   const handleConnect = async () => {
     if (!selectedAccount || !selectedProvider) return
-    let parsedCreds: Record<string, unknown> = {}
-    try {
-      parsedCreds = JSON.parse(credentials)
-    } catch {
-      alert('Invalid JSON credentials')
-      return
-    }
+
+    // For Stripe and PayPal we no longer accept/store per-connection secrets here.
+    // The connection record is just a lightweight pointer to "this account gets feed data from Stripe/PayPal".
+    // Actual keys live in .env and are read at runtime by sync/webhook code.
+    const shouldSendEmptyCreds = selectedProvider === 'stripe' || selectedProvider === 'paypal'
+
     await fetch('/api/bank-feeds/connections', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -77,7 +102,7 @@ export default function BankFeedsPage() {
         accountId: selectedAccount,
         provider: selectedProvider,
         externalId: `${selectedProvider}-${selectedAccount}`,
-        credentials: parsedCreds,
+        credentials: shouldSendEmptyCreds ? undefined : {},
       }),
     })
     setShowConnect(false)
@@ -121,12 +146,24 @@ export default function BankFeedsPage() {
         )}
       </div>
 
-      <button
-        onClick={() => setShowConnect(!showConnect)}
-        className="mt-6 px-4 py-2 rounded bg-white text-black text-sm"
-      >
-        + Connect Feed
-      </button>
+      {/* Only show connect button if there is at least one provider we can actually connect right now */}
+      {(stripeConfigured || paypalConfigured) && (
+        <button
+          onClick={() => setShowConnect(!showConnect)}
+          className="mt-6 px-4 py-2 rounded bg-white text-black text-sm"
+        >
+          + Connect Feed
+        </button>
+      )}
+
+      {(!stripeConfigured && !paypalConfigured) && (
+        <div className="mt-6 text-xs text-zinc-500">
+          Stripe and PayPal bank feeds require API credentials in .env.<br />
+          Set <span className="font-mono">STRIPE_SECRET_KEY</span> (and optionally <span className="font-mono">STRIPE_WEBHOOK_SECRET</span>) for Stripe.<br />
+          Set <span className="font-mono">PAYPAL_CLIENT_ID</span> and <span className="font-mono">PAYPAL_SECRET</span> for PayPal.<br />
+          Other providers (Plaid, Salt Edge) are not enabled for feed processing yet.
+        </div>
+      )}
 
       {transactions.length > 0 && (
         <div className="mt-8">
@@ -166,7 +203,9 @@ export default function BankFeedsPage() {
         </div>
       )}
 
-      {showConnect && (
+      {/* Connect form is only rendered when at least one supported provider has keys in .env.
+          We never show a raw JSON credentials form for Stripe/PayPal. */}
+      {(showConnect && (stripeConfigured || paypalConfigured)) && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-6 w-96">
             <h3 className="font-medium mb-4">Connect Bank Feed</h3>
@@ -178,14 +217,21 @@ export default function BankFeedsPage() {
                 onChange={e => setSelectedProvider(e.target.value)}
                 className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 mt-1"
               >
-                {PROVIDERS.map(p => (
+                {availableProviders.map(p => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
             </div>
 
+            {/* Stripe/PayPal never store per-connection secrets.
+                The BankConnection is just a pointer: "feed data for this account comes from this processor".
+                Keys are read at runtime from process.env. */}
+            <div className="mb-4 text-xs text-zinc-400">
+              Using API keys from .env. No secrets are stored for this connection.
+            </div>
+
             <div className="mb-4">
-              <label className="text-xs text-zinc-400">Account</label>
+              <label className="text-xs text-zinc-400">Account (where transactions will be booked)</label>
               <select
                 value={selectedAccount}
                 onChange={e => setSelectedAccount(e.target.value)}
@@ -198,24 +244,14 @@ export default function BankFeedsPage() {
               </select>
             </div>
 
-            <div className="mb-4">
-              <label className="text-xs text-zinc-400">Credentials (JSON)</label>
-              <textarea
-                value={credentials}
-                onChange={e => setCredentials(e.target.value)}
-                placeholder='{"apiKey":"sk_live_..."}'
-                className="w-full h-20 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 mt-1 font-mono text-xs"
-              />
-              <div className="text-[10px] text-zinc-500 mt-1">
-                Enter provider credentials as JSON. Will be encrypted at rest.
-              </div>
-            </div>
-
             <div className="flex gap-2">
               <button onClick={() => setShowConnect(false)} className="flex-1 px-3 py-1 rounded bg-zinc-800 text-sm">
                 Cancel
               </button>
-              <button onClick={handleConnect} className="flex-1 px-3 py-1 rounded bg-emerald-950 text-emerald-400 text-sm">
+              <button
+                onClick={handleConnect}
+                className="flex-1 px-3 py-1 rounded bg-emerald-950 text-emerald-400 text-sm"
+              >
                 Connect
               </button>
             </div>
