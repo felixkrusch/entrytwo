@@ -116,17 +116,13 @@ export default function BankFeedsPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-xl font-semibold">Bank Feeds</h1>
-        <p className="text-xs text-zinc-500 mt-1">Connect your accounts to automatic transaction feeds — or import a single transaction manually below.</p>
-      </div>
-
-      <div className="mb-6">
-        <QuickFeedImport />
+        <h1 className="text-xl font-semibold">Processor Feeds</h1>
+        <p className="text-xs text-zinc-500 mt-1">Stripe and PayPal can be connected for automatic transaction import. For all other banks and credit cards, upload statements or paste transaction tables directly into chat.</p>
       </div>
 
       <div className="space-y-4">
         {connections.length === 0 ? (
-          <div className="text-zinc-500">No bank feed connections configured.</div>
+          <div className="text-zinc-500">No processor connections configured. Stripe and PayPal live feeds require API keys in .env.</div>
         ) : (
           connections.map(conn => (
             <div key={conn.id} className="border border-zinc-800 rounded-lg p-4 bg-zinc-950">
@@ -145,6 +141,14 @@ export default function BankFeedsPage() {
           ))
         )}
       </div>
+
+      {/* Manual authoritative entry kept as advanced/power tool, not the main story */}
+      <details className="mt-8">
+        <summary className="cursor-pointer text-sm text-zinc-400 hover:text-zinc-200">Advanced: Manually record a transaction with a real rate</summary>
+        <div className="mt-3">
+          <QuickFeedImport />
+        </div>
+      </details>
 
       {/* Only show connect button if there is at least one provider we can actually connect right now */}
       {(stripeConfigured || paypalConfigured) && (

@@ -23,7 +23,7 @@ export async function getRecentFeedRatesForPrompt(limit = 8) {
 
       const rate = l.fxRateToBase ? Number(l.fxRateToBase).toFixed(4) : '?'
       const d = l.journalEntry.date.toISOString().slice(0, 10)
-      result.push(`${merchant} → ${l.currency} @ ${rate} (BANK_FEED ${d})`)
+      result.push(`${merchant} → ${l.currency} @ ${rate} (BANK_FEED ${d}) — reference only`)
       if (result.length >= limit) break
     }
 

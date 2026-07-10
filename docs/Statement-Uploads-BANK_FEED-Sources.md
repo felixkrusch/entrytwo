@@ -139,6 +139,7 @@ This is why statement uploads (especially PDF + direct HTML paste) are now our #
 - FX rate + date when the statement provides one → must be marked `BANK_FEED:statement:...`.
 - Never invent rates. If the statement does not show a usable rate, fall back to asking the user or using a previous authoritative feed rate.
 - Always preserve a link back to the source (PDF path or "pasted from [bank] on [date]").
+- When the statement contains foreign amounts, the LLM must also look for prior provisional journal entries (same merchant, similar amount, recent date) and emit small FX adjustment entries using the authoritative statement rate + fees. The original provisional entries are never mutated (Git model). See docs/FX-Provisional-Rates-FX-Adjustments-Implementation.md.
 
 After the model emits a `CREATE_JOURNAL` (or multiple), the normal server validation, lock rules, and Git ancestry still apply exactly as for any other action.
 

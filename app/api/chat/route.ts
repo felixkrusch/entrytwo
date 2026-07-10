@@ -20,6 +20,7 @@ import { writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { loadOrCreateThread, appendToThread, getContextForModel } from '@/lib/chatThreadStore'
 import { loadSkill } from '@/lib/skills'
+import { normalizeToProvisional } from '@/lib/fxSources'
 
 /**
  * Trillion chat (thread context + Grok skills on demand).
@@ -116,10 +117,15 @@ Special case — bank and credit card **statements** (PDF uploads or pasted HTML
 - For resulting journal lines, set fxSource starting with "BANK_FEED:statement:" (e.g. "BANK_FEED:statement:visa-1234-2026-06", "mastercard-...", bank name).
 - When a PDF was attached this turn, set sourcePdfPath on the journal entry.
 - These statement-derived rates are authoritative (they win over ECB/manual).
+- IMPORTANT: Prior foreign purchases were likely recorded with PROVISIONAL rates (ECB_PROVISIONAL, MANUAL_PROVISIONAL, PROVISIONAL, AI_AUTONOMOUS etc.).
+  When you see prior provisional lines for the same merchants, emit small FX adjustment CREATE_JOURNAL entries (difference + fees) using the authoritative BANK_FEED rate from this statement.
+  Do NOT mutate or reverse the original provisional entries. Reference the original entry number in the adjustment description.
 
 Otherwise just answer normally in clear text.
 
 Bank/credit card feed rates (including from uploaded or pasted statements) are authoritative for FX when available.
+Recent feed rates shown below are historical reference only — new entries must be marked PROVISIONAL (ECB_PROVISIONAL / PROVISIONAL / MANUAL_PROVISIONAL) unless the rate came directly from the current statement/feed context.
+Never emit fxSource starting with BANK_FEED unless the rate truly came from a feed line in this turn.
 Never mutate master data (accounts, tax rates, settings, users) from chat.
 Normal conversation → normal text. Real actions → look up the skill if needed → one JSON action object.
 `.trim()
@@ -436,7 +442,7 @@ export async function POST(req: NextRequest) {
           p.lines = p.lines.map((ln: any) => {
             const hasFx = ln.fxRateToBase != null || (ln.fxSource && /feed|statement/i.test(String(ln.fxSource)))
             if (hasFx && looksLikeStatement) {
-              let src = String(ln.fxSource || '')
+              const src = String(ln.fxSource || '')
               if (!src.startsWith('BANK_FEED:statement')) {
                 // Normalize to proper prefix. Keep any detail the model provided (e.g. visa-2026-06)
                 const detail = src.replace(/^.*(statement|feed)[:\-]?/i, '') || 'upload'
@@ -616,6 +622,14 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
       if (looksLikeStatement && (!fxSource || !fxSource.startsWith('BANK_FEED:statement'))) {
         const detail = (l.fxSource || '').replace(/^.*BANK_FEED:?/i, '') || 'upload'
         fxSource = `BANK_FEED:statement:${detail}`.replace(/:+$/, '')
+      }
+
+      // FX provisional policy:
+      // For any foreign-currency line that does NOT have an authoritative BANK_FEED source,
+      // force fxSource to a provisional value. Never let autonomous/chat emit BANK_FEED unless real feed context.
+      const cur = (l.currency || 'EUR').toUpperCase()
+      if (cur !== 'EUR' && !fxSource.startsWith('BANK_FEED')) {
+        fxSource = normalizeToProvisional(fxSource)
       }
 
       return {

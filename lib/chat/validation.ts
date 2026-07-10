@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { isAuthoritativeBankFeed, normalizeToProvisional } from '@/lib/fxSources'
 
 export type JournalLineInput = {
   accountCode?: string
@@ -79,18 +80,25 @@ export async function validateJournalIntent(params: unknown, _branch: string): P
     return { ok: false, error: `Unknown account code(s): ${missing.join(', ')}` }
   }
 
-  const resolved: ResolvedJournalLine[] = lines.map((l) => ({
-    accountId: codeToId[l.accountCode!],
-    debit: Number(l.debit) || 0,
-    credit: Number(l.credit) || 0,
-    description: l.description,
-    currency: (l.currency || 'EUR').toUpperCase(),
-    fxRateToBase: l.fxRateToBase != null ? Number(l.fxRateToBase) : null,
-    fxSource: l.fxSource || 'AI_AUTONOMOUS',
-    fxDate: l.fxDate || new Date().toISOString().slice(0, 10),
-    taxRateId: l.taxRateId || null,
-    contactId: l.contactId || null,
-  }))
+  const resolved: ResolvedJournalLine[] = lines.map((l) => {
+    const cur = (l.currency || 'EUR').toUpperCase()
+    let src = l.fxSource || 'AI_AUTONOMOUS'
+    if (cur !== 'EUR' && !isAuthoritativeBankFeed(src)) {
+      src = normalizeToProvisional(src)
+    }
+    return {
+      accountId: codeToId[l.accountCode!],
+      debit: Number(l.debit) || 0,
+      credit: Number(l.credit) || 0,
+      description: l.description,
+      currency: cur,
+      fxRateToBase: l.fxRateToBase != null ? Number(l.fxRateToBase) : null,
+      fxSource: src,
+      fxDate: l.fxDate || new Date().toISOString().slice(0, 10),
+      taxRateId: l.taxRateId || null,
+      contactId: l.contactId || null,
+    }
+  })
 
   return { ok: true, resolvedLines: resolved }
 }

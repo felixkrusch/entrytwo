@@ -24,19 +24,46 @@ Use this when the user wants to record a journal entry.
 
 ### Foreign currency + FX rate (required when currency != base)
 
+**Rule:** For new foreign-currency lines, fxSource must be:
+- "BANK_FEED:..." only when the rate truly came from a live statement/feed in this turn.
+- Otherwise use "PROVISIONAL", "ECB_PROVISIONAL", "MANUAL_PROVISIONAL".
+
+Example of a new entry with provisional rate:
+
 ```json
 {
   "action": "CREATE_JOURNAL",
   "params": {
-    "description": "Invoice payment in USD",
-    "date": "2026-07-05",
+    "description": "X.AI subscription",
+    "date": "2026-07-10",
     "lines": [
-      { "accountCode": "1000", "debit": 920, "credit": 0, "currency": "EUR", "description": "Bank receipt (USD converted)" },
-      { "accountCode": "1100", "debit": 0, "credit": 1000, "currency": "USD", "fxRateToBase": 0.92, "fxSource": "bank", "fxDate": "2026-07-05", "description": "AR settlement" }
+      { "accountCode": "5200", "debit": 30, "credit": 0, "currency": "USD", "fxRateToBase": 0.92, "fxSource": "ECB_PROVISIONAL", "fxDate": "2026-07-10", "description": "AI services" },
+      { "accountCode": "2100", "debit": 0, "credit": 27.6, "currency": "EUR", "description": "Card liability (provisional)" }
     ]
   }
 }
 ```
+
+### FX adjustment entry (when statement arrives for prior provisional bookings)
+
+When a statement reveals the real rate/fees for a previously provisional foreign purchase, emit a **small adjustment** (do not touch the original entry):
+
+```json
+{
+  "action": "CREATE_JOURNAL",
+  "params": {
+    "description": "FX + fee adjustment for JE-2026-0042 - X.AI $30",
+    "date": "2026-07-15",
+    "lines": [
+      { "accountCode": "5200", "debit": 0.50, "credit": 0, "currency": "EUR", "description": "X.AI - FX difference from provisional" },
+      { "accountCode": "6990", "debit": 1.00, "credit": 0, "currency": "EUR", "description": "X.AI - foreign transaction fee" },
+      { "accountCode": "2100", "debit": 0, "credit": 1.50, "currency": "EUR", "description": "Adjustment to card liability (BANK_FEED)" }
+    ]
+  }
+}
+```
+
+Use the authoritative BANK_FEED fxSource on the adjustment lines. Reference the original entry number.
 
 ### With tax and contact
 

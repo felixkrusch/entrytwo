@@ -659,11 +659,11 @@ export default function ChatPage() {
 
     const allowed = selected.filter(f => {
       const n = f.name.toLowerCase()
-      return n.endsWith('.pdf') || /\.(jpg|jpeg|png|webp)$/.test(n) || f.type.startsWith('image/')
+      return n.endsWith('.pdf') || /\.(jpg|jpeg|png|webp)$/.test(n) || f.type.startsWith('image/') || n.endsWith('.csv') || f.type === 'text/csv'
     })
 
     if (!allowed.length) {
-      toast.error('Please select PDF or image files (jpg, jpeg, png, webp)')
+      toast.error('Please select PDF, image, or CSV files')
       e.target.value = ''
       return
     }
@@ -866,21 +866,21 @@ export default function ChatPage() {
 
       <div className="border-t border-zinc-800 p-4">
         <div className="flex gap-3 items-center">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,image/jpeg,image/jpg,image/png,image/webp"
-            className="hidden"
-            onChange={handleAttachment}
-          />
-           <button
-             type="button"
-             onClick={() => fileInputRef.current?.click()}
-             className="p-3 text-zinc-400 hover:text-zinc-200 transition-colors"
-             title="Attach file (PDF or image)"
-           >
-             <Paperclip className="w-5 h-5" />
-           </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,image/jpeg,image/jpg,image/png,image/webp,.csv,text/csv"
+              className="hidden"
+              onChange={handleAttachment}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-3 text-zinc-400 hover:text-zinc-200 transition-colors"
+              title="Attach file (PDF, image, or CSV)"
+            >
+              <Paperclip className="w-5 h-5" />
+            </button>
 
           <input
             type="text"

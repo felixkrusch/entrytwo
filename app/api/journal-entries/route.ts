@@ -5,6 +5,7 @@ import { auth } from '@/lib/auth'
 import { recordCommitOnBranch } from '@/lib/accounting/commit'
 import { getVisibleJournalEntryIds, getVisibleJournalEntryIdsAtPoint } from '@/lib/accounting/ancestry'
 import { nextEntryNumber } from '@/lib/accounting/entryNumber'
+import { isAuthoritativeBankFeed, normalizeToProvisional } from '@/lib/fxSources'
 
 const createEntrySchema = z.object({
   date: z.string().refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid date format' }),
@@ -203,31 +204,14 @@ export async function POST(request: Request) {
 
     const entryDate = date
 
-    const foreignLines = lines.filter(l => (l.currency || 'EUR').toUpperCase() !== 'EUR')
-    const baseLines = lines.filter(l => (l.currency || 'EUR').toUpperCase() === 'EUR')
-
-    for (const f of foreignLines) {
-      if (f.fxRateToBase != null) continue
-
-      const fAmt = Math.max(f.debit || 0, f.credit || 0)
-      if (fAmt <= 0) continue
-
-      for (const b of baseLines) {
-        const bAmt = Math.max(b.debit || 0, b.credit || 0)
-        if (bAmt <= 0) continue
-
-        const ratio = bAmt / fAmt
-        const plausible = ratio > 0.1 && ratio < 10
-
-        if (plausible) {
-          const derived = bAmt / fAmt
-          if (isFinite(derived) && derived > 0) {
-            f.fxRateToBase = derived
-            f.fxSource = f.fxSource || 'DERIVED_FROM_ENTRY'
-            f.fxDate = f.fxDate || entryDate
-            break
-          }
-        }
+    // FX policy: LLM_PROVISIONAL is the default for document-attached foreign lines.
+    // No auto-derivation. Only force LLM_PROVISIONAL when no authoritative source + no rate.
+    for (const l of lines) {
+      const cur = (l.currency || 'EUR').toUpperCase()
+      if (cur === 'EUR') continue
+      const hasGoodSource = isAuthoritativeBankFeed(l.fxSource)
+      if (!hasGoodSource && l.fxRateToBase == null) {
+        l.fxSource = 'LLM_PROVISIONAL'
       }
     }
 

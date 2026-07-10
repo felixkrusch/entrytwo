@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { recordCommitOnBranch } from '@/lib/accounting/commit'
+import { isAuthoritativeBankFeed } from '@/lib/fxSources'
 
 const feedImportSchema = z.object({
   date: z.string(),
@@ -122,6 +123,76 @@ export async function POST(request: Request) {
         where: { id: created.id },
         data: { introducedByEventId: ev.id }
       })
+
+      // FX provisional policy: after authoritative feed import, look for prior provisional foreign lines
+      // for the same merchant and create a small adjustment entry (delta + fees).
+      // This keeps the original Day-0 entry untouched.
+      if (merchant) {
+        const since = new Date(Date.now() - 1000 * 60 * 60 * 24 * 120)
+        const prior = await tx.journalLine.findMany({
+          where: {
+            currency: foreignCurrency,
+            journalEntry: {
+              date: { gte: since, lt: businessDate },
+            },
+          },
+          include: { journalEntry: true },
+          orderBy: { journalEntry: { date: 'desc' } },
+          take: 30,
+        })
+
+        const m = merchant.toLowerCase()
+        const match = prior.find(p =>
+          !isAuthoritativeBankFeed(p.fxSource) &&
+          ((p.journalEntry.description || '').toLowerCase().includes(m) || (p.description || '').toLowerCase().includes(m)) &&
+          Math.abs((Number(p.debit) || Number(p.credit)) - foreignAmount) < Math.max(1, foreignAmount * 0.2)
+        )
+
+        if (match && fxRateToBase != null) {
+          const prevRate = match.fxRateToBase != null ? Number(match.fxRateToBase) : null
+          const prevBase = prevRate != null ? (Number(match.debit) || Number(match.credit)) * prevRate : null
+          const delta = prevBase != null ? baseAmount - prevBase : 0
+
+          if (Math.abs(delta) > 0.005 || (body as any).forceAdjustment) {
+            const adjDesc = `FX + fee adjustment for ${match.journalEntry.entryNumber || match.journalEntry.id} - ${merchant}`
+            const adj = await tx.journalEntry.create({
+              data: {
+                date: businessDate,
+                description: adjDesc,
+                lines: {
+                  create: [
+                    {
+                      accountId: counterAccount.id,
+                      debit: delta > 0 ? Math.abs(delta) : 0,
+                      credit: delta < 0 ? Math.abs(delta) : 0,
+                      description: `FX diff vs provisional for ${merchant}`,
+                      currency: baseCurrency,
+                    },
+                    {
+                      accountId: settlementAccount.id,
+                      debit: delta < 0 ? Math.abs(delta) : 0,
+                      credit: delta > 0 ? Math.abs(delta) : 0,
+                      description: `FX adjustment settlement`,
+                      currency: baseCurrency,
+                    },
+                  ],
+                },
+              },
+            })
+
+            const adjEv = await tx.event.create({
+              data: {
+                eventType: 'MANUAL_ADJUSTMENT',
+                entityType: 'JournalEntry',
+                entityId: adj.id,
+                parentEventId: parentHead,
+                payload: { source: 'fx_adjustment_from_feed', originalProvisionalId: match.journalEntryId, merchant },
+              },
+            })
+            await tx.journalEntry.update({ where: { id: adj.id }, data: { introducedByEventId: adjEv.id } })
+          }
+        }
+      }
 
       return { created, commitEventId: ev.id, branchForCommit }
     })

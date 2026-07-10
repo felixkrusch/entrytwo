@@ -90,6 +90,32 @@ First call the skill, then emit **exactly one** JSON action (usually `CREATE_JOU
 - After reading this skill, output **one** clean `CREATE_JOURNAL` (or the appropriate action).
 - Never output multiple top-level actions in one response.
 
+### 9. Provisional entries + FX adjustments (when real statement arrives later)
+Most foreign-currency purchases are first recorded on the transaction/invoice date using a clearly marked **provisional** rate:
+- fxSource = "PROVISIONAL", "ECB_PROVISIONAL", "MANUAL_PROVISIONAL", "AI_AUTONOMOUS", "DERIVED_FROM_ENTRY", etc.
+- These are NOT authoritative.
+
+When you receive a bank/credit card statement (PDF or pasted HTML):
+- Scan the live ledger context for prior journal lines that have the same or very similar merchant, same foreign currency, and a date within a few days.
+- For every such match:
+  - Create a **small FX adjustment entry** (2-4 lines) dated on the statement posting/settlement date.
+  - Use the **authoritative** rate and exact base amount from the current statement (fxSource must start with "BANK_FEED:statement:..." or the processor equivalent).
+  - The adjustment records only the *difference* + any explicit fees.
+  - Description must reference the original entry, e.g. "FX + fee adjustment for JE-2026-0042 - X.AI $30".
+  - Do NOT reverse or modify the original provisional entry in any way.
+  - Typical pattern (example):
+    Debit  Expense (or original account)   <small positive or negative difference> EUR
+    Debit  FX / Card fees account          <fee amount> EUR
+    Credit Card liability / clearing       <total delta> EUR
+- If the statement gives the exact charged base-currency amount, prefer that over foreignAmount × rate.
+- Output the authoritative statement lines (with proper BANK_FEED fxSource) AND the adjustment(s) as needed.
+- In the chat response text, mention that provisional entries were corrected via small adjustment(s).
+
+Rules:
+- Never attach a BANK_FEED fxSource to the original provisional lines.
+- Only use BANK_FEED fxSource on lines that come from this statement or the adjustment derived from it.
+- If you are unsure which original entry to reference, still create the adjustment using merchant + foreign amount in the description.
+
 ## Examples of good behavior
 
 **Pasted HTML table with FX:**

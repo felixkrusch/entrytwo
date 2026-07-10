@@ -6,6 +6,7 @@ import type { NewEntrySuggestion } from './NewEntryContext'
 import { useTranslations, useFormatter } from 'next-intl'
 import { getTaxDirection } from '@/lib/taxDirection'
 import toast from 'react-hot-toast'
+import { isAuthoritativeBankFeed, normalizeToProvisional } from '@/lib/fxSources'
 
 interface Account {
   id: string
@@ -267,9 +268,10 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
         currency: nextCur,
       }
       if (prevCur !== nextCur) {
-        // Clear any existing FX rate so we re-fetch for the newly selected currency
+        // Clear FX so user must explicitly choose rate or leave pending for the new currency.
+        // LLM_PROVISIONAL is the default when model provides it.
         newLines[index].fxRateToBase = undefined
-        newLines[index].fxSource = undefined
+        newLines[index].fxSource = 'LLM_PROVISIONAL'
         newLines[index].fxDate = undefined
       }
     } else {
@@ -313,29 +315,9 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
     }
   }
 
-  useEffect(() => {
-    if (!isOpen) return
-
-    lines.forEach((line, idx) => {
-      const cur = (line.currency || 'EUR').toUpperCase()
-      if (cur === 'EUR') return
-      if (line.fxRateToBase != null) return
-
-      const d = date || new Date().toISOString().slice(0, 10)
-      fetch(`/api/fx?currency=${cur}&date=${d}`)
-        .then(r => r.json())
-        .then((j: { fxRateToBase?: number; source?: string; date?: string }) => {
-          if (j && typeof j.fxRateToBase === 'number' && isFinite(j.fxRateToBase)) {
-            updateLineFx(idx, {
-              fxRateToBase: j.fxRateToBase,
-              fxSource: j.source === 'LOOKUP' ? 'ECB' : (j.source || 'MANUAL'),
-              fxDate: j.date || d,
-            })
-          }
-        })
-        .catch(() => {})
-    })
-  }, [isOpen, date])
+  // NO auto-fetch of FX rates on open.
+  // FX rates for foreign currency must be explicitly chosen by user or come from BANK_FEED.
+  // See docs/FX-Provisional-Rates-FX-Adjustments-Implementation.md
 
   useEffect(() => {
     if (!isOpen || !initialSuggestion) return
@@ -826,11 +808,125 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                       {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
 
-                    {line.fxRateToBase != null && (
-                      <div className="col-span-12 text-[10px] text-emerald-400 px-1 pt-1 -mt-1">
-                        fx {line.fxRateToBase.toFixed(6)} via {line.fxSource || 'feed'} on {line.fxDate || 'n/a'}
-                      </div>
-                    )}
+                      {/* FX rate for foreign currency lines.
+                          LLM provides the provisional rate when document is attached.
+                          No automatic ECB lookup. User can override or leave pending.
+                          Redundant ECB fetching removed per streamlined LLM_PROVISIONAL flow. */}
+                      {line.currency && line.currency !== 'EUR' && (
+                        <div className="col-span-12 mt-1 text-[11px] space-y-1">
+                          <div className="flex flex-wrap gap-2 items-center text-zinc-400">
+                            <span className="text-[10px] uppercase tracking-widest">FX rate:</span>
+
+                            <label className="flex items-center gap-1 cursor-pointer">
+                              <input
+                                type="radio"
+                                name={`fxchoice-${index}`}
+                                checked={!!(line.fxRateToBase != null && (line.fxSource || '').includes('LLM')) && !isAuthoritativeBankFeed(line.fxSource) && line.fxSource !== 'MANUAL'}
+                                onChange={() => {
+                                  // LLM supplied the rate for the attached document.
+                                  if (line.fxRateToBase != null) {
+                                    updateLineFx(index, {
+                                      fxRateToBase: line.fxRateToBase,
+                                      fxSource: 'LLM_PROVISIONAL',
+                                      fxDate: line.fxDate || date || undefined
+                                    })
+                                  }
+                                }}
+                              />
+                              <span>LLM estimate (provisional)</span>
+                            </label>
+
+                            <label className="flex items-center gap-1 cursor-pointer">
+                              <input
+                                type="radio"
+                                name={`fxchoice-${index}`}
+                                checked={!!(line.fxSource && line.fxSource === 'MANUAL' && line.fxRateToBase != null)}
+                                onChange={() => {
+                                  updateLineFx(index, { fxRateToBase: undefined, fxSource: 'MANUAL', fxDate: date || undefined })
+                                }}
+                              />
+                              <span>Enter my own rate (manual)</span>
+                            </label>
+
+                            <label className="flex items-center gap-1 cursor-pointer">
+                              <input
+                                type="radio"
+                                name={`fxchoice-${index}`}
+                                checked={!line.fxRateToBase && !isAuthoritativeBankFeed(line.fxSource)}
+                                onChange={() => {
+                                  updateLineFx(index, { fxRateToBase: undefined, fxSource: 'LLM_PROVISIONAL', fxDate: undefined })
+                                }}
+                              />
+                              <span>Leave rate pending</span>
+                            </label>
+
+                            <label className="flex items-center gap-1 cursor-pointer">
+                              <input
+                                type="radio"
+                                name={`fxchoice-${index}`}
+                                checked={!!(line.fxSource && line.fxSource === 'MANUAL' && line.fxRateToBase != null)}
+                                onChange={() => {
+                                  updateLineFx(index, { fxRateToBase: undefined, fxSource: 'MANUAL', fxDate: date || undefined })
+                                }}
+                              />
+                              <span>Enter my own rate (manual)</span>
+                            </label>
+
+                            <label className="flex items-center gap-1 cursor-pointer">
+                              <input
+                                type="radio"
+                                name={`fxchoice-${index}`}
+                                checked={!line.fxRateToBase && !isAuthoritativeBankFeed(line.fxSource)}
+                                onChange={() => {
+                                  updateLineFx(index, { fxRateToBase: undefined, fxSource: 'PROVISIONAL', fxDate: undefined })
+                                }}
+                              />
+                              <span>Leave rate pending</span>
+                            </label>
+
+                            {isAuthoritativeBankFeed(line.fxSource) && (
+                              <span className="ml-2 px-1.5 py-px rounded bg-emerald-900/40 text-emerald-400 border border-emerald-800 text-[9px]">BANK_FEED (authoritative)</span>
+                            )}
+                          </div>
+
+                          {/* Manual rate input */}
+                          {line.fxSource === 'MANUAL' && (
+                            <div className="flex items-center gap-2 pl-1">
+                              <input
+                                type="number"
+                                step="0.000001"
+                                placeholder="fx rate to base (e.g. 0.875)"
+                                value={line.fxRateToBase ?? ''}
+                                onChange={e => updateLineFx(index, { fxRateToBase: parseFloat(e.target.value) || undefined, fxSource: 'MANUAL', fxDate: date || undefined })}
+                                className="w-40 bg-zinc-900 border border-zinc-700 rounded px-2 py-0.5 text-xs"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const d = date || new Date().toISOString().slice(0, 10)
+                                  updateLineFx(index, { fxRateToBase: line.fxRateToBase, fxSource: 'MANUAL', fxDate: d })
+                                }}
+                                className="text-[10px] px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 rounded"
+                              >
+                                Lock as MANUAL
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Current rate display */}
+                          {line.fxRateToBase != null && (
+                            <div className={`text-[10px] px-1 ${isAuthoritativeBankFeed(line.fxSource) ? 'text-emerald-400' : 'text-amber-400'}`}>
+                              fx {line.fxRateToBase.toFixed(6)} via {line.fxSource || 'LLM_PROVISIONAL'} on {line.fxDate || 'n/a'}
+                              {!isAuthoritativeBankFeed(line.fxSource) && (
+                                <span className="ml-1 text-amber-500/80">(provisional / estimated)</span>
+                              )}
+                            </div>
+                          )}
+                          {!line.fxRateToBase && !isAuthoritativeBankFeed(line.fxSource) && line.currency !== 'EUR' && (
+                            <div className="text-[10px] text-amber-400 px-1">No rate yet — entry will be recorded with pending/provisional FX.</div>
+                          )}
+                        </div>
+                      )}
 
                     {lines.length > 2 && (
                       <button onClick={() => removeLine(index)} className="col-span-1 text-zinc-500 hover:text-red-400 text-lg">×</button>

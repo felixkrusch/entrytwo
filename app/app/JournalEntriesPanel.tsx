@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import { useTranslations, useFormatter } from 'next-intl'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { RefreshCw } from 'lucide-react'
+import { isAuthoritativeBankFeed, getFxSourceLabel } from '@/lib/fxSources'
 
 interface JournalLine {
   id: string
@@ -479,39 +480,35 @@ export default function JournalEntriesPanel({
                                {line.taxRate.jurisdiction} {(line.taxRate.rate * 100).toFixed(0)}%
                              </span>
                            )}
-                           {line.fxRateToBase != null && (
-                             <span className="ml-1 text-[9px] px-1 rounded bg-emerald-900/30 text-emerald-400 border border-emerald-800" title={`${line.fxSource || ''} @ ${line.fxDate || ''}`}>
-                               fx {Number(line.fxRateToBase).toFixed(4)}
-                               {(line.fxSource || '').toUpperCase().startsWith('BANK_FEED') && (
-                                 <span className="ml-1 text-[8px] text-sky-400">feed</span>
-                               )}
-                             </span>
-                           )}
+                            {line.fxRateToBase != null && (
+                              <span className={`ml-1 text-[9px] px-1 rounded border ${isAuthoritativeBankFeed(line.fxSource) ? 'bg-emerald-900/30 text-emerald-400 border-emerald-800' : 'bg-amber-900/30 text-amber-400 border-amber-800'}`} title={`${line.fxSource || ''} @ ${line.fxDate || ''}`}>
+                                fx {Number(line.fxRateToBase).toFixed(4)}
+                                {isAuthoritativeBankFeed(line.fxSource) ? (
+                                  <span className="ml-1 text-[8px] text-sky-400">feed</span>
+                                ) : (
+                                  <span className="ml-1 text-[8px] text-amber-400">provisional</span>
+                                )}
+                              </span>
+                            )}
                          </span>
-                           <span>
-                             {parseFloat(line.debit) > 0 && (
-                               <span className="text-emerald-400">
-                                 +{format.number(parseFloat(line.debit), { style: 'currency', currency: (line.currency || 'EUR').toUpperCase() })}
-                                 {line.currency && line.currency !== 'EUR' && (
-                                   <span className="ml-0.5 text-[10px] text-zinc-500">({line.currency})</span>
-                                 )}
-                                 {line.fxRateToBase != null && (
-                                   <span className="ml-1 text-[10px] text-emerald-500">→ {format.number(parseFloat(line.debit) * Number(line.fxRateToBase), { style: 'currency', currency: 'EUR' })}</span>
-                                 )}
-                               </span>
-                             )}
-                             {parseFloat(line.credit) > 0 && (
-                               <span className="text-rose-400">
-                                 -{format.number(parseFloat(line.credit), { style: 'currency', currency: (line.currency || 'EUR').toUpperCase() })}
-                                 {line.currency && line.currency !== 'EUR' && (
-                                   <span className="ml-0.5 text-[10px] text-zinc-500">({line.currency})</span>
-                                 )}
-                                 {line.fxRateToBase != null && (
-                                   <span className="ml-1 text-[10px] text-rose-500">→ {format.number(parseFloat(line.credit) * Number(line.fxRateToBase), { style: 'currency', currency: 'EUR' })}</span>
-                                 )}
-                               </span>
-                             )}
-                           </span>
+                            <span>
+                              {parseFloat(line.debit) > 0 && (
+                                <span className="text-emerald-400">
+                                  +{format.number(parseFloat(line.debit), { style: 'currency', currency: (line.currency || 'EUR').toUpperCase() })}
+                                  {line.fxRateToBase != null && (
+                                    <span className="ml-1 text-[10px] text-emerald-500">→ {format.number(parseFloat(line.debit) * Number(line.fxRateToBase), { style: 'currency', currency: 'EUR' })}</span>
+                                  )}
+                                </span>
+                              )}
+                              {parseFloat(line.credit) > 0 && (
+                                <span className="text-rose-400">
+                                  -{format.number(parseFloat(line.credit), { style: 'currency', currency: (line.currency || 'EUR').toUpperCase() })}
+                                  {line.fxRateToBase != null && (
+                                    <span className="ml-1 text-[10px] text-rose-500">→ {format.number(parseFloat(line.credit) * Number(line.fxRateToBase), { style: 'currency', currency: 'EUR' })}</span>
+                                  )}
+                                </span>
+                              )}
+                            </span>
                       </div>
                     ))}
                   </div>

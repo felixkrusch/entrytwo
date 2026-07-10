@@ -29,10 +29,13 @@ afterAll(async () => {
 })
 
 async function ensureAccount(code: string, type: string) {
+  // Use a clean, descriptive name that will never trigger the isMalformedAccount guards.
+  // Historical bug pattern was things like "1010ASSET" or name="ASSET 1010xxxx".
+  // We use a safe name that is clearly different from code and does not contain type suffix.
   return prisma.account.upsert({
     where: { code },
     update: {},
-    create: { code, name: `${type} ${code}`, type: type as AccountType },
+    create: { code, name: `Test Account ${code}`, type: type as AccountType },
   })
 }
 

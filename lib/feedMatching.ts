@@ -62,18 +62,19 @@ export async function findRecentBankFeedRateForMerchant(merchantLower: string, i
       
       if (variants.some(v => desc.includes(v) || lineDesc.includes(v)) && dateMatches) {
         if (line.fxRateToBase != null && line.currency && line.fxDate) {
+          // IMPORTANT: returned rates from past feeds are for REFERENCE only for new entries.
+          // Callers must treat the result as non-authoritative (provisional) unless the current
+          // context is literally the same statement being processed right now.
           return {
             fxRateToBase: Number(line.fxRateToBase),
-            fxSource: line.fxSource || 'BANK_FEED',
+            fxSource: 'PROVISIONAL', // never re-emit as BANK_FEED for a new entry
             fxDate: line.fxDate.toISOString().slice(0, 10),
             currency: (line.currency || 'EUR').toUpperCase(),
           }
         }
       }
 
-      // If we reach here without a strong merchant match, fall back to the most recent
-      // statement-sourced rate (highest quality for credit card / bank statements).
-      // This helps when the user pastes/uploads a statement but the merchant name is noisy.
+      // Fallback: most recent statement rate is still only reference for new entries.
       const statementLine = lines.find(l =>
         (l.fxSource || '').startsWith('BANK_FEED:statement') &&
         l.fxRateToBase != null && l.currency && l.fxDate
@@ -81,7 +82,7 @@ export async function findRecentBankFeedRateForMerchant(merchantLower: string, i
       if (statementLine && statementLine.fxDate) {
         return {
           fxRateToBase: Number(statementLine.fxRateToBase),
-          fxSource: statementLine.fxSource || 'BANK_FEED',
+          fxSource: 'PROVISIONAL',
           fxDate: statementLine.fxDate.toISOString().slice(0, 10),
           currency: (statementLine.currency || 'EUR').toUpperCase(),
         }

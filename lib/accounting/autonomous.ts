@@ -5,6 +5,7 @@
 import { prisma } from '@/lib/prisma'
 import { recordCommitOnBranch } from './commit'
 import { nextEntryNumber } from './entryNumber'
+import { isAuthoritativeBankFeed, normalizeToProvisional } from '@/lib/fxSources'
 
 export interface AutonomousJournalInput {
   date: string
@@ -52,20 +53,29 @@ export async function createAutonomousJournal(input: AutonomousJournalInput) {
       createdBy: input.createdBy ?? null,
       sourcePdfPath: input.sourcePdfPath || null,
       lines: {
-        create: input.lines.map(l => ({
-          accountId: l.accountId,
-          debit: l.debit,
-          credit: l.credit,
-          description: l.description,
-          currency: l.currency || 'EUR',
-          fxRateToBase: l.fxRateToBase ?? null,
-          fxSource: l.fxSource || (l.fxRateToBase != null ? 'AI_AUTONOMOUS' : null),
-          fxDate: l.fxDate ? new Date(l.fxDate) : null,
-          taxRateId: l.taxRateId || null,
-          taxIsInput: typeof l.taxIsInput === 'boolean' ? l.taxIsInput : null,
-          contactId: l.contactId || null,
-          cleared: false,
-        })),
+        create: input.lines.map(l => {
+          const cur = (l.currency || 'EUR').toUpperCase()
+          let fxSource = l.fxSource || null
+          if (cur !== 'EUR' && !isAuthoritativeBankFeed(fxSource)) {
+            fxSource = normalizeToProvisional(fxSource)
+          } else if (!fxSource && l.fxRateToBase != null) {
+            fxSource = 'AI_AUTONOMOUS'
+          }
+          return {
+            accountId: l.accountId,
+            debit: l.debit,
+            credit: l.credit,
+            description: l.description,
+            currency: cur,
+            fxRateToBase: l.fxRateToBase ?? null,
+            fxSource,
+            fxDate: l.fxDate ? new Date(l.fxDate) : null,
+            taxRateId: l.taxRateId || null,
+            taxIsInput: typeof l.taxIsInput === 'boolean' ? l.taxIsInput : null,
+            contactId: l.contactId || null,
+            cleared: false,
+          }
+        }),
       },
     },
     include: {

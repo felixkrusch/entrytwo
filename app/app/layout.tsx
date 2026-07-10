@@ -6,7 +6,8 @@ import JournalEntriesPanel from './JournalEntriesPanel'
 import ReportsPanel from './ReportsPanel'
 import AuditLogPanel from './AuditLogPanel'
 import SummaryBar from './SummaryBar'
-import RecentFeedRates from './RecentFeedRates'
+import PendingFxPanel from './PendingFxPanel'
+import LatestRealRates from './LatestRealRates'
 import NewJournalEntryModal from './NewJournalEntryModal'
 import TopBar from './TopBar'
 import { NewEntryProvider, useNewEntry } from './NewEntryContext'
@@ -236,13 +237,24 @@ function AppContent({ children }: { children: ReactNode }) {
                     </ErrorBoundary>
                   </div>
 
-                  {/* Chart of Accounts, P&L, Templates and Bank Feed Import have moved to their own
+                  {/* Chart of Accounts, P&L, Templates and Processor Feeds have moved to their own
                       dedicated pages (see top nav + Admin). The dashboard is now a focused summary. */}
 
-                  <div className="lg:col-span-3 xl:col-span-6">
-                    <ErrorBoundary><RecentFeedRates /></ErrorBoundary>
-                  </div>
-                </div>
+                    {/* Latest real rates used — calm, read-only (replaces old technical "Recent authoritative feed rates" button) */}
+                    <div className="lg:col-span-3 xl:col-span-6">
+                      <ErrorBoundary>
+                        <LatestRealRates />
+                      </ErrorBoundary>
+                    </div>
+
+                    {/* Pending FX provisional items - first class on dashboard */}
+                   <div className="lg:col-span-3 xl:col-span-6">
+                     <div className="text-sm font-medium text-zinc-300 mb-2">Pending FX (provisional rates)</div>
+                     <ErrorBoundary>
+                       <PendingFxPanel />
+                     </ErrorBoundary>
+                   </div>
+                 </div>
               </>
             )}
 
