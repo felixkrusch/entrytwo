@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { isAuthoritativeBankFeed, normalizeToProvisional } from '@/lib/fxSources'
+import { getProvisionalFxQuote } from '@/lib/fx'
 
 export type JournalLineInput = {
   accountCode?: string
@@ -37,7 +38,22 @@ export async function validateJournalIntent(params: unknown, _branch: string): P
   }
 
   const lines = p.lines as JournalLineInput[]
-  const hasFx = lines.some((l) => l.currency && l.currency.toUpperCase() !== 'EUR' && l.fxRateToBase != null)
+  const entryDate = (params as { date?: string } | null)?.date || new Date().toISOString().slice(0, 10)
+
+  for (const line of lines) {
+    const cur = (line.currency || 'EUR').toUpperCase()
+    if (cur === 'EUR') continue
+    const suppliedRate = Number(line.fxRateToBase)
+    if (Number.isFinite(suppliedRate) && suppliedRate > 0) continue
+
+    const quote = await getProvisionalFxQuote(cur, line.fxDate || entryDate)
+    if (!quote) {
+      return { ok: false, error: `No provisional FX rate is available for ${cur} on ${line.fxDate || entryDate}` }
+    }
+    line.fxRateToBase = quote.fxRateToBase
+    line.fxSource = quote.fxSource
+    line.fxDate = quote.date
+  }
 
   let totalDebitBase = 0
   let totalCreditBase = 0
@@ -50,12 +66,14 @@ export async function validateJournalIntent(params: unknown, _branch: string): P
     totalDebitRaw += d
     totalCreditRaw += c
 
-    const rate = (l.fxRateToBase != null && !isNaN(Number(l.fxRateToBase))) ? Number(l.fxRateToBase) : 1
+    const cur = (l.currency || 'EUR').toUpperCase()
+    const rate = cur === 'EUR' ? 1 : Number(l.fxRateToBase)
     totalDebitBase += d * rate
     totalCreditBase += c * rate
   }
 
-  const balanced = hasFx
+  const hasForeignCurrency = lines.some((l) => (l.currency || 'EUR').toUpperCase() !== 'EUR')
+  const balanced = hasForeignCurrency
     ? Math.abs(totalDebitBase - totalCreditBase) <= 0.01
     : Math.abs(totalDebitRaw - totalCreditRaw) <= 0.01
 

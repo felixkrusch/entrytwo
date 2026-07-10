@@ -59,7 +59,10 @@ export async function replayToPoint(
       const debit = Number(line.debit)
       const credit = Number(line.credit)
       const cur = (line.currency || 'EUR').toUpperCase()
-      const rate = line.fxRateToBase != null ? Number(line.fxRateToBase) : 1
+      const rate = cur === 'EUR' ? 1 : Number(line.fxRateToBase)
+      if (!Number.isFinite(rate) || rate <= 0) {
+        throw new Error(`Cannot replay foreign-currency line without a valid FX rate (${cur})`)
+      }
       const baseD = cur === 'EUR' ? debit : debit * rate
       const baseC = cur === 'EUR' ? credit : credit * rate
       if (!balances[code]) balances[code] = { base: 0, native: 0, currency: cur }
@@ -102,7 +105,10 @@ export async function replayToPoint(
     const d = Number(line.debit)
     const c = Number(line.credit)
     const cur = (line.currency || 'EUR').toUpperCase() // note: journalLine may not have currency on line in some schemas; safe default
-    const rate = (line as { fxRateToBase?: unknown }).fxRateToBase != null ? Number((line as { fxRateToBase?: unknown }).fxRateToBase) : 1
+    const rate = cur === 'EUR' ? 1 : Number((line as { fxRateToBase?: unknown }).fxRateToBase)
+    if (!Number.isFinite(rate) || rate <= 0) {
+      throw new Error(`Cannot replay foreign-currency line without a valid FX rate (${cur})`)
+    }
     const baseD = cur === 'EUR' ? d : d * rate
     const baseC = cur === 'EUR' ? c : c * rate
 

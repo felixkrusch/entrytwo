@@ -129,7 +129,10 @@ function toBase(line: { currency?: string | null; fxRateToBase?: unknown }, amou
   const cur = (line.currency || baseCurrency).toUpperCase()
   if (cur === baseCurrency.toUpperCase()) return amount
   const rate = line.fxRateToBase != null ? Number(line.fxRateToBase) : null
-  return rate != null && isFinite(rate) ? amount * rate : amount
+  if (rate == null || !isFinite(rate) || rate <= 0) {
+    throw new Error(`Cannot report foreign-currency line without a valid FX rate (${cur})`)
+  }
+  return amount * rate
 }
 
 function baseDelta(type: string, baseDebit: number, baseCredit: number): number {

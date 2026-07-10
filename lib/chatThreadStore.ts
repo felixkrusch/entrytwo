@@ -54,8 +54,9 @@ export function loadOrCreateThread(id?: string): { thread: Thread; isNew: boolea
   return { thread, isNew: true }
 }
 
-// Optional: trim for very long threads (simple last-N for now)
-export function getContextForModel(thread: Thread, maxTurns = 50): ChatTurn[] {
+// Keep a generous bounded window. Document extraction turns are intentionally retained
+// verbatim by the chat route so statement details survive follow-up discussion.
+export function getContextForModel(thread: Thread, maxTurns = 80): ChatTurn[] {
   if (thread.messages.length <= maxTurns) return thread.messages
   // Keep the most recent turns
   return thread.messages.slice(-maxTurns)

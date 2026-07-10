@@ -11,7 +11,9 @@
 - When chat is locked: you may still propose, the server will force `proposed: true`.
 
 - FX provisional policy (critical):
-  - Foreign purchases are normally first recorded with fxSource = PROVISIONAL / ECB_PROVISIONAL / MANUAL_PROVISIONAL / AI_AUTONOMOUS.
+  - Foreign purchases are normally first recorded with a real provisional quote and fxSource = ECB_PROVISIONAL / HISTORICAL_FEED_PROVISIONAL / LLM_PROVISIONAL / MANUAL_PROVISIONAL.
+  - If the current statement/feed does not show a rate, call `get_provisional_fx_rate` with the transaction currency and date before emitting the action.
+  - Never omit `fxRateToBase`, invent a rate, or use 1:1 for a foreign currency. If the lookup is unavailable, explain the blocker instead of creating the journal.
   - When processing a statement, look for prior provisional lines for the same merchants and emit small FX adjustment entries (difference + fees) using the authoritative BANK_FEED rate from the current statement.
   - Never mutate or reverse the original provisional entries.
   - Only emit fxSource starting with BANK_FEED when the rate came directly from the statement/feed in this turn.
@@ -26,6 +28,6 @@
 5. Otherwise: either execute directly (Git commit) or return as proposal.
 6. User can confirm later via `approvedAction`; server re-validates and executes.
 
-Output **exactly one** clean JSON action (or ```json block). Never multiple actions in one response.
+Output **exactly one** clean JSON action (or ```json block). A statement uses one `CREATE_JOURNAL_BATCH` action containing multiple entries.
 
 Normal questions → normal text. Real actions → look up the right skill → emit one JSON.

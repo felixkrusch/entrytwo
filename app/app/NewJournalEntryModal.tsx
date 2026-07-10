@@ -6,7 +6,7 @@ import type { NewEntrySuggestion } from './NewEntryContext'
 import { useTranslations, useFormatter } from 'next-intl'
 import { getTaxDirection } from '@/lib/taxDirection'
 import toast from 'react-hot-toast'
-import { isAuthoritativeBankFeed, normalizeToProvisional } from '@/lib/fxSources'
+import { isAuthoritativeBankFeed } from '@/lib/fxSources'
 
 interface Account {
   id: string
@@ -268,11 +268,20 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
         currency: nextCur,
       }
       if (prevCur !== nextCur) {
-        // Clear FX so user must explicitly choose rate or leave pending for the new currency.
-        // LLM_PROVISIONAL is the default when model provides it.
         newLines[index].fxRateToBase = undefined
         newLines[index].fxSource = 'LLM_PROVISIONAL'
         newLines[index].fxDate = undefined
+        if (nextCur !== 'EUR') {
+          void fetch(`/api/fx?currency=${encodeURIComponent(nextCur)}&date=${encodeURIComponent(date)}`)
+            .then(r => r.json())
+            .then((quote: { fxRateToBase?: number | null; source?: string; date?: string }) => {
+              if (!quote.fxRateToBase) return
+              setLines(current => current.map((line, lineIndex) => lineIndex === index && line.currency === nextCur
+                ? { ...line, fxRateToBase: quote.fxRateToBase || undefined, fxSource: quote.source || 'ECB_PROVISIONAL', fxDate: quote.date || date }
+                : line))
+            })
+            .catch(() => {})
+        }
       }
     } else {
       newLines[index] = { ...newLines[index], [field]: value }
@@ -314,10 +323,6 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
       setLines(lines.filter((_, i) => i !== index))
     }
   }
-
-  // NO auto-fetch of FX rates on open.
-  // FX rates for foreign currency must be explicitly chosen by user or come from BANK_FEED.
-  // See docs/FX-Provisional-Rates-FX-Adjustments-Implementation.md
 
   useEffect(() => {
     if (!isOpen || !initialSuggestion) return
@@ -432,9 +437,11 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
 
   if (!isOpen) return null
 
-  const totalDebits = lines.reduce((sum, l) => sum + (l.debit || 0), 0)
-  const totalCredits = lines.reduce((sum, l) => sum + (l.credit || 0), 0)
-  const isBalanced = totalDebits === totalCredits && totalDebits > 0
+  const toBase = (amount: number, currency: string, rate?: number) =>
+    currency.toUpperCase() === 'EUR' ? amount : (rate ? amount * rate : Number.NaN)
+  const totalDebits = lines.reduce((sum, l) => sum + toBase(l.debit || 0, l.currency || 'EUR', l.fxRateToBase), 0)
+  const totalCredits = lines.reduce((sum, l) => sum + toBase(l.credit || 0, l.currency || 'EUR', l.fxRateToBase), 0)
+  const isBalanced = Number.isFinite(totalDebits) && Number.isFinite(totalCredits) && Math.abs(totalDebits - totalCredits) <= 0.005 && totalDebits > 0
 
   const handleSubmit = async () => {
     setError('')
@@ -598,8 +605,8 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-3xl p-6 text-white">
+    <section className="w-full text-white" aria-label="Journal entry proposal">
+      <div className="border border-zinc-700 bg-zinc-950/40 rounded-xl p-6">
         <div className="flex justify-between items-center mb-6">
           <div>
             <h2 className="text-xl font-semibold">{t('title')}</h2>
@@ -1080,6 +1087,6 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
             </button>
           </div>
       </div>
-    </div>
+    </section>
   )
 }

@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { generateText, tool, stepCountIs, type ModelMessage, uploadFile } from 'ai'
-import { xai, createXai } from '@ai-sdk/xai'
+import { createXai } from '@ai-sdk/xai'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { getLlmConfig, createLlmModel } from '@/lib/llm'
@@ -16,11 +16,12 @@ import {
 import { isSafeAutonomous } from '@/lib/chat/intent'
 import { createAutonomousJournal } from '@/lib/accounting/autonomous'
 import { EventType } from '@prisma/client'
-import { writeFile, mkdir } from 'fs/promises'
+import { writeFile, mkdir, readFile } from 'fs/promises'
 import { join } from 'path'
 import { loadOrCreateThread, appendToThread, getContextForModel } from '@/lib/chatThreadStore'
 import { loadSkill } from '@/lib/skills'
 import { normalizeToProvisional } from '@/lib/fxSources'
+import { getProvisionalFxQuote } from '@/lib/fx'
 
 /**
  * Trillion chat (thread context + Grok skills on demand).
@@ -36,7 +37,29 @@ import { normalizeToProvisional } from '@/lib/fxSources'
   // Extraction helper: the model now reasons freely (generateText + full history).
   // When it wants to act, it emits one clean JSON action (or inside a ```json fence).
   // We extract it here. Server validation + policy still apply.
-  type Extracted = { action: ActionType; params?: Record<string, unknown>; confidence?: number; reasoning?: string }
+type Extracted = { action: ActionType; params?: Record<string, unknown>; confidence?: number; reasoning?: string }
+
+function mimeTypeForPath(path: string): string {
+  const lower = path.toLowerCase()
+  if (lower.endsWith('.pdf')) return 'application/pdf'
+  if (lower.endsWith('.png')) return 'image/png'
+  if (lower.endsWith('.webp')) return 'image/webp'
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg'
+  if (lower.endsWith('.csv')) return 'text/csv'
+  return 'application/octet-stream'
+}
+
+async function readSavedAttachment(savedPath: string): Promise<Buffer> {
+  const publicPrefix = '/uploads/receipts/'
+  if (!savedPath.startsWith(publicPrefix)) return Buffer.alloc(0)
+  const filename = savedPath.slice(publicPrefix.length)
+  if (!filename || filename.includes('/') || filename.includes('\\') || filename.includes('..')) return Buffer.alloc(0)
+  try {
+    return await readFile(join(process.cwd(), 'public', 'uploads', 'receipts', filename))
+  } catch {
+    return Buffer.alloc(0)
+  }
+}
   function tryExtractAction(text: string): Extracted | null {
   if (!text) return null
 
@@ -112,7 +135,8 @@ When you need to create or change records (journal, contact, invoice, etc.):
 
 Special case — bank and credit card **statements** (PDF uploads or pasted HTML tables from the bank website):
 - When the user attaches a bank/credit card statement PDF or pastes an HTML/table of transactions, first call get_skill("extract-bank-statement").
-- Extract individual transactions + explicit fee lines.
+- Extract every transaction. Emit one CREATE_JOURNAL_BATCH whose entries array contains exactly one balanced journal entry per statement transaction.
+- Keep an FX/conversion fee in the same entry as its transaction. Standalone bank fees and card payments are their own entries.
 - Capture any FX/conversion rates shown on the statement itself.
 - For resulting journal lines, set fxSource starting with "BANK_FEED:statement:" (e.g. "BANK_FEED:statement:visa-1234-2026-06", "mastercard-...", bank name).
 - When a PDF was attached this turn, set sourcePdfPath on the journal entry.
@@ -126,6 +150,7 @@ Otherwise just answer normally in clear text.
 Bank/credit card feed rates (including from uploaded or pasted statements) are authoritative for FX when available.
 Recent feed rates shown below are historical reference only — new entries must be marked PROVISIONAL (ECB_PROVISIONAL / PROVISIONAL / MANUAL_PROVISIONAL) unless the rate came directly from the current statement/feed context.
 Never emit fxSource starting with BANK_FEED unless the rate truly came from a feed line in this turn.
+For foreign transactions without a statement/feed rate, call get_provisional_fx_rate. Never omit the rate and never assume 1:1.
 Never mutate master data (accounts, tax rates, settings, users) from chat.
 Normal conversation → normal text. Real actions → look up the skill if needed → one JSON action object.
 `.trim()
@@ -179,11 +204,12 @@ export async function POST(req: NextRequest) {
       for (const [key, val] of form.entries()) {
         if (typeof key === 'string' && key.startsWith('savedPath_') && typeof val === 'string') {
           if (!attachedFiles.some(a => a.savedPath === val)) {
+            const buffer = await readSavedAttachment(val)
             attachedFiles.push({
               name: val.split('/').pop() || 'receipt',
-              buffer: Buffer.alloc(0),
+              buffer,
               savedPath: val,
-              mimeType: 'application/octet-stream',
+              mimeType: mimeTypeForPath(val),
             })
           }
         }
@@ -311,15 +337,18 @@ export async function POST(req: NextRequest) {
 
     // Record the new user message on the server thread.
     if (userMessage || attachedFiles.length > 0) {
+      const attachmentContext = attachedFiles.length
+        ? `\n\nAttachments available in this turn:\n${attachedFiles.map(file => `- ${file.name} (${file.savedPath})`).join('\n')}\nKeep these documents and their extracted facts in context for follow-up questions.`
+        : ''
       appendToThread(thread.id, {
         role: 'user',
-        content: userMessage || (attachedFiles.length ? '[attachment(s)]' : '')
+        content: `${userMessage || 'Please inspect the attached document(s).'}` + attachmentContext,
       })
     }
 
     // Build a sane context window for this LLM call.
     // Real systems do NOT send the entire ever-growing history on every request.
-    const contextTurns = getContextForModel(thread, 40)
+    const contextTurns = getContextForModel(thread, 80)
 
     // Prepare messages for the model.
     // - Images: use vision parts (works today).
@@ -376,6 +405,18 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    const getProvisionalFxRateTool = tool({
+      description: 'Look up a provisional FX rate to the EUR base currency for a foreign transaction. Use this whenever the current document/feed does not provide an authoritative conversion rate. Never assume 1:1.',
+      inputSchema: z.object({
+        currency: z.string().length(3),
+        date: z.string().optional().describe('Transaction date in YYYY-MM-DD format.'),
+      }),
+      execute: async ({ currency, date }) => {
+        const quote = await getProvisionalFxQuote(currency, date)
+        return quote || { error: `No provisional FX rate available for ${currency.toUpperCase()}${date ? ` on ${date}` : ''}` }
+      },
+    })
+
     // Call the model with the windowed context + tools.
     // The model decides when to call get_skill (like web search).
     let assistantText = ''
@@ -386,8 +427,9 @@ export async function POST(req: NextRequest) {
         messages: llmMessages as ModelMessage[],
         tools: {
           get_skill: getSkillTool,
+          get_provisional_fx_rate: getProvisionalFxRateTool,
         },
-        stopWhen: stepCountIs(5),
+        stopWhen: stepCountIs(12),
       })
       assistantText = text || ''
     } catch (e: unknown) {
@@ -403,7 +445,9 @@ export async function POST(req: NextRequest) {
       // Persist a compact record of the decision on the thread.
       appendToThread(thread.id, {
         role: 'assistant',
-        content: extracted.reasoning || `Action: ${extracted.action}`
+        // Keep the full structured result so later turns retain extracted transactions,
+        // FX rates, fees, account choices, and document provenance.
+        content: assistantText,
       })
 
       const action = extracted.action as ActionType
@@ -432,8 +476,7 @@ export async function POST(req: NextRequest) {
         // and preserve user-provided sourcePdfPath for provenance.
         const msgLower = (userMessage || '').toLowerCase()
         const hasStatementFile = attachedFiles.some(f =>
-          (f.mimeType || '').toLowerCase().includes('pdf') ||
-          /statement|visa|mastercard|amex|credit.?card/i.test(f.name || '')
+          /statement|visa|mastercard|amex|credit.?card|bank.?account/i.test(f.name || '')
         )
         const looksLikeStatement = hasStatementFile ||
           /statement|visa|mastercard|amex.*statement|credit card|bank statement/i.test(msgLower)
@@ -453,6 +496,15 @@ export async function POST(req: NextRequest) {
             }
             return ln
           })
+        }
+      }
+
+
+      if (action === 'CREATE_JOURNAL_BATCH') {
+        const p = params as { sourcePdfPath?: string | null; entries?: Array<Record<string, unknown>> }
+        if (!p.sourcePdfPath && attachedFiles[0]?.savedPath) p.sourcePdfPath = attachedFiles[0].savedPath
+        if (Array.isArray(p.entries)) {
+          p.entries = p.entries.map((entry) => ({ ...entry, sourcePdfPath: entry.sourcePdfPath || p.sourcePdfPath }))
         }
       }
 
@@ -479,6 +531,25 @@ export async function POST(req: NextRequest) {
         validationOk = v.ok
         validationError = v.error
         if (v.resolvedLines) resolved.lines = v.resolvedLines
+      } else if (action === 'CREATE_JOURNAL_BATCH') {
+        const batch = params as { entries?: Array<Record<string, unknown>>; sourcePdfPath?: string }
+        if (!Array.isArray(batch.entries) || batch.entries.length === 0) {
+          validationOk = false
+          validationError = 'Statement batch must contain at least one transaction entry'
+        } else {
+          const resolvedEntries: Array<Record<string, unknown>> = []
+          for (let i = 0; i < batch.entries.length; i++) {
+            const entry = batch.entries[i]
+            const v = await validateJournalIntent(entry, branch)
+            if (!v.ok || !v.resolvedLines) {
+              validationOk = false
+              validationError = `Statement transaction ${i + 1}: ${v.error || 'invalid journal'}`
+              break
+            }
+            resolvedEntries.push({ ...entry, sourcePdfPath: entry.sourcePdfPath || batch.sourcePdfPath, lines: v.resolvedLines })
+          }
+          if (validationOk) resolved.entries = resolvedEntries
+        }
       } else if (action === 'CREATE_CONTACT' || action === 'UPDATE_CONTACT') {
         const v = await validateContactIntent(params)
         validationOk = v.ok
@@ -515,6 +586,8 @@ export async function POST(req: NextRequest) {
           proposalText = `Create contact "${params.name}"?`
         } else if (action === 'CREATE_JOURNAL') {
           proposalText = `Create this journal entry?`
+        } else if (action === 'CREATE_JOURNAL_BATCH') {
+          proposalText = `Create ${(params as { entries?: unknown[] }).entries?.length || 0} statement journal entries?`
         }
 
         const proposalResponse: any = {
@@ -614,9 +687,8 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
         fxSource = l.fxSource
       }
 
-      // If this came from a statement context (sourcePdfPath or obvious statement fx), force the prefix
-      const looksLikeStatement = p.sourcePdfPath ||
-        (l.fxSource && /statement/i.test(l.fxSource)) ||
+      // An attachment alone is not a statement. Only explicit statement metadata may become authoritative.
+      const looksLikeStatement = (l.fxSource && /statement/i.test(l.fxSource)) ||
         /statement|visa|mastercard|amex|credit card/i.test((p.description || '').toLowerCase())
 
       if (looksLikeStatement && (!fxSource || !fxSource.startsWith('BANK_FEED:statement'))) {
@@ -665,6 +737,31 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
       action,
       response: `Created autonomously: ${created.description || 'Journal entry'}`,
       entityId: created.id,
+      branch,
+      createdAutonomously: true,
+      sourcePdfPath: p.sourcePdfPath || null,
+    }
+  }
+
+
+  if (action === 'CREATE_JOURNAL_BATCH') {
+    const p = params as { sourcePdfPath?: string | null; entries?: Array<Record<string, unknown>> }
+    const entries = Array.isArray(p.entries) ? p.entries : []
+    if (entries.length === 0) throw new Error('Statement batch must contain at least one transaction')
+
+    const created: string[] = []
+    for (const entry of entries) {
+      const result = await executeAction('CREATE_JOURNAL', {
+        ...entry,
+        sourcePdfPath: entry.sourcePdfPath || p.sourcePdfPath,
+      }, ctx)
+      if (result.entityId) created.push(result.entityId)
+    }
+    return {
+      executed: true,
+      action,
+      response: `Created ${created.length} journal entries from the statement`,
+      entityIds: created,
       branch,
       createdAutonomously: true,
       sourcePdfPath: p.sourcePdfPath || null,

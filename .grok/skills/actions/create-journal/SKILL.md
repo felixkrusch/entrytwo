@@ -26,7 +26,8 @@ Use this when the user wants to record a journal entry.
 
 **Rule:** For new foreign-currency lines, fxSource must be:
 - "BANK_FEED:..." only when the rate truly came from a live statement/feed in this turn.
-- Otherwise use "PROVISIONAL", "ECB_PROVISIONAL", "MANUAL_PROVISIONAL".
+- Otherwise call `get_provisional_fx_rate` for the currency and transaction date, then use its exact `fxRateToBase`, `fxSource`, and `date`.
+- Never omit the rate, invent it, or let a foreign amount fall back to 1:1. If no quote is available, do not emit the action.
 
 Example of a new entry with provisional rate:
 

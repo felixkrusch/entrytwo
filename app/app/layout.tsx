@@ -32,7 +32,7 @@ interface Account {
 }
 
 function AppContent({ children }: { children: ReactNode }) {
-  const { isOpen, suggestion, closeNewEntry, openNewEntry } = useNewEntry()
+  const { isOpen, suggestion, closeNewEntry } = useNewEntry()
   const t = useTranslations('app.toasts')
   const router = useRouter()
   const pathname = usePathname()
@@ -148,12 +148,21 @@ function AppContent({ children }: { children: ReactNode }) {
       </div>
 
       <div className="flex flex-1 min-h-0">
-        <div className="no-print w-2/5 border-r border-zinc-800 flex flex-col">
+        <div className={`no-print w-full md:w-2/5 border-r border-zinc-800 flex-col ${isOpen ? 'hidden md:flex' : 'flex'}`}>
           {children}
         </div>
 
-        <div className="flex-1 p-6 overflow-auto bg-zinc-900">
+        <div className={`${isOpen ? 'block' : 'hidden md:block'} flex-1 p-4 md:p-6 overflow-auto bg-zinc-900`}>
           <div className="max-w-5xl mx-auto space-y-8">
+            {isOpen ? (
+              <NewJournalEntryModal
+                isOpen={isOpen}
+                onClose={closeNewEntry}
+                onSuccess={handleModalSuccess}
+                initialSuggestion={suggestion}
+              />
+            ) : (
+              <>
             {/* Persistent view indicator for Git model (branch / asOf) — shown on dashboard and ledger */}
             <ErrorBoundary>
               <BooksViewIndicator />
@@ -351,16 +360,11 @@ function AppContent({ children }: { children: ReactNode }) {
                        </div>
                      </div>
                    )}
+              </>
+            )}
              </div>
         </div>
       </div>
-
-      <NewJournalEntryModal
-        isOpen={isOpen}
-        onClose={closeNewEntry}
-        onSuccess={handleModalSuccess}
-        initialSuggestion={suggestion}
-      />
 
       {/* Git Model for Accounting bootstrap (ensures main branch etc.) */}
       <GitModelBootstrap />

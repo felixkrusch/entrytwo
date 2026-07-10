@@ -10,6 +10,7 @@ import { z } from 'zod'
 export const ActionType = z.enum([
   // Safe autonomous (high confidence + validation passes -> execute)
   'CREATE_JOURNAL',
+  'CREATE_JOURNAL_BATCH',
   'APPLY_TEMPLATE',
   'CREATE_CONTACT',
   'UPDATE_CONTACT',
@@ -65,6 +66,11 @@ export const CreateJournalParams = z.object({
   date: z.string().optional(), // ISO or yyyy-mm-dd
   lines: z.array(JournalLine).min(2),
   merchant: z.string().optional(),
+})
+
+export const CreateJournalBatchParams = z.object({
+  sourcePdfPath: z.string().optional(),
+  entries: z.array(CreateJournalParams).min(1),
 })
 
 export const ContactParams = z.object({
@@ -148,6 +154,7 @@ export const IntentSchema = z.object({
   reasoning: z.string().optional(),
   params: z.union([
     CreateJournalParams,
+    CreateJournalBatchParams,
     ContactParams,
     InvoiceDraftParams,
     RecurringGenerateParams,
@@ -172,6 +179,7 @@ export type ChatIntent = z.infer<typeof IntentSchema>
 // ---------------------------------------------------------------------------
 export const SAFE_AUTONOMOUS_ACTIONS: ActionType[] = [
   'CREATE_JOURNAL',
+  'CREATE_JOURNAL_BATCH',
   'APPLY_TEMPLATE',
   'CREATE_CONTACT',
   'UPDATE_CONTACT',
@@ -231,6 +239,8 @@ export function getSchemaForAction(action: ActionType): z.ZodTypeAny | null {
   switch (action) {
     case 'CREATE_JOURNAL':
       return CreateJournalParams
+    case 'CREATE_JOURNAL_BATCH':
+      return CreateJournalBatchParams
     case 'CREATE_CONTACT':
     case 'UPDATE_CONTACT':
       return ContactParams

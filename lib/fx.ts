@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { isAuthoritativeBankFeed, normalizeToProvisional } from '@/lib/fxSources'
 
 // Very lightweight FX helper for Phase 0 multi-currency.
 // Priority:
@@ -13,9 +14,36 @@ let ecbCache: { date: string; rates: Record<string, number> } | null = null
 let ecbCacheTime = 0
 const CACHE_TTL = 1000 * 60 * 60 // 1 hour
 
-export async function getFxRateToBase(currency: string, date?: string | Date): Promise<number | null> {
+export type ProvisionalFxQuote = {
+  currency: string
+  date: string
+  fxRateToBase: number
+  fxSource: string
+}
+
+export async function getProvisionalFxQuote(currency: string, date?: string | Date): Promise<ProvisionalFxQuote | null> {
   const cur = (currency || 'EUR').toUpperCase()
-  if (cur === 'EUR') return 1
+  const targetDate = date ? new Date(date) : new Date()
+  const iso = targetDate.toISOString().slice(0, 10)
+  if (cur === 'EUR') return { currency: cur, date: iso, fxRateToBase: 1, fxSource: 'BASE' }
+
+  const quote = await getFxQuoteToBase(cur, targetDate)
+  if (!quote) return null
+
+  return {
+    currency: cur,
+    date: iso,
+    fxRateToBase: quote.fxRateToBase,
+    // Reusing any prior rate is only an estimate for this transaction, including a prior bank rate.
+    fxSource: isAuthoritativeBankFeed(quote.fxSource)
+      ? 'HISTORICAL_FEED_PROVISIONAL'
+      : normalizeToProvisional(quote.fxSource),
+  }
+}
+
+async function getFxQuoteToBase(currency: string, date?: string | Date): Promise<{ fxRateToBase: number; fxSource: string } | null> {
+  const cur = (currency || 'EUR').toUpperCase()
+  if (cur === 'EUR') return { fxRateToBase: 1, fxSource: 'BASE' }
 
   const targetDate = date ? new Date(date) : new Date()
 
@@ -37,7 +65,9 @@ export async function getFxRateToBase(currency: string, date?: string | Date): P
     if (lines.length > 0) {
       const best = lines[0]
       const rate = best.fxRateToBase != null ? Number(best.fxRateToBase) : null
-      if (rate && isFinite(rate) && rate > 0) return rate
+      if (rate && isFinite(rate) && rate > 0) {
+        return { fxRateToBase: rate, fxSource: best.fxSource || 'HISTORICAL_RATE' }
+      }
     }
   } catch {
     // ignore and fall through
@@ -76,7 +106,7 @@ export async function getFxRateToBase(currency: string, date?: string | Date): P
     if (ecbCache && ecbCache.rates[cur]) {
       const ecbForeignPerEur = ecbCache.rates[cur] // e.g. 1.08 for USD
       if (ecbForeignPerEur > 0) {
-        return 1 / ecbForeignPerEur
+        return { fxRateToBase: 1 / ecbForeignPerEur, fxSource: 'ECB_PROVISIONAL' }
       }
     }
   } catch {
@@ -84,6 +114,10 @@ export async function getFxRateToBase(currency: string, date?: string | Date): P
   }
 
   return null
+}
+
+export async function getFxRateToBase(currency: string, date?: string | Date): Promise<number | null> {
+  return (await getFxQuoteToBase(currency, date))?.fxRateToBase ?? null
 }
 
 // Convenience: given foreign amount + currency + optional date, return { baseAmount, fxRateToBase, fxSource, fxDate }
@@ -100,19 +134,19 @@ export async function convertToBase(
     return { baseAmount: foreignAmount, fxRateToBase: 1, fxSource: 'ECB', fxDate: iso }
   }
 
-  const rate = await getFxRateToBase(cur, d)
-  if (rate != null && isFinite(rate) && rate > 0) {
+  const quote = await getProvisionalFxQuote(cur, d)
+  if (quote) {
     return {
-      baseAmount: Math.round(foreignAmount * rate * 100) / 100,
-      fxRateToBase: rate,
-      fxSource: 'ECB',
+      baseAmount: Math.round(foreignAmount * quote.fxRateToBase * 100) / 100,
+      fxRateToBase: quote.fxRateToBase,
+      fxSource: quote.fxSource,
       fxDate: iso,
     }
   }
 
-  // No rate available → return the foreign amount as-is and let caller decide
+  // No rate available. NaN prevents callers from silently treating this as 1:1.
   return {
-    baseAmount: foreignAmount,
+    baseAmount: Number.NaN,
     fxRateToBase: null,
     fxSource: 'MANUAL',
     fxDate: iso,

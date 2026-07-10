@@ -6,6 +6,7 @@ import { recordCommitOnBranch } from '@/lib/accounting/commit'
 import { getVisibleJournalEntryIds, getVisibleJournalEntryIdsAtPoint } from '@/lib/accounting/ancestry'
 import { nextEntryNumber } from '@/lib/accounting/entryNumber'
 import { isAuthoritativeBankFeed, normalizeToProvisional } from '@/lib/fxSources'
+import { getProvisionalFxQuote } from '@/lib/fx'
 
 const createEntrySchema = z.object({
   date: z.string().refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid date format' }),
@@ -204,14 +205,20 @@ export async function POST(request: Request) {
 
     const entryDate = date
 
-    // FX policy: LLM_PROVISIONAL is the default for document-attached foreign lines.
-    // No auto-derivation. Only force LLM_PROVISIONAL when no authoritative source + no rate.
+    // Resolve missing foreign rates before balance checks. Never treat a foreign amount as base currency.
     for (const l of lines) {
       const cur = (l.currency || 'EUR').toUpperCase()
       if (cur === 'EUR') continue
-      const hasGoodSource = isAuthoritativeBankFeed(l.fxSource)
-      if (!hasGoodSource && l.fxRateToBase == null) {
-        l.fxSource = 'LLM_PROVISIONAL'
+      if (l.fxRateToBase == null) {
+        const quote = await getProvisionalFxQuote(cur, l.fxDate || entryDate)
+        if (!quote) {
+          return NextResponse.json({ error: `No provisional FX rate is available for ${cur}` }, { status: 400 })
+        }
+        l.fxRateToBase = quote.fxRateToBase
+        l.fxSource = quote.fxSource
+        l.fxDate = quote.date
+      } else if (!isAuthoritativeBankFeed(l.fxSource)) {
+        l.fxSource = normalizeToProvisional(l.fxSource)
       }
     }
 
@@ -219,7 +226,7 @@ export async function POST(request: Request) {
       const cur = (line.currency || 'EUR').toUpperCase()
       if (cur === 'EUR') return amount
       const rate = line.fxRateToBase != null ? Number(line.fxRateToBase) : null
-      return rate != null && isFinite(rate) ? amount * rate : amount
+      return rate != null && isFinite(rate) ? amount * rate : Number.NaN
     }
 
     const baseDebits = lines.reduce((sum, l) => sum + toBase(l, l.debit), 0)

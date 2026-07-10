@@ -30,6 +30,12 @@ type ProposalParams = {
   lines?: JournalLineInput[]
   description?: string
   sourcePdfPath?: string
+  entries?: Array<{
+    lines?: JournalLineInput[]
+    description?: string
+    date?: string
+    sourcePdfPath?: string
+  }>
 }
 
 interface ProposedAction {
@@ -337,6 +343,9 @@ export default function ChatPage() {
       const isCreateJournalProposal =
         d?.proposedAction?.type === 'CREATE_JOURNAL' ||
         (d?.proposed && (d?.action === 'CREATE_JOURNAL' || d?.proposedAction?.type === 'CREATE_JOURNAL'))
+      const isJournalBatchProposal =
+        d?.proposedAction?.type === 'CREATE_JOURNAL_BATCH' ||
+        (d?.proposed && d?.action === 'CREATE_JOURNAL_BATCH')
 
       if (!synthesizedSuggestion && isCreateJournalProposal) {
         const p = d.proposedAction?.params || d.params || d
@@ -441,6 +450,10 @@ export default function ChatPage() {
       if (isCreateJournalProposal && synthesizedSuggestion) {
         // small delay so the message appears first
         setTimeout(() => openNewEntry(synthesizedSuggestion), 80)
+      }
+
+      if (isJournalBatchProposal) {
+        setTimeout(() => router.push('/app?view=journal'), 80)
       }
 
       // Auto-switch the right panel for autonomous creates (contacts / invoices / journals)

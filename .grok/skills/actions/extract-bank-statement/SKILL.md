@@ -5,7 +5,7 @@ Use this when the user provides a bank or credit card **statement** (PDF upload 
 This is the primary path for credit cards (Visa, Mastercard, etc.) and most general bank statements.
 
 ## Goal
-Turn messy statement data (PDF or HTML paste) into one or more clean, balanced `CREATE_JOURNAL` actions with **authoritative BANK_FEED FX rates**.
+Turn messy statement data (PDF or HTML paste) into one `CREATE_JOURNAL_BATCH` action containing **exactly one balanced journal entry per statement transaction**.
 
 ## When to call this skill
 - User uploads a PDF bank/credit card statement.
@@ -13,25 +13,23 @@ Turn messy statement data (PDF or HTML paste) into one or more clean, balanced `
 - User says things like: "process my Visa statement", "here is the Mastercard for June", "extract these transactions".
 
 ## Exact output shape after studying this skill
-First call the skill, then emit **exactly one** JSON action (usually `CREATE_JOURNAL`, or multiple if you must).
+First call the skill, then emit exactly one `CREATE_JOURNAL_BATCH` JSON action. Never combine multiple statement transactions into one entry.
 
 ```json
 {
-  "action": "CREATE_JOURNAL",
+  "action": "CREATE_JOURNAL_BATCH",
   "params": {
-    "description": "Visa June 2026 statement",
-    "date": "2026-06-30",
     "sourcePdfPath": "/uploads/receipts/2026-...-statement.pdf",
-    "lines": [
+    "entries": [{
+      "description": "Office supplies - ACME",
+      "date": "2026-06-12",
+      "lines": [
       {
         "accountCode": "2100",
         "debit": 0,
         "credit": 84.50,
-        "description": "Office supplies - ACME",
-        "currency": "EUR",
-        "fxRateToBase": null,
-        "fxSource": "BANK_FEED:statement:visa-1234-2026-06",
-        "fxDate": "2026-06-12"
+        "description": "Visa liability",
+        "currency": "EUR"
       },
       {
         "accountCode": "5200",
@@ -40,7 +38,8 @@ First call the skill, then emit **exactly one** JSON action (usually `CREATE_JOU
         "description": "Office supplies - ACME",
         "currency": "EUR"
       }
-    ]
+      ]
+    }]
   },
   "confidence": 0.92,
   "reasoning": "Extracted from pasted Visa HTML table + PDF. FX rate taken from statement where shown."
@@ -58,7 +57,8 @@ First call the skill, then emit **exactly one** JSON action (usually `CREATE_JOU
 - Prefer the rate **shown on this document** over previous feeds or ECB.
 
 ### 2. Fees must be explicit
-- Foreign transaction fees, currency conversion fees, annual fees, etc. → separate lines.
+- Foreign transaction or conversion fee tied to a purchase → separate line in that transaction's entry.
+- Standalone annual/service fee → its own journal entry because it is its own statement transaction.
 - Do not bury fees inside the merchant amount.
 
 ### 3. Separate the "big payment" from merchant transactions
@@ -72,12 +72,13 @@ First call the skill, then emit **exactly one** JSON action (usually `CREATE_JOU
 
 ### 5. Date handling
 - Use the **transaction date** from the statement when available.
-- For the overall entry, you may use the statement period end date or the date of the payment line.
-- Be consistent.
+- Every entry in `entries` uses that transaction's date, not the statement period end date.
 
 ### 6. Multi-currency
 - Record original merchant currency + amount when shown.
 - Always provide `fxRateToBase` on the line that differs from base currency.
+- If the statement shows only original and billed amounts, derive `fxRateToBase = billed base amount / original foreign amount` and mark it with the statement BANK_FEED source.
+- If no statement conversion exists, call `get_provisional_fx_rate`; never assume 1:1.
 
 ### 7. Use real account codes
 - Only use codes that exist in the live balances shown this turn.
@@ -86,9 +87,11 @@ First call the skill, then emit **exactly one** JSON action (usually `CREATE_JOU
   - Bank account: 1010, 1000, etc.
   - Expense categories based on merchant (ask user only if truly ambiguous)
 
-### 8. Output exactly one action
-- After reading this skill, output **one** clean `CREATE_JOURNAL` (or the appropriate action).
-- Never output multiple top-level actions in one response.
+### 8. One transaction = one entry
+- Count all transaction rows, including purchases, refunds, payments, and standalone fees.
+- `params.entries.length` must equal that transaction count.
+- Each entry must balance independently in base currency. Never create one aggregate statement journal.
+- Output one top-level `CREATE_JOURNAL_BATCH` action only.
 
 ### 9. Provisional entries + FX adjustments (when real statement arrives later)
 Most foreign-currency purchases are first recorded on the transaction/invoice date using a clearly marked **provisional** rate:
@@ -98,7 +101,7 @@ Most foreign-currency purchases are first recorded on the transaction/invoice da
 When you receive a bank/credit card statement (PDF or pasted HTML):
 - Scan the live ledger context for prior journal lines that have the same or very similar merchant, same foreign currency, and a date within a few days.
 - For every such match:
-  - Create a **small FX adjustment entry** (2-4 lines) dated on the statement posting/settlement date.
+  - Add a **small FX adjustment entry** (2-4 lines) to the batch, dated on the statement posting/settlement date.
   - Use the **authoritative** rate and exact base amount from the current statement (fxSource must start with "BANK_FEED:statement:..." or the processor equivalent).
   - The adjustment records only the *difference* + any explicit fees.
   - Description must reference the original entry, e.g. "FX + fee adjustment for JE-2026-0042 - X.AI $30".
@@ -108,7 +111,7 @@ When you receive a bank/credit card statement (PDF or pasted HTML):
     Debit  FX / Card fees account          <fee amount> EUR
     Credit Card liability / clearing       <total delta> EUR
 - If the statement gives the exact charged base-currency amount, prefer that over foreignAmount × rate.
-- Output the authoritative statement lines (with proper BANK_FEED fxSource) AND the adjustment(s) as needed.
+- Output one entry per authoritative statement transaction, plus adjustment entries only when correcting separately recorded provisional purchases.
 - In the chat response text, mention that provisional entries were corrected via small adjustment(s).
 
 Rules:
@@ -135,6 +138,6 @@ Rules:
 - Do not treat the card payment as just another merchant credit.
 - Do not guess account codes that are not in the current live state.
 
-After studying this skill, look up `create-journal` if needed for the exact shape, then emit **one** clean JSON action.
+After studying this skill, emit one clean `CREATE_JOURNAL_BATCH` JSON action.
 
 Output exactly one action object.
