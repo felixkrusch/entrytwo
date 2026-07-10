@@ -24,6 +24,7 @@ services:
     volumes:
       - ./backups:/app/entrytwo/backups
       - ./logs:/app/entrytwo/logs
+      - ./uploads:/app/entrytwo/public/uploads
     depends_on:
       db:
         condition: service_healthy

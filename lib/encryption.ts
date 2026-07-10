@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'crypto'
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto'
 
 const ALGORITHM = 'aes-256-gcm'
 const IV_LENGTH = 16
@@ -72,4 +72,8 @@ export function decryptCredentials(ciphertext: string): Record<string, unknown> 
   } catch {
     return null
   }
+}
+
+export function encryptionKeyFingerprint(): string {
+  return createHash('sha256').update(getEncryptionKey()).digest('hex')
 }
