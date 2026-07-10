@@ -1,7 +1,7 @@
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 
-const SKILL_BASE = join(process.cwd(), '.grok', 'skills')
+const SKILL_BASE = join(/* turbopackIgnore: true */ process.cwd(), '.grok', 'skills')
 
 // Map logical skill names to filesystem locations under .grok/skills
 const SKILL_PATHS: Record<string, string[]> = {

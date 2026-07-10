@@ -68,7 +68,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   const [error, setError] = useState('')
   const [userConfirmed, setUserConfirmed] = useState(false)
   const [verificationWarnings, setVerificationWarnings] = useState<string[]>([])
-  const [attachedFile, setAttachedFile] = useState<{ name: string; savedPath: string } | null>(null)
+  const [attachedFiles, setAttachedFiles] = useState<Array<{ name: string; savedPath: string; path: string; originalName: string; mimeType: string; size: number; sha256: string }>>([])
   const [showPickExisting, setShowPickExisting] = useState(false)
   const [existingFiles, setExistingFiles] = useState<Array<{ name: string; url: string }>>([])
   const uploadRef = useRef<HTMLInputElement>(null)
@@ -366,7 +366,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   const handleClose = () => {
     setDescription('')
     setContactId('')
-    setAttachedFile(null)
+    setAttachedFiles([])
     setShowPickExisting(false)
     setExistingFiles([])
     setScheduleEnabled(false)
@@ -389,26 +389,24 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   }
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const lower = file.name.toLowerCase()
-    const ok = file.type === 'application/pdf' || file.type.startsWith('image/') || lower.endsWith('.pdf') || /\.(jpg|jpeg|png|webp)$/.test(lower)
-    if (!ok) {
-      toast.error('Please select a PDF or image file')
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    const valid = files.every(file => file.type === 'application/pdf' || file.type.startsWith('image/') || file.type === 'text/csv' || /\.(pdf|jpg|jpeg|png|webp|csv)$/i.test(file.name))
+    if (!valid) {
+      toast.error('Please select PDF, image, or CSV files')
       e.target.value = ''
       return
     }
     const form = new FormData()
-    form.append('file', file)
+    files.forEach(file => form.append('file', file))
     try {
       const res = await fetch('/api/invoices/process', { method: 'POST', body: form })
       const data = await res.json()
       if (!res.ok || !data?.saved?.length) {
         throw new Error('Upload failed')
       }
-      const saved = data.saved[0]
-      setAttachedFile({ name: file.name, savedPath: saved.savedPath })
-      toast.success('Attachment added')
+      setAttachedFiles(current => [...current, ...data.saved])
+      toast.success(`${data.saved.length} attachment(s) added`)
       setShowPickExisting(false)
       setExistingFiles([])
     } catch {
@@ -430,7 +428,9 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   }
 
   const pickExisting = (url: string, name: string) => {
-    setAttachedFile({ name, savedPath: url })
+    setAttachedFiles(current => current.some(file => file.savedPath === url) ? current : [...current, {
+      name, savedPath: url, path: url, originalName: name, mimeType: 'application/octet-stream', size: 0, sha256: 'legacy-unverified',
+    }])
     setShowPickExisting(false)
     toast.success('Attached existing file')
   }
@@ -505,6 +505,13 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
       const sp = new URLSearchParams(window.location.search)
       const branch = sp.get('branch') || 'main'
 
+      const stagedFiles: Array<{ name: string; savedPath: string }> = (typeof window !== 'undefined' && (window as any).__stagedReceipts) || []
+      const allAttachments = [...attachedFiles]
+      for (const staged of stagedFiles) {
+        if (!allAttachments.some(file => file.savedPath === staged.savedPath)) {
+          allAttachments.push({ name: staged.name, savedPath: staged.savedPath, path: staged.savedPath, originalName: staged.name, mimeType: 'application/octet-stream', size: 0, sha256: 'legacy-unverified' })
+        }
+      }
       const payload = {
         date,
         description: description || undefined,
@@ -513,9 +520,10 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
         // Otherwise pull from the global staged receipts so "pending receipt state" works for manual entries too.
         sourcePdfPath:
           (initialSuggestion as { sourcePdfPath?: string } | undefined)?.sourcePdfPath ||
-          attachedFile?.savedPath ||
-          (typeof window !== 'undefined' && (window as any).__stagedReceipts?.[0]?.savedPath) ||
+          attachedFiles[0]?.savedPath ||
+          stagedFiles[0]?.savedPath ||
           undefined,
+        attachments: allAttachments.map(file => ({ path: file.path || file.savedPath, originalName: file.originalName || file.name, mimeType: file.mimeType, size: file.size, sha256: file.sha256 })),
         lines: lines.map(l => ({
           accountId: l.accountId,
           debit: Number(l.debit),
@@ -711,9 +719,9 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                  </div>
                </div>
 
-              {attachedFile && (
-                <div className="mb-2 text-[11px] text-emerald-400">
-                  📎 {attachedFile.name} <button className="ml-2 text-zinc-500 hover:text-red-400" onClick={() => setAttachedFile(null)}>remove</button>
+              {attachedFiles.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-2 text-[11px] text-emerald-400">
+                  {attachedFiles.map(file => <span key={file.savedPath} className="rounded border border-emerald-900 px-2 py-1">{file.name} <button type="button" className="ml-2 text-zinc-500 hover:text-red-400" onClick={() => setAttachedFiles(current => current.filter(item => item.savedPath !== file.savedPath))}>remove</button></span>)}
                 </div>
               )}
 
@@ -729,6 +737,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                     <input
                       ref={uploadRef}
                       type="file"
+                      multiple
                       className="hidden"
                       accept="application/pdf,image/*,.pdf,.jpg,.jpeg,.png,.webp"
                       onChange={handleFileSelect}

@@ -6,7 +6,7 @@ import { createInterface } from 'readline'
 import { prisma } from '@/lib/prisma'
 import { encryptionKeyFingerprint } from '@/lib/encryption'
 
-export const BACKUP_VERSION = 2
+export const BACKUP_VERSION = 3
 export const BACKUP_EXTENSION = '.etbackup'
 export const BACKUP_CONTENT_TYPE = 'application/gzip'
 export const BACKUP_PAGE_SIZE = 1000
@@ -32,6 +32,7 @@ export const BACKUP_TABLES: TableDefinition[] = [
   { file: 'contacts', delegate: 'contact', orderBy: { id: 'asc' }, dateFields: ['vatValidatedAt', 'createdAt', 'updatedAt'] },
   { file: 'tax-rates', delegate: 'taxRate', orderBy: { id: 'asc' }, dateFields: ['effectiveFrom', 'effectiveTo', 'createdAt', 'updatedAt'] },
   { file: 'journal-entries', delegate: 'journalEntry', orderBy: { id: 'asc' }, dateFields: ['date', 'createdAt', 'updatedAt'] },
+  { file: 'journal-attachments', delegate: 'journalAttachment', orderBy: { id: 'asc' }, dateFields: ['createdAt'] },
   { file: 'journal-lines', delegate: 'journalLine', orderBy: { id: 'asc' }, dateFields: ['fxDate'] },
   { file: 'invoices', delegate: 'invoice', orderBy: { id: 'asc' }, dateFields: ['issueDate', 'dueDate', 'paidDate', 'createdAt', 'updatedAt'] },
   { file: 'invoice-lines', delegate: 'invoiceLine', orderBy: { id: 'asc' } },
@@ -48,7 +49,7 @@ export const BACKUP_TABLES: TableDefinition[] = [
 ]
 
 const DELETE_ORDER = [
-  'invoiceLine', 'feedTransaction', 'bankConnection', 'recurringInvoice', 'journalLine',
+  'invoiceLine', 'feedTransaction', 'bankConnection', 'recurringInvoice', 'journalAttachment', 'journalLine',
   'invoice', 'recurringJournalEntry', 'template', 'setting', 'agentMemory',
   'accountingBranch', 'snapshot', 'journalEntry', 'event', 'taxRate', 'contact', 'account', 'user',
 ]
@@ -103,6 +104,13 @@ export async function buildBackupDirectory(root: string, client: unknown = prism
         for (const record of page) {
           if (typeof record.sourcePdfPath === 'string' && record.sourcePdfPath.startsWith('/uploads/receipts/')) {
             referencedReceipts.add(record.sourcePdfPath.slice('/uploads/receipts/'.length))
+          }
+        }
+      }
+      if (table.delegate === 'journalAttachment') {
+        for (const record of page) {
+          if (typeof record.path === 'string' && record.path.startsWith('/uploads/receipts/')) {
+            referencedReceipts.add(record.path.slice('/uploads/receipts/'.length))
           }
         }
       }
@@ -183,6 +191,13 @@ export async function validateBackupDirectory(root: string): Promise<BackupManif
       if (typeof record.sourcePdfPath !== 'string' || !record.sourcePdfPath.startsWith('/uploads/receipts/')) continue
       const name = record.sourcePdfPath.slice('/uploads/receipts/'.length)
       if (!receiptNames.has(name)) throw new Error(`Backup is missing referenced receipt: ${name}`)
+    }
+  }
+  for await (const records of readNdjsonChunks(join(root, 'data', 'journal-attachments.ndjson'))) {
+    for (const record of records) {
+      if (typeof record.path !== 'string' || !record.path.startsWith('/uploads/receipts/')) continue
+      const name = record.path.slice('/uploads/receipts/'.length)
+      if (!receiptNames.has(name)) throw new Error(`Backup is missing referenced attachment: ${name}`)
     }
   }
   return manifest

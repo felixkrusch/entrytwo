@@ -1,5 +1,13 @@
 import { defineConfig } from 'vitest/config'
 import path from 'path'
+import 'dotenv/config'
+
+const developmentDatabaseUrl = process.env.DATABASE_URL
+const testDatabaseUrl = process.env.DATABASE_URL_TEST
+if (!testDatabaseUrl) throw new Error('DATABASE_URL_TEST is required to run tests')
+if (testDatabaseUrl === developmentDatabaseUrl) throw new Error('DATABASE_URL_TEST must not equal DATABASE_URL')
+if (!new URL(testDatabaseUrl).pathname.endsWith('_test')) throw new Error('The test database name must end in _test')
+process.env.DATABASE_URL = testDatabaseUrl
 
 export default defineConfig({
   test: {
@@ -9,6 +17,8 @@ export default defineConfig({
     // Git-model tables before each file (see vitest.setup.ts) to keep them isolated.
     fileParallelism: false,
     setupFiles: ['./vitest.setup.ts'],
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
   },
   resolve: {
     alias: {

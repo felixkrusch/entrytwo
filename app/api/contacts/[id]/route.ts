@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { requireUser } from '@/lib/authz'
+import { Prisma } from '@prisma/client'
 
 const ContactUpdateSchema = z.object({
   name: z.string().min(2).max(100).optional().nullable(),
@@ -23,6 +25,8 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await requireUser(['ADMIN', 'ACCOUNTANT'])
+  if (!session) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   const { id } = await params
   const body = await request.json()
   const parsed = ContactUpdateSchema.safeParse(body)
@@ -49,6 +53,7 @@ export async function PUT(
     })
 
     const entryCount = await prisma.journalLine.count({ where: { contactId: contact.id } })
+    await prisma.event.create({ data: { eventType: 'MANUAL_ADJUSTMENT', entityType: 'Contact', entityId: id, createdBy: session.user.id, payload: { action: 'CONTACT_UPDATED', changes: updateData as Prisma.InputJsonObject } } })
 
     return NextResponse.json({ ...contact, entryCount })
   } catch {
@@ -60,6 +65,8 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await requireUser(['ADMIN'])
+  if (!session) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   const { id } = await params
   try {
     const entryCount = await prisma.journalLine.count({ where: { contactId: id } })
@@ -70,9 +77,10 @@ export async function DELETE(
       )
     }
 
-    await prisma.contact.delete({
+    const deleted = await prisma.contact.delete({
       where: { id },
     })
+    await prisma.event.create({ data: { eventType: 'MANUAL_ADJUSTMENT', entityType: 'Contact', entityId: id, createdBy: session.user.id, payload: { action: 'CONTACT_DELETED', name: deleted.name } } })
 
     return NextResponse.json({ success: true })
   } catch {

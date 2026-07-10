@@ -33,6 +33,7 @@ enum EventType {
   ROLLBACK
   RECONCILIATION_RUN
   AI_AUTONOMOUS_ENTRY
+  JOURNAL_ATTACHMENT_ADDED
 }
 
 enum Role {
@@ -106,6 +107,26 @@ model JournalEntry {
   lines              JournalLine[]
   feedTransactions   FeedTransaction[]
   invoices           Invoice[]
+  attachments        JournalAttachment[]
+}
+
+model JournalAttachment {
+  id             String   @id @default(uuid())
+  journalEntryId String
+  path           String
+  originalName   String
+  mimeType       String
+  size           Int
+  sha256         String
+  source         String   @default("manual")
+  createdAt      DateTime @default(now())
+  createdBy      String?
+
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+
+  @@unique([journalEntryId, path])
+  @@index([journalEntryId])
+  @@index([path])
 }
 
 model JournalLine {

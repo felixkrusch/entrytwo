@@ -9,6 +9,7 @@ const KEY_LENGTH = 32
 function getEncryptionKey(): Buffer {
   const key = process.env.ENCRYPTION_KEY
   if (!key) {
+    if (process.env.NODE_ENV === 'production') throw new Error('ENCRYPTION_KEY is required in production')
     console.warn('ENCRYPTION_KEY not set - using insecure fallback')
     const secret = process.env.AUTH_SECRET || 'development-secret-fallback'
     const buf = Buffer.from(secret.slice(0, KEY_LENGTH))

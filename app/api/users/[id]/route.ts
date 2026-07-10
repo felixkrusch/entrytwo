@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { requireUser } from '@/lib/authz'
 
 const updateUserSchema = z.object({
   role: z.enum(['ADMIN', 'ACCOUNTANT', 'VIEWER']),
@@ -10,6 +11,8 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
+  const session = await requireUser(['ADMIN'])
+  if (!session) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   try {
     const { id } = await context.params
     const body = await request.json()
@@ -34,7 +37,7 @@ export async function PATCH(
           action: 'ROLE_CHANGED',
           email: user.email,
           newRole: role,
-        },
+        }, createdBy: session.user.id,
       },
     })
 
@@ -48,6 +51,8 @@ export async function DELETE(
   _request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
+  const session = await requireUser(['ADMIN'])
+  if (!session) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   try {
     const { id } = await context.params
     const user = await prisma.user.delete({ where: { id } })
@@ -60,7 +65,7 @@ export async function DELETE(
         payload: {
           action: 'USER_DELETED',
           email: user.email,
-        },
+        }, createdBy: session.user.id,
       },
     })
 

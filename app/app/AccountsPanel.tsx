@@ -25,6 +25,7 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
   const t = useTranslations('app.panels.accounts')
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
 
   // Phase 2: search + collapsible groups
   const [search, setSearch] = useState('')
@@ -55,15 +56,19 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
 
   const fetchAccounts = async () => {
     setLoading(true)
+    setLoadError('')
     try {
       const params = new URLSearchParams()
       if (branch) params.set('branch', branch)
       if (asOf) params.set('asOf', asOf)
       const res = await fetch(`/api/accounts?${params.toString()}`)
       const data = await res.json()
-      if (Array.isArray(data)) setAccounts(data)
-    } catch {
-      // ignore
+      if (!res.ok) throw new Error(data.error || 'Failed to load chart of accounts')
+      if (!Array.isArray(data)) throw new Error('Invalid chart of accounts response')
+      setAccounts(data)
+    } catch (fetchError) {
+      setAccounts([])
+      setLoadError(fetchError instanceof Error ? fetchError.message : 'Failed to load chart of accounts')
     } finally {
       setLoading(false)
     }
@@ -195,6 +200,8 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
 
       {loading ? (
         <div className="text-zinc-500 text-sm">{t('loading')}</div>
+      ) : loadError ? (
+        <div className="rounded border border-rose-900/50 bg-rose-950/20 p-3 text-sm text-rose-300">{loadError}</div>
       ) : accounts.length === 0 ? (
         <div className="text-zinc-500 text-sm">{t('noAccounts')}</div>
       ) : (

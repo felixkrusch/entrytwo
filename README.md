@@ -40,11 +40,7 @@ On a fresh database, create the first **ADMIN** user (bootstrap flow).
 
 - [docs/SETUP.md](./docs/SETUP.md) – Setup, environment, seeding, first admin, Docker, troubleshooting
 - [docs/Git-Model-for-Accounting.md](./docs/Git-Model-for-Accounting.md) — **Foundational philosophy** (read this first).
-- [docs/Master-Specialist-LLM-Architecture.md](./docs/Master-Specialist-LLM-Architecture.md) — LLM chat architecture.
-- [docs/Detailed-Data-Model-Prisma-Schema.md](./docs/Detailed-Data-Model-Prisma-Schema.md)
-- [docs/Security-Compliance.md](./docs/Security-Compliance.md)
-- [docs/Stripe-PayPal-Bank-Feeds.md](./docs/Stripe-PayPal-Bank-Feeds.md) — Reliable structured processing for Stripe and PayPal.
-- [docs/Statement-Uploads-BANK_FEED-Sources.md](./docs/Statement-Uploads-BANK_FEED-Sources.md) — PDF statements and pasted HTML tables from banks/credit cards as authoritative `BANK_FEED` sources (primary path for most banks and Visa/Mastercard statements). The LLM extracts structure from chaos.
+- [docs/Self-Hosted-Update-Delivery.md](./docs/Self-Hosted-Update-Delivery.md) — Signed self-hosted release and update architecture.
 
 ---
 

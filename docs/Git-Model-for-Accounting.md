@@ -202,11 +202,12 @@ If we ever build features that force the user back into manual ticking and drudg
 
 ---
 
-## 9. Related Documents (Must Stay Consistent)
+## 9. Authoritative Sources
 
-- `docs/Detailed-Data-Model-Prisma-Schema.md`
-- `docs/Master-Specialist-LLM-Architecture.md` (current chat/LLM architecture)
-- Any future design docs that are actively maintained.
+- `prisma/schema.prisma` is the current data-model authority.
+- `.grok/skills/` contains the current LLM action contracts and accounting instructions.
+- `docs/SETUP.md` contains current setup and deployment requirements.
+- Any future design documents must remain consistent with this model.
 
 This document (`Git-Model-for-Accounting.md`) is the **north star**. Everything else derives from it.
 

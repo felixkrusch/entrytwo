@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { requireUser } from '@/lib/authz'
 
 const createTaxRateSchema = z.object({
   name: z.string().min(1),
@@ -10,6 +11,7 @@ const createTaxRateSchema = z.object({
 })
 
 export async function GET() {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   try {
     const rates = await prisma.taxRate.findMany({
       orderBy: [{ jurisdiction: 'asc' }, { rate: 'desc' }],
@@ -21,6 +23,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const session = await requireUser(['ADMIN'])
+  if (!session) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   try {
     const body = await request.json()
     const parsed = createTaxRateSchema.safeParse(body)
@@ -42,7 +46,7 @@ export async function POST(request: Request) {
         eventType: 'MANUAL_ADJUSTMENT',
         entityType: 'TaxRate',
         entityId: rate.id,
-        payload: { action: 'TAX_RATE_CREATED', ...parsed.data },
+        payload: { action: 'TAX_RATE_CREATED', ...parsed.data }, createdBy: session.user.id,
       },
     })
 

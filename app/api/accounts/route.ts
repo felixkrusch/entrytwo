@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { requireUser } from '@/lib/authz'
 
 const ALLOWED_TYPES = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'] as const
 
@@ -28,6 +29,7 @@ function isMalformedAccount(code: string, name: string, type: string): boolean {
 }
 
 export async function GET(request: Request) {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   try {
     const url = new URL(request.url)
     const branchParam = url.searchParams.get('branch') || 'main'
@@ -104,6 +106,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const session = await requireUser(['ADMIN'])
+  if (!session) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   try {
     const body = await request.json()
     const parsed = createAccountSchema.safeParse(body)
@@ -141,7 +145,7 @@ export async function POST(request: Request) {
         eventType: 'ACCOUNT_CREATED',
         entityType: 'Account',
         entityId: account.id,
-        payload: { code, name, type },
+        payload: { code, name, type }, createdBy: session.user.id,
       },
     })
 

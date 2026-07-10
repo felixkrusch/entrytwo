@@ -23,6 +23,9 @@ export function rateLimit(request: NextRequest): NextResponse | null {
   const windowMs = 60000
 
   const now = Date.now()
+  if (store.size > 10_000) {
+    for (const [key, value] of store) if (value.resetTime <= now) store.delete(key)
+  }
   const entry = store.get(ip)
 
   if (entry && entry.resetTime > now) {

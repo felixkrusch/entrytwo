@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { EventType } from '@prisma/client'
+import { requireUser } from '@/lib/authz'
 
 const ContactSchema = z.object({
   name: z.string().min(2).max(100),
@@ -21,6 +22,7 @@ const ContactSchema = z.object({
 })
 
 export async function GET(request: Request) {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   try {
     const url = new URL(request.url)
     const search = url.searchParams.get('search') || ''
@@ -73,6 +75,8 @@ const [contacts, total] = await Promise.all([
 }
 
 export async function POST(request: Request) {
+  const session = await requireUser(['ADMIN', 'ACCOUNTANT'])
+  if (!session) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   try {
     const body = await request.json()
     const parsed = ContactSchema.safeParse(body)
@@ -110,7 +114,7 @@ export async function POST(request: Request) {
         eventType: EventType.CONTACT_CREATED,
         entityType: 'Contact',
         entityId: contact.id,
-        payload: { name, email, type },
+        payload: { name, email, type }, createdBy: session.user.id,
       },
     })
 

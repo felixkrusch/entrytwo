@@ -6,6 +6,8 @@ import { Readable } from 'stream'
 import * as tar from 'tar'
 import { auth } from '@/lib/auth'
 import { BACKUP_EXTENSION, restoreBackupDirectory, validateBackupDirectory } from '@/lib/backup'
+import { rateLimit } from '@/lib/rate-limit'
+import { NextRequest } from 'next/server'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -32,7 +34,9 @@ async function saveRequestBody(request: Request, target: string, maxBytes: numbe
   })
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const limited = rateLimit(request)
+  if (limited) return limited
   const session = await auth()
   if (session?.user?.role !== 'ADMIN') return Response.json({ error: 'Admin access required' }, { status: 403 })
   if (request.headers.get('x-entrytwo-confirm-replace') !== 'replace-all-data') {

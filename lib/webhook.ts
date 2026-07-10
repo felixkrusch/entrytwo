@@ -20,22 +20,48 @@ export function verifyStripeSignature(body: string, signature: string | null, se
   }
 }
 
-export function verifyPaypalSignature(body: string, headers: Record<string, string | null>): boolean {
+export async function verifyPaypalSignature(body: string, headers: Record<string, string | null>): Promise<boolean> {
   const certUrl = headers['paypal-cert-url']
   const transmissionId = headers['paypal-transmission-id']
   const transmissionTime = headers['paypal-transmission-time']
   const transmissionSig = headers['paypal-transmission-sig']
 
-  if (!certUrl || !transmissionId || !transmissionTime || !transmissionSig) return false
+  const authAlgo = headers['paypal-auth-algo']
+  const webhookId = process.env.PAYPAL_WEBHOOK_ID
+  const clientId = process.env.PAYPAL_CLIENT_ID
+  const secret = process.env.PAYPAL_SECRET
+  if (!certUrl || !transmissionId || !transmissionTime || !transmissionSig || !authAlgo || !webhookId || !clientId || !secret) return false
 
-  // Production: must verify using PayPal's cert (not implemented in this stub yet).
-  // For now we fail closed in production (SMTP_HOST set).
-  if (process.env.SMTP_HOST) {
-    // TODO (Phase 1+): implement real PayPal cert validation using certUrl + transmissionSig
-    // For safety we currently reject when running in "production-like" mode.
+  try {
+    const baseUrl = process.env.PAYPAL_BASE_URL || 'https://api-m.paypal.com'
+    const tokenResponse = await fetch(`${baseUrl}/v1/oauth2/token`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${clientId}:${secret}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'grant_type=client_credentials',
+    })
+    if (!tokenResponse.ok) return false
+    const token = await tokenResponse.json() as { access_token?: string }
+    if (!token.access_token) return false
+    const verification = await fetch(`${baseUrl}/v1/notifications/verify-webhook-signature`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        auth_algo: authAlgo,
+        cert_url: certUrl,
+        transmission_id: transmissionId,
+        transmission_sig: transmissionSig,
+        transmission_time: transmissionTime,
+        webhook_id: webhookId,
+        webhook_event: JSON.parse(body),
+      }),
+    })
+    if (!verification.ok) return false
+    const result = await verification.json() as { verification_status?: string }
+    return result.verification_status === 'SUCCESS'
+  } catch {
     return false
   }
-
-  // Dev / no SMTP: accept (same as before, clearly documented).
-  return true
 }

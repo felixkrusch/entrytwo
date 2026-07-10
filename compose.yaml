@@ -10,7 +10,7 @@ services:
     env_file: .env
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://postgres:password@db:5432/entrytwo
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/entrytwo
       - APP_VERSION=${APP_VERSION:-dev}
       - APP_IMAGE=${APP_IMAGE:-entrytwo:latest}
       - COMPOSE_FILE=/app/entrytwo/compose.yaml
@@ -18,7 +18,7 @@ services:
       # Delegate Docker operations to the isolated updater sidecar (docs §6).
       # When set, the app never mounts the Docker socket and cannot self-modify.
       - UPDATER_URL=${UPDATER_URL:-http://updater:4000}
-      - UPDATER_TOKEN=${UPDATER_TOKEN:-changeme}
+      - UPDATER_TOKEN=${UPDATER_TOKEN:?UPDATER_TOKEN is required}
     ports:
       - "3000:3000"
     volumes:
@@ -47,7 +47,7 @@ services:
     env_file: .env
     environment:
       - UPDATER_PORT=4000
-      - UPDATER_TOKEN=${UPDATER_TOKEN:-changeme}
+      - UPDATER_TOKEN=${UPDATER_TOKEN:?UPDATER_TOKEN is required}
       - COSIGN_IDENTITY=${COSIGN_IDENTITY:-}
       - COSIGN_OIDC_ISSUER=${COSIGN_OIDC_ISSUER:-https://token.actions.githubusercontent.com}
       - COSIGN_PUBLIC_KEY=${COSIGN_PUBLIC_KEY:-}
@@ -67,7 +67,7 @@ services:
     environment:
       - POSTGRES_DB=entrytwo
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

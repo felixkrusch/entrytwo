@@ -3,7 +3,7 @@ import {
   NormalizedProcessorTx,
   upsertFeedTransaction,
   createProcessorJournalEntry,
-} from './normalize'
+} from '@/lib/processors/normalize'
 
 describe('processor normalize', () => {
   it('produces valid normalized shape for Stripe balance transaction style', () => {

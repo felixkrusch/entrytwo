@@ -58,6 +58,7 @@ Copy `.env.example` to `.env` and fill in:
 ```env
 # Required
 DATABASE_URL="postgresql://user:password@localhost:5432/entrytwo"
+DATABASE_URL_TEST="postgresql://user:password@localhost:5432/entrytwo_test"
 
 # Auth.js
 AUTH_SECRET="change-this-in-production"
@@ -228,6 +229,7 @@ npm run db:seed                   # Re-seed
 # Code quality
 npm run build
 npm run lint
+npm test                          # Requires a separate database ending in _test
 
 # Production
 npm run build
@@ -285,10 +287,11 @@ npx prisma generate
 
 ## 13. Data Export/Import (Backup & Migration)
 
-**Implemented:** Data export/import via `/api/backup/export` and `/api/backup/import`:
-- JSON export includes: accounts, tax rates, journal entries, events, settings, templates
-- JSON import adds to existing data (upsert behavior)
-- Access via Admin → Backup & Export panel
+**Implemented:** Portable full-system backup and restore via Admin → Backup:
+- A compressed `.etbackup` archive contains every database table and uploaded receipt/statement.
+- SHA-256 checksums and row counts are validated before restore.
+- Restore is a complete replacement intended for disaster recovery or migration to a fresh installation.
+- The destination must use the original `ENCRYPTION_KEY` so encrypted bank credentials remain usable.
 
 For complete database backup, use standard PostgreSQL tools:
 ```bash

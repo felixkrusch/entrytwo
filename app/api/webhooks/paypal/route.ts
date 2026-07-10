@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { upsertFeedTransaction, type NormalizedProcessorTx } from '@/lib/processors/normalize'
+import { verifyPaypalSignature } from '@/lib/webhook'
 
 /**
  * Modern PayPal webhook handler.
@@ -8,10 +9,14 @@ import { upsertFeedTransaction, type NormalizedProcessorTx } from '@/lib/process
  */
 export async function POST(request: Request) {
   const body = await request.text()
-
-  // PayPal signature verification is still light in this codebase.
-  // In production we should call verifyPaypalSignature.
-  // For now we accept and process (same policy as before for dev).
+  const headers = {
+    'paypal-cert-url': request.headers.get('paypal-cert-url'),
+    'paypal-transmission-id': request.headers.get('paypal-transmission-id'),
+    'paypal-transmission-time': request.headers.get('paypal-transmission-time'),
+    'paypal-transmission-sig': request.headers.get('paypal-transmission-sig'),
+    'paypal-auth-algo': request.headers.get('paypal-auth-algo'),
+  }
+  if (!await verifyPaypalSignature(body, headers)) return NextResponse.json({ error: 'Invalid PayPal signature' }, { status: 401 })
 
   try {
     const event = JSON.parse(body)

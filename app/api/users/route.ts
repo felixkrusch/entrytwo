@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { requireUser } from '@/lib/authz'
 
 const createUserSchema = z.object({
   email: z.string().email(),
@@ -9,6 +10,7 @@ const createUserSchema = z.object({
 })
 
 export async function GET() {
+  if (!await requireUser(['ADMIN'])) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   try {
     const users = await prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
@@ -21,6 +23,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const session = await requireUser(['ADMIN'])
+  if (!session) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   try {
     const body = await request.json()
     const parsed = createUserSchema.safeParse(body)
@@ -48,7 +52,7 @@ export async function POST(request: Request) {
           action: 'USER_CREATED',
           email: user.email,
           role: user.role,
-        },
+        }, createdBy: session.user.id,
       },
     })
 

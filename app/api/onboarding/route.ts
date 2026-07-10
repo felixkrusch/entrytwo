@@ -9,6 +9,8 @@ const accountSchema = z.object({
 })
 
 const onboardingSchema = z.object({
+  email: z.string().email(),
+  name: z.string().max(100).optional(),
   companyName: z.string().min(1),
   baseCurrency: z.string().length(3),
   defaultTaxJurisdiction: z.string().optional(),
@@ -55,8 +57,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid data' }, { status: 400 })
     }
 
-    const { companyName, baseCurrency, defaultTaxJurisdiction, accounts } = parsed.data
-    const { email, name } = body
+    const { companyName, baseCurrency, defaultTaxJurisdiction, accounts, email, name } = parsed.data
 
     const user = await prisma.user.create({
       data: { email, name, role: 'ADMIN' },

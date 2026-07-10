@@ -16,12 +16,16 @@ import {
 import { isSafeAutonomous } from '@/lib/chat/intent'
 import { createAutonomousJournal } from '@/lib/accounting/autonomous'
 import { EventType } from '@prisma/client'
-import { writeFile, mkdir, readFile } from 'fs/promises'
+import { readFile } from 'fs/promises'
 import { join } from 'path'
 import { loadOrCreateThread, appendToThread, getContextForModel } from '@/lib/chatThreadStore'
 import { loadSkill } from '@/lib/skills'
 import { normalizeToProvisional } from '@/lib/fxSources'
 import { getProvisionalFxQuote } from '@/lib/fx'
+import { createHash } from 'crypto'
+import { MAX_ATTACHMENT_BATCH_BYTES, MAX_ATTACHMENTS_PER_UPLOAD, storeAttachment } from '@/lib/attachments'
+import { requireUser } from '@/lib/authz'
+import { rateLimit } from '@/lib/rate-limit'
 
 /**
  * Trillion chat (thread context + Grok skills on demand).
@@ -157,13 +161,17 @@ Normal conversation → normal text. Real actions → look up the skill if neede
 }
 
 export async function POST(req: NextRequest) {
+  const limited = rateLimit(req)
+  if (limited) return limited
+  const session = await requireUser(['ADMIN', 'ACCOUNTANT'])
+  if (!session) return Response.json({ error: 'Accountant access required' }, { status: 403 })
   try {
     let userMessage = ''
     let chatLocked = false
     let branch = 'main'
     let asOf: string | undefined
     let incomingThreadId: string | undefined
-    const attachedFiles: Array<{ name: string; buffer: Buffer; savedPath: string; mimeType: string }> = []
+    const attachedFiles: Array<{ name: string; buffer: Buffer; savedPath: string; mimeType: string; size: number; sha256: string }> = []
 
     const contentType = req.headers.get('content-type') || ''
 
@@ -176,24 +184,24 @@ export async function POST(req: NextRequest) {
       asOf = (form.get('asOf') as string) || undefined
 
       const files = form.getAll('file') as File[]
+      if (files.length > MAX_ATTACHMENTS_PER_UPLOAD || files.reduce((sum, file) => sum + file.size, 0) > MAX_ATTACHMENT_BATCH_BYTES) {
+        return Response.json({ error: 'Attachment batch exceeds the configured limits' }, { status: 413 })
+      }
       for (let i = 0; i < files.length; i++) {
         const f = files[i]
         const buf = Buffer.from(await f.arrayBuffer())
         const clientSaved = form.get(`savedPath_${i}`) as string | null
         if (clientSaved) {
-          attachedFiles.push({ name: f.name, buffer: buf, savedPath: clientSaved, mimeType: f.type || 'application/pdf' })
+          attachedFiles.push({ name: f.name, buffer: buf, savedPath: clientSaved, mimeType: f.type || mimeTypeForPath(clientSaved), size: buf.length, sha256: createHash('sha256').update(buf).digest('hex') })
         } else {
-          const uploadsDir = join(process.cwd(), 'public', 'uploads', 'receipts')
-          await mkdir(uploadsDir, { recursive: true })
-          const safe = (f.name || 'doc').replace(/[^a-zA-Z0-9_.-]/g, '_')
-          const fname = `${Date.now()}-${i}-${safe}`
-          const disk = join(uploadsDir, fname)
-          await writeFile(disk, buf)
+          const stored = await storeAttachment(f)
           attachedFiles.push({
-            name: f.name,
+            name: stored.originalName,
             buffer: buf,
-            savedPath: `/uploads/receipts/${fname}`,
-            mimeType: f.type || 'application/pdf',
+            savedPath: stored.path,
+            mimeType: stored.mimeType,
+            size: stored.size,
+            sha256: stored.sha256,
           })
         }
       }
@@ -210,6 +218,8 @@ export async function POST(req: NextRequest) {
               buffer,
               savedPath: val,
               mimeType: mimeTypeForPath(val),
+              size: buffer.length,
+              sha256: createHash('sha256').update(buffer).digest('hex'),
             })
           }
         }
@@ -225,7 +235,7 @@ export async function POST(req: NextRequest) {
       // Direct approved proposal (bypass normal chat flow)
       if (jsonBody?.approvedAction && typeof jsonBody.approvedAction === 'object') {
         const approved = jsonBody.approvedAction
-        return await handleApprovedAction(approved, { branch, asOf })
+        return await handleApprovedAction(approved, { branch, asOf, createdBy: session.user.id })
       }
     }
 
@@ -459,7 +469,8 @@ export async function POST(req: NextRequest) {
       // created by the model. This works for both autonomous execution and proposals.
       // We still respect an explicit sourcePdfPath if the model provided one.
       if (action === 'CREATE_JOURNAL') {
-        const p = params as { sourcePdfPath?: string | null; lines?: any[] }
+        const p = params as { sourcePdfPath?: string | null; attachments?: unknown[]; lines?: any[] }
+        p.attachments = attachedFiles.map(file => ({ path: file.savedPath, originalName: file.name, mimeType: file.mimeType, size: file.size, sha256: file.sha256 }))
         if (!p.sourcePdfPath && attachedFiles.length > 0) {
           const receipt = attachedFiles.find(f => {
             const m = (f.mimeType || '').toLowerCase()
@@ -501,10 +512,11 @@ export async function POST(req: NextRequest) {
 
 
       if (action === 'CREATE_JOURNAL_BATCH') {
-        const p = params as { sourcePdfPath?: string | null; entries?: Array<Record<string, unknown>> }
+        const p = params as { sourcePdfPath?: string | null; attachments?: unknown[]; entries?: Array<Record<string, unknown>> }
+        p.attachments = attachedFiles.map(file => ({ path: file.savedPath, originalName: file.name, mimeType: file.mimeType, size: file.size, sha256: file.sha256 }))
         if (!p.sourcePdfPath && attachedFiles[0]?.savedPath) p.sourcePdfPath = attachedFiles[0].savedPath
         if (Array.isArray(p.entries)) {
-          p.entries = p.entries.map((entry) => ({ ...entry, sourcePdfPath: entry.sourcePdfPath || p.sourcePdfPath }))
+          p.entries = p.entries.map((entry) => ({ ...entry, sourcePdfPath: entry.sourcePdfPath || p.sourcePdfPath, attachments: p.attachments }))
         }
       }
 
@@ -610,7 +622,7 @@ export async function POST(req: NextRequest) {
 
       // Execute directly (no proposal, no confidence gate for safe actions)
       try {
-        const execResult = await executeAction(action, finalPayload.params, { branch, asOf })
+        const execResult = await executeAction(action, finalPayload.params, { branch, asOf, createdBy: session.user.id })
         const execResponse: any = { ...execResult, threadId: thread.id }
         if ((finalPayload.params as any)?.sourcePdfPath) {
           execResponse.sourcePdfPath = (finalPayload.params as any).sourcePdfPath
@@ -653,7 +665,7 @@ function isMasterDataAction(action: ActionType): boolean {
   ].includes(action)
 }
 
-async function executeAction(action: ActionType, params: Record<string, unknown>, ctx: { branch: string; asOf?: string }) {
+async function executeAction(action: ActionType, params: Record<string, unknown>, ctx: { branch: string; asOf?: string; createdBy?: string }) {
   const branch = ctx.branch || 'main'
 
   if (action === 'CREATE_JOURNAL') {
@@ -661,6 +673,7 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
       description?: string
       date?: string
       sourcePdfPath?: string | null
+      attachments?: Array<{ path: string; originalName: string; mimeType: string; size: number; sha256: string }>
       confidence?: number
       reasoning?: string
       lines: Array<{
@@ -730,6 +743,8 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
       aiMetadata: { confidence: p.confidence, reasoning: p.reasoning },
       branch,
       sourcePdfPath: p.sourcePdfPath || null,
+      attachments: p.attachments,
+      createdBy: ctx.createdBy || null,
     })
 
     return {
@@ -925,7 +940,7 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
   }
 }
 
-async function handleApprovedAction(approved: { action: ActionType; params?: Record<string, unknown> }, ctx: { branch: string; asOf?: string }) {
+async function handleApprovedAction(approved: { action: ActionType; params?: Record<string, unknown> }, ctx: { branch: string; asOf?: string; createdBy?: string }) {
   try {
     const result = await executeAction(approved.action, approved.params || {}, ctx)
     // Note: for approved actions we don't have the thread here.

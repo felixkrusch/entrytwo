@@ -4,7 +4,7 @@ import { encode } from 'next-auth/jwt'
 
 // Simple dev-only sign-in - creates session and sets cookie
 export async function POST(request: Request) {
-  if (process.env.SMTP_HOST) {
+  if (process.env.NODE_ENV === 'production' || process.env.SMTP_HOST) {
     return NextResponse.json({ error: 'Not available in production' }, { status: 403 })
   }
 
@@ -21,6 +21,7 @@ export async function POST(request: Request) {
     }
 
     // Create session token
+    const cookieName = 'authjs.session-token'
     const token = await encode({
       token: {
         id: user.id,
@@ -31,11 +32,11 @@ export async function POST(request: Request) {
         sub: user.id,
       },
       secret: process.env.AUTH_SECRET || 'development-secret',
-      salt: 'authjs.session',
+      salt: cookieName,
     })
 
     const response = NextResponse.json({ ok: true })
-    response.cookies.set('authjs.session', token, {
+    response.cookies.set(cookieName, token, {
       httpOnly: true,
       secure: false,
       maxAge: 60 * 60 * 24,

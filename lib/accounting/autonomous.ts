@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma'
 import { recordCommitOnBranch } from './commit'
 import { nextEntryNumber } from './entryNumber'
 import { isAuthoritativeBankFeed, normalizeToProvisional } from '@/lib/fxSources'
+import type { StoredAttachment } from '@/lib/attachments'
 
 export interface AutonomousJournalInput {
   date: string
@@ -30,6 +31,7 @@ export interface AutonomousJournalInput {
   }
   branch?: string
   sourcePdfPath?: string | null   // link to uploaded invoice/receipt under /uploads/receipts
+  attachments?: StoredAttachment[]
   createdBy?: string | null       // attributing user (null for system/AI)
 }
 
@@ -45,13 +47,17 @@ export async function createAutonomousJournal(input: AutonomousJournalInput) {
   const businessDate = new Date(input.date)
   businessDate.setUTCHours(0, 0, 0, 0)
 
+  const attachments = input.attachments || []
   const entry = await prisma.journalEntry.create({
     data: {
       date: businessDate,
       description: input.description,
       entryNumber,
       createdBy: input.createdBy ?? null,
-      sourcePdfPath: input.sourcePdfPath || null,
+      sourcePdfPath: attachments[0]?.path || input.sourcePdfPath || null,
+      attachments: attachments.length ? {
+        create: attachments.map(attachment => ({ ...attachment, source: 'chat', createdBy: input.createdBy ?? null })),
+      } : undefined,
       lines: {
         create: input.lines.map(l => {
           const cur = (l.currency || 'EUR').toUpperCase()
@@ -80,6 +86,7 @@ export async function createAutonomousJournal(input: AutonomousJournalInput) {
     },
     include: {
       lines: { include: { account: { select: { code: true, name: true } } } },
+      attachments: true,
     },
   })
 
@@ -98,6 +105,7 @@ export async function createAutonomousJournal(input: AutonomousJournalInput) {
           credit: Number(l.credit),
         })),
         ai: input.aiMetadata || {},
+        attachments: entry.attachments.map(attachment => ({ id: attachment.id, path: attachment.path, sha256: attachment.sha256 })),
       },
       createdBy: null,
     },

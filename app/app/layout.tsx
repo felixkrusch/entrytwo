@@ -108,6 +108,10 @@ function AppContent({ children }: { children: ReactNode }) {
     return () => clearTimeout(id)
   }, [])
 
+  useEffect(() => {
+    if (needsBootstrap) router.replace('/auth/signin')
+  }, [needsBootstrap, router])
+
   const handleModalSuccess = () => {
     const wasFromChat = !!suggestion
     const isReversal = !!suggestion?.reversingOriginalId
@@ -137,8 +141,11 @@ function AppContent({ children }: { children: ReactNode }) {
   }
 
   if (needsBootstrap) {
-    router.replace('/app/setup')
-    return null
+    return (
+      <div className="flex h-screen items-center justify-center bg-zinc-950 text-zinc-400">
+        Opening initial setup...
+      </div>
+    )
   }
 
   return (

@@ -10,11 +10,12 @@ const prisma = new PrismaClient({ adapter });
 async function main() {
   console.log("Seeding database...");
 
-  await prisma.journalLine.deleteMany();
-  await prisma.journalEntry.deleteMany();
-  await prisma.account.deleteMany();
-  await prisma.contact.deleteMany();
-  await prisma.taxRate.deleteMany();
+  await prisma.$executeRawUnsafe(`TRUNCATE TABLE
+    "JournalAttachment", "InvoiceLine", "FeedTransaction", "BankConnection",
+    "RecurringInvoice", "JournalLine", "Invoice", "RecurringJournalEntry",
+    "Template", "Setting", "AgentMemory", "AccountingBranch", "Snapshot",
+    "JournalEntry", "Event", "TaxRate", "Contact", "Account", "User"
+    RESTART IDENTITY CASCADE`);
 
   const accounts = [
     // Assets

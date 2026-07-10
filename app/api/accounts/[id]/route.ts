@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { requireUser } from '@/lib/authz'
 
 const updateAccountSchema = z.object({
   code: z.string().min(1).max(20).optional(),
@@ -12,6 +13,8 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await requireUser(['ADMIN'])
+  if (!session) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   try {
     const { id } = await params
     const body = await request.json()
@@ -57,7 +60,7 @@ export async function PATCH(
         eventType: 'MANUAL_ADJUSTMENT',
         entityType: 'Account',
         entityId: id,
-        payload: { action: 'ACCOUNT_UPDATED', changes: data },
+        payload: { action: 'ACCOUNT_UPDATED', changes: data }, createdBy: session.user.id,
       },
     })
 
@@ -78,6 +81,8 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await requireUser(['ADMIN'])
+  if (!session) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   try {
     const { id } = await params
 
@@ -96,7 +101,7 @@ export async function DELETE(
         eventType: 'MANUAL_ADJUSTMENT',
         entityType: 'Account',
         entityId: id,
-        payload: { action: 'ACCOUNT_DELETED', code: account.code, name: account.name },
+        payload: { action: 'ACCOUNT_DELETED', code: account.code, name: account.name }, createdBy: session.user.id,
       },
     })
 

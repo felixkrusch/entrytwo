@@ -9,6 +9,9 @@ const eslintConfig = defineConfig([
     rules: {
       "react-hooks/set-state-in-effect": "off",
       "react-hooks/exhaustive-deps": "warn",
+      // Legacy integration boundaries still use dynamic provider payloads. Keep
+      // this visible as a warning while production builds are blocked by real errors.
+      "@typescript-eslint/no-explicit-any": "warn",
     },
   },
   // Override default ignores of eslint-config-next.

@@ -10,13 +10,14 @@ import type { NormalizedProcessorTx } from '@/lib/processors/normalize'
  * All processor-derived FX is marked BANK_FEED:stripe:...
  */
 export async function POST(request: Request) {
+  if (!process.env.STRIPE_WEBHOOK_SECRET) {
+    return NextResponse.json({ error: 'Stripe webhook is not configured' }, { status: 503 })
+  }
   const signature = request.headers.get('stripe-signature')
   const body = await request.text()
 
-  if (process.env.STRIPE_WEBHOOK_SECRET) {
-    if (!verifyStripeSignature(body, signature, process.env.STRIPE_WEBHOOK_SECRET)) {
-      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
-    }
+  if (!verifyStripeSignature(body, signature, process.env.STRIPE_WEBHOOK_SECRET)) {
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
 
   try {

@@ -1,17 +1,25 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
-import { auth } from '@/lib/auth'
 import { recordCommitOnBranch } from '@/lib/accounting/commit'
 import { getVisibleJournalEntryIds, getVisibleJournalEntryIdsAtPoint } from '@/lib/accounting/ancestry'
 import { nextEntryNumber } from '@/lib/accounting/entryNumber'
 import { isAuthoritativeBankFeed, normalizeToProvisional } from '@/lib/fxSources'
 import { getProvisionalFxQuote } from '@/lib/fx'
+import { parseAttachmentInput } from '@/lib/attachments'
+import { requireUser } from '@/lib/authz'
 
 const createEntrySchema = z.object({
   date: z.string().refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid date format' }),
   description: z.string().optional(),
   sourcePdfPath: z.string().optional(),
+  attachments: z.array(z.object({
+    path: z.string(),
+    originalName: z.string(),
+    mimeType: z.string(),
+    size: z.number().int().min(0),
+    sha256: z.string(),
+  })).max(100).optional(),
   lines: z.array(z.object({
     accountId: z.string().uuid({ message: 'accountId must be a valid UUID' }),
     debit: z.number().min(0),
@@ -28,6 +36,8 @@ const createEntrySchema = z.object({
 })
 
 export async function GET(request: Request) {
+  const session = await requireUser()
+  if (!session) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   try {
     const { searchParams } = new URL(request.url)
 
@@ -101,7 +111,7 @@ export async function GET(request: Request) {
             some: {
               description: { contains: search, mode: 'insensitive' }
             }
-          }
+          },
         }
       ]
     }
@@ -120,7 +130,8 @@ export async function GET(request: Request) {
               taxRate: { select: { id: true, jurisdiction: true, name: true, rate: true, taxType: true } },
               contact: { select: { id: true, name: true, type: true } }
             }
-          }
+          },
+          attachments: { orderBy: { createdAt: 'asc' } },
         }
       })
     ])
@@ -146,6 +157,7 @@ export async function GET(request: Request) {
       createdByUser: e.createdBy ? creatorMap.get(e.createdBy) || null : null,
       updatedAt: e.updatedAt,
       sourcePdfPath: e.sourcePdfPath,
+      attachments: e.attachments,
       reversalOfEntryNumber:
         typeof e.description === 'string' && e.description.startsWith('Reversal of')
           ? (e.description.match(/JE-\d{4}-\d{4}/)?.[0] || null)
@@ -190,6 +202,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const session = await requireUser(['ADMIN', 'ACCOUNTANT'])
+  if (!session) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   try {
     const body = await request.json()
     const parsed = createEntrySchema.safeParse(body)
@@ -202,6 +216,10 @@ export async function POST(request: Request) {
     }
 
     const { date, description, sourcePdfPath, lines } = parsed.data
+    const attachments = parseAttachmentInput(parsed.data.attachments)
+    if (sourcePdfPath && !attachments.some(attachment => attachment.path === sourcePdfPath)) {
+      attachments.unshift({ path: sourcePdfPath, originalName: sourcePdfPath.split('/').pop() || 'attachment', mimeType: 'application/octet-stream', size: 0, sha256: 'legacy-unverified' })
+    }
 
     const entryDate = date
 
@@ -241,7 +259,6 @@ export async function POST(request: Request) {
 
     const entryNumber = await nextEntryNumber(new Date(date))
 
-    const session = await auth().catch(() => null)
     const createdBy = session?.user?.id || null
 
     // Business date: normalize the provided date to midnight UTC (calendar day only).
@@ -256,7 +273,10 @@ export async function POST(request: Request) {
           description,
           entryNumber,
           createdBy,
-          sourcePdfPath: sourcePdfPath || null,
+          sourcePdfPath: attachments[0]?.path || sourcePdfPath || null,
+          attachments: attachments.length ? {
+            create: attachments.map(attachment => ({ ...attachment, source: 'journal-create', createdBy })),
+          } : undefined,
           lines: {
             create: lines.map(line => ({
               accountId: line.accountId,
@@ -272,7 +292,7 @@ export async function POST(request: Request) {
               fxDate: line.fxDate ? new Date(line.fxDate) : null,
               contactId: line.contactId || null,
             }))
-          }
+          },
         },
         include: {
           lines: {
@@ -281,7 +301,8 @@ export async function POST(request: Request) {
               taxRate: { select: { id: true, jurisdiction: true, name: true, rate: true, taxType: true } },
               contact: { select: { id: true, name: true, type: true } }
             }
-          }
+          },
+          attachments: true,
         }
       })
 
@@ -308,7 +329,8 @@ export async function POST(request: Request) {
               fxRateToBase: l.fxRateToBase != null ? Number(l.fxRateToBase) : null,
               fxSource: l.fxSource,
               fxDate: l.fxDate ? l.fxDate.toISOString().slice(0, 10) : null,
-            }))
+            })),
+            attachments: created.attachments.map(attachment => ({ id: attachment.id, path: attachment.path, sha256: attachment.sha256 })),
           },
         }
       })
@@ -359,6 +381,8 @@ export async function POST(request: Request) {
 
 // PATCH updates reconciliation state for a single journal line (cleared flag).
 export async function PATCH(request: Request) {
+  const session = await requireUser(['ADMIN', 'ACCOUNTANT'])
+  if (!session) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   try {
     const body = await request.json()
     const lineId = typeof body?.lineId === 'string' ? body.lineId : undefined

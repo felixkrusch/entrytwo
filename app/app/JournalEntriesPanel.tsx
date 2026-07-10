@@ -5,7 +5,7 @@ import { useNewEntry } from './NewEntryContext'
 import toast from 'react-hot-toast'
 import { useTranslations, useFormatter } from 'next-intl'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { RefreshCw } from 'lucide-react'
+import { Paperclip, RefreshCw, Upload } from 'lucide-react'
 import { isAuthoritativeBankFeed, getFxSourceLabel } from '@/lib/fxSources'
 
 interface JournalLine {
@@ -39,6 +39,16 @@ interface JournalEntry {
   updatedAt?: string | null
   reversalOfEntryNumber?: string | null
   sourcePdfPath?: string | null
+  attachments?: Array<{
+    id: string
+    path: string
+    originalName: string
+    mimeType: string
+    size: number
+    sha256: string
+    createdAt: string
+    createdBy?: string | null
+  }>
   lines: JournalLine[]
 }
 
@@ -70,6 +80,7 @@ export default function JournalEntriesPanel({
   const [expanded, setExpanded] = useState<string | null>(null)
   const [expandAll, setExpandAll] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [uploadingEntryId, setUploadingEntryId] = useState<string | null>(null)
 
   // Date-range + account filters for the full journal view
   const [search, setSearch] = useState('')
@@ -203,6 +214,25 @@ export default function JournalEntriesPanel({
     params.set('view', 'ledger')
     params.set('accountCode', code)
     router.push(`/app?${params.toString()}`)
+  }
+
+  const addAttachments = async (entryId: string, files: FileList | null) => {
+    if (!files?.length) return
+    setUploadingEntryId(entryId)
+    try {
+      const form = new FormData()
+      Array.from(files).forEach(file => form.append('file', file))
+      form.append('branch', branch)
+      const response = await fetch(`/api/journal-entries/${entryId}/attachments`, { method: 'POST', body: form })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || 'Upload failed')
+      toast.success(`${result.attachments?.length || files.length} attachment(s) added`)
+      window.dispatchEvent(new CustomEvent('journal-updated'))
+    } catch (uploadError) {
+      toast.error(uploadError instanceof Error ? uploadError.message : 'Attachment upload failed')
+    } finally {
+      setUploadingEntryId(null)
+    }
   }
 
   return (
@@ -348,18 +378,11 @@ export default function JournalEntriesPanel({
                          {(entry.description || '').match(/^Repeat (of|entry)/i) && (
                            <span className="text-[10px] px-1.5 py-px rounded bg-sky-900/40 text-sky-400 border border-sky-800">repeated</span>
                          )}
-                         {entry.sourcePdfPath && (
-                           <a
-                             href={entry.sourcePdfPath}
-                             target="_blank"
-                             rel="noopener"
-                             onClick={(e) => e.stopPropagation()}
-                             className="text-[10px] px-1.5 py-px rounded bg-emerald-900/30 text-emerald-400 border border-emerald-800 hover:bg-emerald-900"
-                             title="Open uploaded receipt / invoice PDF"
-                           >
-                             📎
-                           </a>
-                         )}
+                          {((entry.attachments?.length || 0) > 0 || entry.sourcePdfPath) && (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-px rounded bg-emerald-900/30 text-emerald-400 border border-emerald-800">
+                              <Paperclip className="h-3 w-3" /> {entry.attachments?.length || 1}
+                            </span>
+                          )}
                        </div>
                       <div className="flex items-center gap-3">
                          <div className="text-zinc-500 font-mono text-xs" title="Total debits vs credits">
@@ -512,6 +535,41 @@ export default function JournalEntriesPanel({
                       </div>
                     ))}
                   </div>
+
+                  {isOpen && (
+                    <div className="mt-4 border-t border-zinc-800 pt-3" onClick={event => event.stopPropagation()}>
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-[10px] uppercase tracking-wider text-zinc-500">Attachments are retained with this entry</span>
+                        <label className="inline-flex cursor-pointer items-center gap-1 rounded border border-zinc-700 px-2 py-1 text-[10px] text-zinc-300 hover:bg-zinc-800">
+                          <Upload className="h-3 w-3" />
+                          {uploadingEntryId === entry.id ? 'Uploading...' : 'Add documents'}
+                          <input
+                            type="file"
+                            multiple
+                            accept="application/pdf,image/jpeg,image/png,image/webp,text/csv,.pdf,.jpg,.jpeg,.png,.webp,.csv"
+                            className="hidden"
+                            disabled={uploadingEntryId === entry.id}
+                            onChange={event => { void addAttachments(entry.id, event.target.files); event.target.value = '' }}
+                          />
+                        </label>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {(entry.attachments?.length ? entry.attachments : entry.sourcePdfPath ? [{ id: 'legacy', path: entry.sourcePdfPath, originalName: entry.sourcePdfPath.split('/').pop() || 'attachment', createdAt: '' }] : []).map(attachment => (
+                          <a
+                            key={attachment.id}
+                            href={attachment.path}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex max-w-xs items-center gap-1 rounded border border-emerald-900 bg-emerald-950/20 px-2 py-1 text-[10px] text-emerald-300 hover:bg-emerald-950/50"
+                            title={attachment.createdAt ? `Added ${new Date(attachment.createdAt).toLocaleString()}` : 'Legacy attachment'}
+                          >
+                            <Paperclip className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{attachment.originalName}</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                    {isOpen && (
                      <div className="mt-3 pt-3 border-t border-zinc-800 text-xs text-zinc-400 space-y-1">

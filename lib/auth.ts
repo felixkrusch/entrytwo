@@ -83,22 +83,27 @@ const devProvider = CredentialsProvider({
   },
 })
 
-const allProviders = [...emailProviders, ...oauthProviders, ...(emailProviders.length === 0 ? [devProvider] : [])]
+const allowDevCredentials = process.env.NODE_ENV !== 'production' && emailProviders.length === 0 && oauthProviders.length === 0
+const allProviders = [...emailProviders, ...oauthProviders, ...(allowDevCredentials ? [devProvider] : [])]
 
 const authConfig = NextAuth({
   adapter: process.env.SMTP_HOST ? PrismaAdapter(prisma) : undefined,
-  providers: allProviders.length > 0 ? allProviders : [devProvider],
-  secret: process.env.AUTH_SECRET || 'development-secret',
+  providers: allProviders,
+  secret: process.env.AUTH_SECRET || (process.env.NODE_ENV !== 'production' ? 'development-secret' : undefined),
   pages: {
     signIn: '/auth/signin',
     verifyRequest: '/auth/verify',
   },
   callbacks: {
-    async session({ session, user }) {
-      if (session.user && user) {
-        session.user.id = user.id as string
+    async session({ session, user, token }) {
+      let userId = (user?.id as string | undefined) || (token?.id as string | undefined) || token?.sub
+      if (!userId && session.user?.email) {
+        userId = (await prisma.user.findUnique({ where: { email: session.user.email }, select: { id: true } }))?.id
+      }
+      if (session.user && userId) {
+        session.user.id = userId
         const dbUser = await prisma.user.findUnique({
-          where: { id: user.id as string },
+          where: { id: userId },
           select: { role: true },
         })
         session.user.role = dbUser?.role || 'VIEWER'
@@ -108,6 +113,7 @@ const authConfig = NextAuth({
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id as string
+        token.role = 'role' in user ? user.role : undefined
       }
       return token
     },

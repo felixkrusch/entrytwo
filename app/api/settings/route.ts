@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { requireUser } from '@/lib/authz'
 
 const settingSchema = z.object({
   key: z.string(),
@@ -8,6 +9,7 @@ const settingSchema = z.object({
 })
 
 export async function GET() {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   try {
     const settings = await prisma.setting.findMany({ orderBy: { key: 'asc' } })
     return NextResponse.json(settings)
@@ -17,6 +19,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const session = await requireUser(['ADMIN'])
+  if (!session) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   try {
     const body = await request.json()
     const parsed = settingSchema.safeParse(body)
@@ -37,7 +41,7 @@ export async function POST(request: Request) {
         eventType: 'MANUAL_ADJUSTMENT',
         entityType: 'Setting',
         entityId: setting.id,
-        payload: { action: 'SETTING_UPDATED', key, value: value as import('@prisma/client').Prisma.InputJsonValue },
+        payload: { action: 'SETTING_UPDATED', key, value: value as import('@prisma/client').Prisma.InputJsonValue }, createdBy: session.user.id,
       },
     })
 
