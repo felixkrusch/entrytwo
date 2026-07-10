@@ -461,29 +461,33 @@ export default function JournalEntriesPanel({
                   <div className="space-y-1 text-sm font-mono">
                     {entry.lines.map(line => (
                       <div key={line.id} className="flex justify-between items-center pl-2 border-l border-zinc-800">
-                       <span
-                         className="text-zinc-400 cursor-pointer hover:underline"
-                         onClick={(ev) => {
-                           ev.stopPropagation()
-                           window.dispatchEvent(new CustomEvent('filter-by-account', { detail: { code: line.account.code } }))
-                         }}
-                         title={`Filter to ${line.account.code}`}
-                       >
-                           {line.account.code} {line.account.name}
-                          {line.taxRate && (
-                            <span className="ml-1 text-[10px] px-1 rounded bg-amber-900/30 text-amber-400 border border-amber-800">
-                              {line.taxRate.jurisdiction} {(line.taxRate.rate * 100).toFixed(0)}%
-                            </span>
-                          )}
-                          {line.fxRateToBase != null && (
-                            <span className="ml-1 text-[9px] px-1 rounded bg-emerald-900/30 text-emerald-400 border border-emerald-800" title={`${line.fxSource || 'feed'} @ ${line.fxDate || ''}`}>
-                              fx {Number(line.fxRateToBase).toFixed(4)}
-                            </span>
-                          )}
-                          {(line.fxSource || '').toUpperCase().startsWith('BANK_FEED') && (
-                            <span className="ml-1 text-[9px] px-1 rounded bg-sky-900/30 text-sky-400 border border-sky-800">feed</span>
-                          )}
-                        </span>
+                        <span
+                          className="text-zinc-400 cursor-pointer hover:underline"
+                          onClick={(ev) => {
+                            ev.stopPropagation()
+                            // Primary action: open the full dedicated ledger for this account (consistent with AccountsPanel, Reports, etc.)
+                            const params = new URLSearchParams()
+                            params.set('view', 'ledger')
+                            params.set('accountCode', line.account.code)
+                            router.push(`/app?${params.toString()}`)
+                          }}
+                          title={`Open ledger for ${line.account.code}`}
+                        >
+                            {line.account.code} {line.account.name}
+                           {line.taxRate && (
+                             <span className="ml-1 text-[10px] px-1 rounded bg-amber-900/30 text-amber-400 border border-amber-800">
+                               {line.taxRate.jurisdiction} {(line.taxRate.rate * 100).toFixed(0)}%
+                             </span>
+                           )}
+                           {line.fxRateToBase != null && (
+                             <span className="ml-1 text-[9px] px-1 rounded bg-emerald-900/30 text-emerald-400 border border-emerald-800" title={`${line.fxSource || ''} @ ${line.fxDate || ''}`}>
+                               fx {Number(line.fxRateToBase).toFixed(4)}
+                               {(line.fxSource || '').toUpperCase().startsWith('BANK_FEED') && (
+                                 <span className="ml-1 text-[8px] text-sky-400">feed</span>
+                               )}
+                             </span>
+                           )}
+                         </span>
                            <span>
                              {parseFloat(line.debit) > 0 && (
                                <span className="text-emerald-400">

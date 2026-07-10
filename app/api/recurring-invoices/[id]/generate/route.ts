@@ -91,6 +91,7 @@ export async function POST(
       where: { OR: [{ code: '2100' }, { name: { contains: 'tax', mode: 'insensitive' } }] },
     })
     if (!taxPayableAccount) {
+      // Guard against malformed creation (historical bugs produced "codeTYPE" names)
       taxPayableAccount = await prisma.account.create({
         data: { code: '2100', name: 'Tax Payable (Output VAT/Sales Tax)', type: 'LIABILITY' },
       })

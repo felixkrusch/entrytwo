@@ -30,6 +30,22 @@ export async function PATCH(
       return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
     }
 
+    // Prevent the historical "codeTYPE" / "name==code" corruption pattern on PATCH
+    const current = await prisma.account.findUnique({ where: { id } })
+    const finalCode = (data.code || current?.code || '').toUpperCase()
+    const finalName = (data.name || current?.name || '')
+    const finalType = (data.type || current?.type || '')
+    if (current && (finalCode !== current.code.toUpperCase() || finalName !== current.name || finalType !== current.type)) {
+      // import guard lives in the same module via a shared helper; duplicate the check here for safety
+      const t = finalType.toUpperCase()
+      const bad = (finalCode.endsWith(t) ||
+                   finalName.toUpperCase().replace(/\s+/g, '') === finalCode + t ||
+                   finalName.toUpperCase().replace(/\s+/g, '') === finalCode)
+      if (bad) {
+        return NextResponse.json({ error: 'Refusing update that would produce a malformed account (code must be clean; name must be descriptive).' }, { status: 400 })
+      }
+    }
+
     const account = await prisma.account.update({
       where: { id },
       data,

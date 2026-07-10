@@ -2,11 +2,30 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 
+const ALLOWED_TYPES = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'] as const
+
 const createAccountSchema = z.object({
-  code: z.string().min(1).max(20),
+  code: z.string().min(1).max(20).regex(/^[A-Za-z0-9._-]+$/, 'Code must be alphanumeric with optional . _ -'),
   name: z.string().min(1).max(100),
   type: z.enum(['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE']),
 })
+
+// Hard guard against the historical "code + type" corruption pattern
+// (e.g. "10102738334ASSET" appearing in both code and name).
+// We never want to allow codes or names that look like concatenation of a code and an account type.
+function isMalformedAccount(code: string, name: string, type: string): boolean {
+  const upperCode = code.toUpperCase()
+  const upperName = name.toUpperCase()
+  const t = type.toUpperCase()
+  if (ALLOWED_TYPES.includes(t as any) && upperCode.endsWith(t)) return true
+  if (ALLOWED_TYPES.includes(t as any) && upperName.endsWith(t) && upperName.includes(upperCode)) return true
+  // obvious concat without separator
+  if (upperName.replace(/\s+/g, '') === upperCode + t) return true
+  if (upperName.replace(/\s+/g, '') === t + upperCode) return true
+  // name exactly equals code (common symptom of bad creation)
+  if (upperName.replace(/\s+/g, '') === upperCode) return true
+  return false
+}
 
 export async function GET(request: Request) {
   try {
@@ -54,10 +73,23 @@ export async function GET(request: Request) {
       const visibleCount = acc.journalLines.length
       const { journalLines: _journalLines, ...rest } = acc
       void _journalLines
+
+      // Flag obviously corrupted accounts from past bugs (e.g. code "1010ASSET", name same as code+type)
+      const t = acc.type.toUpperCase()
+      const cUp = acc.code.toUpperCase()
+      const nUp = (acc.name || '').toUpperCase().replace(/\s+/g, '')
+      const malformed = ALLOWED_TYPES.includes(t as any) && (
+        cUp.endsWith(t) ||
+        nUp === cUp + t ||
+        nUp === cUp ||
+        nUp === t + cUp
+      )
+
       return {
         ...rest,
         _count: { journalLines: visibleCount },
-        balance: parseFloat(bal.toFixed(2))
+        balance: parseFloat(bal.toFixed(2)),
+        malformed
       }
     })
 
@@ -84,6 +116,13 @@ export async function POST(request: Request) {
     }
 
     const { code, name, type } = parsed.data
+
+    if (isMalformedAccount(code, name, type)) {
+      return NextResponse.json(
+        { error: 'Invalid account code or name. Code must be a clean identifier (no type suffix). Name must be descriptive and different from the code.' },
+        { status: 400 }
+      )
+    }
 
     const existing = await prisma.account.findUnique({ where: { code } })
     if (existing) {
