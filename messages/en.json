@@ -30,7 +30,17 @@
       "lockedStatus": "Chat locked — giving advice only. No entries will be created or changed.",
       "unlockedStatus": "",
       "lockedToast": "Chat is locked (advisory mode). Unlock to allow actions.",
-      "unlockedToast": "Chat unlocked. Actions enabled."
+      "unlockedToast": "Chat unlocked. Actions enabled.",
+      "thinkingMessages": {
+        "thinking": "thinking",
+        "requestingData": "requesting data",
+        "loading": "loading",
+        "receiving": "receiving",
+        "analyzing": "analyzing",
+        "processing": "processing",
+        "syncingEntries": "syncing entries",
+        "balancing": "balancing"
+      }
     },
     "panels": {
       "accounts": {

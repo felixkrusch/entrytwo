@@ -7,6 +7,7 @@ import { useNewEntry, NewEntrySuggestion } from './NewEntryContext'
 import { useTranslations } from 'next-intl'
 import { useRouter } from 'next/navigation'
 import { JournalLineInput } from '@/lib/chat/validation'
+import AmberTerminalThinking from './AmberTerminalThinking'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -19,7 +20,6 @@ interface Message {
     description?: string
     currency?: string
   }
-  isStreaming?: boolean
   // Small "View in list" button for autonomous creates (contact / invoice / journal)
   navigate?: { label: string; href: string }
   sourcePdfPath?: string
@@ -238,12 +238,11 @@ export default function ChatPage() {
     setInput('')
     setIsLoading(true)
 
-    // Add a placeholder for streaming response
-    const streamingMsgIndex = newMessages.length
+    // Add a placeholder for the assistant response (no streaming - we never got it to work)
+    const assistantIndex = newMessages.length
     setMessages(prev => [...prev, {
       role: 'assistant',
-      content: '',
-      isStreaming: true
+      content: ''
     }])
     scrollToBottom(true)
 
@@ -327,169 +326,139 @@ export default function ChatPage() {
         }))
       }
 
-      // Check if response is streaming (text/plain) or JSON
-      const contentType = res.headers.get('content-type') || ''
-      if (contentType.includes('text/plain')) {
-        // Handle streaming response
-        const reader = res.body?.getReader()
-        const decoder = new TextDecoder()
-        let accumulatedContent = ''
+      // Always treat response as JSON (streaming was never enabled)
+      const data = await res.json() as ChatResponse
+      const d = data
 
-        if (reader) {
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
+      let synthesizedSuggestion: NewEntrySuggestion | undefined = data.suggestion
 
-            const chunk = decoder.decode(value, { stream: true })
-            accumulatedContent += chunk
+      // Normalize CREATE_JOURNAL proposals (from two-pass confidence gate or explicit proposals)
+      // into the shape the journal modal expects.
+      const isCreateJournalProposal =
+        d?.proposedAction?.type === 'CREATE_JOURNAL' ||
+        (d?.proposed && (d?.action === 'CREATE_JOURNAL' || d?.proposedAction?.type === 'CREATE_JOURNAL'))
 
-            setMessages(prev => {
-              const updated = [...prev]
-              if (updated[streamingMsgIndex]) {
-                updated[streamingMsgIndex] = {
-                  ...updated[streamingMsgIndex],
-                  content: accumulatedContent
-                }
-              }
-              return updated
-            })
-            scrollToBottom(true)
+      if (!synthesizedSuggestion && isCreateJournalProposal) {
+        const p = d.proposedAction?.params || d.params || d
+        if (p && (p.lines || p.description)) {
+          synthesizedSuggestion = {
+            description: p.description || data.response || 'Journal entry',
+            lines: Array.isArray(p.lines) ? p.lines.map((l: JournalLineInput) => ({
+              accountCode: l.accountCode,
+              debit: typeof l.debit === 'string' ? Number(l.debit) : (l.debit || 0),
+              credit: typeof l.credit === 'string' ? Number(l.credit) : (l.credit || 0),
+              description: l.description,
+              currency: l.currency,
+              fxRateToBase: l.fxRateToBase != null ? Number(l.fxRateToBase) : undefined,
+              fxSource: l.fxSource,
+              fxDate: l.fxDate,
+              taxRateId: l.taxRateId ?? undefined,
+            })) : [],
+            // carry uploaded invoice/receipt so the journal entry can be linked to it
+            sourcePdfPath: p?.sourcePdfPath || d.sourcePdfPath || undefined,
           }
         }
-      } else {
-        // Handle JSON response (transactions with suggestions)
-        const data = await res.json() as ChatResponse
-        const d = data
+      }
 
-        let synthesizedSuggestion: NewEntrySuggestion | undefined = data.suggestion
-
-        // Normalize CREATE_JOURNAL proposals (from two-pass confidence gate or explicit proposals)
-        // into the shape the journal modal expects.
-        const isCreateJournalProposal =
-          d?.proposedAction?.type === 'CREATE_JOURNAL' ||
-          (d?.proposed && (d?.action === 'CREATE_JOURNAL' || d?.proposedAction?.type === 'CREATE_JOURNAL'))
-
-        if (!synthesizedSuggestion && isCreateJournalProposal) {
-          const p = d.proposedAction?.params || d.params || d
-          if (p && (p.lines || p.description)) {
-            synthesizedSuggestion = {
-              description: p.description || data.response || 'Journal entry',
-              lines: Array.isArray(p.lines) ? p.lines.map((l: JournalLineInput) => ({
-                accountCode: l.accountCode,
-                debit: typeof l.debit === 'string' ? Number(l.debit) : (l.debit || 0),
-                credit: typeof l.credit === 'string' ? Number(l.credit) : (l.credit || 0),
-                description: l.description,
-                currency: l.currency,
-                fxRateToBase: l.fxRateToBase != null ? Number(l.fxRateToBase) : undefined,
-                fxSource: l.fxSource,
-                fxDate: l.fxDate,
-                taxRateId: l.taxRateId ?? undefined,
-              })) : [],
-              // carry uploaded invoice/receipt so the journal entry can be linked to it
-              sourcePdfPath: p?.sourcePdfPath || d.sourcePdfPath || undefined,
-            }
-          }
-        }
-
-        // Compute a quick nav target for autonomous creates (used for both the button and auto-switch)
-        // Supports two-pass (has action) and legacy high-confidence path (entryId + createdAutonomously, no action)
-        let navigate: { label: string; href: string } | undefined
-        if (d?.createdAutonomously) {
-          const act = (d.action || '').toString().toUpperCase()
-          const resp = String(d.response || '').toLowerCase()
-          if (act === 'CREATE_CONTACT' || /contact/i.test(resp)) {
-            navigate = { label: 'View contacts', href: '/app?view=contacts' }
-          } else if (act === 'CREATE_INVOICE_DRAFT' || act === 'GENERATE_RECURRING_DRAFT' || /invoice/i.test(resp)) {
-            navigate = { label: 'View invoices', href: '/app?view=invoicing' }
-          } else if (act.includes('REVERSE') || /revers(ed|al)/i.test(resp)) {
-            navigate = { label: 'View entries', href: '/app?view=dashboard' }
-          } else if (act === 'CREATE_JOURNAL' || d.entryId || /journal|entry|autonomously/i.test(resp)) {
-            navigate = { label: 'View entries', href: '/app?view=dashboard' }
-          } else if (act === 'MATCH_FEED_TRANSACTION' || /feed|match.*post|posted/i.test(resp)) {
-            navigate = { label: 'View entries', href: '/app?view=dashboard' }
-          }
-        }
-
-        setMessages(prev => {
-          const updated = [...prev]
-          if (updated[streamingMsgIndex]) {
-            const isInvoice = !!data.createInvoice
-
-            updated[streamingMsgIndex] = {
-              role: 'assistant',
-              content: data.response || 'Got it.',
-              action: isInvoice ? 'create_invoice' : (synthesizedSuggestion ? 'suggest_entry' : undefined),
-              suggestion: synthesizedSuggestion,
-              createInvoice: data.createInvoice,
-              ...(navigate ? { navigate } : {}),
-              // Preserve proposedAction for non-journal cases (restore/merge/...)
-              ...(d?.proposedAction && !isCreateJournalProposal ? { proposedAction: d.proposedAction } : {})
-            }
-            // also surface sourcePdfPath on the message for proposals that don't go through the suggestion path
-            if (d.sourcePdfPath) {
-              const msg = updated[streamingMsgIndex]
-              if (msg) msg.sourcePdfPath = d.sourcePdfPath
-            }
-          }
-          return updated
-        })
-
-        // Persist server-assigned threadId for next turns (context is now server-managed)
-        if (data?.threadId && typeof data.threadId === 'string') {
-          setThreadId(data.threadId)
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('chatThreadId', data.threadId)
-          }
-        }
-
-        // Consume staged receipt if a journal was created (autonomous or via this response)
-        const usedPath = data?.sourcePdfPath || (data as any)?.entity?.sourcePdfPath || synthesizedSuggestion?.sourcePdfPath
-        if (usedPath && (d?.createdAutonomously || d?.executed || d?.action === 'CREATE_JOURNAL')) {
-          consumeStagedReceipt(usedPath)
-        }
-
-        scrollToBottom(true)
-
-        // When chat just created or updated a contact, open the form in the contacts view in focus
+      // Compute a quick nav target for autonomous creates (used for both the button and auto-switch)
+      // Supports two-pass (has action) and legacy high-confidence path (entryId + createdAutonomously, no action)
+      let navigate: { label: string; href: string } | undefined
+      if (d?.createdAutonomously) {
         const act = (d.action || '').toString().toUpperCase()
-        if (act === 'CREATE_CONTACT' || act === 'UPDATE_CONTACT') {
-          const cid = d.entityId
-          window.__pendingContactForm = {
-            id: cid ?? '',
-            prefill: { name: (d.response || '').replace(/^(Created|Updated) contact.*?:\s*/i, '').trim() }
+        const resp = String(d.response || '').toLowerCase()
+        if (act === 'CREATE_CONTACT' || /contact/i.test(resp)) {
+          navigate = { label: 'View contacts', href: '/app?view=contacts' }
+        } else if (act === 'CREATE_INVOICE_DRAFT' || act === 'GENERATE_RECURRING_DRAFT' || /invoice/i.test(resp)) {
+          navigate = { label: 'View invoices', href: '/app?view=invoicing' }
+        } else if (act.includes('REVERSE') || /revers(ed|al)/i.test(resp)) {
+          navigate = { label: 'View entries', href: '/app?view=dashboard' }
+        } else if (act === 'CREATE_JOURNAL' || d.entryId || /journal|entry|autonomously/i.test(resp)) {
+          navigate = { label: 'View entries', href: '/app?view=dashboard' }
+        } else if (act === 'MATCH_FEED_TRANSACTION' || /feed|match.*post|posted/i.test(resp)) {
+          navigate = { label: 'View entries', href: '/app?view=dashboard' }
+        }
+      }
+
+      setMessages(prev => {
+        const updated = [...prev]
+        if (updated[assistantIndex]) {
+          const isInvoice = !!data.createInvoice
+
+          updated[assistantIndex] = {
+            role: 'assistant',
+            content: data.response || 'Got it.',
+            action: isInvoice ? 'create_invoice' : (synthesizedSuggestion ? 'suggest_entry' : undefined),
+            suggestion: synthesizedSuggestion,
+            createInvoice: data.createInvoice,
+            ...(navigate ? { navigate } : {}),
+            // Preserve proposedAction for non-journal cases (restore/merge/...)
+            ...(d?.proposedAction && !isCreateJournalProposal ? { proposedAction: d.proposedAction } : {})
           }
+          // also surface sourcePdfPath on the message for proposals that don't go through the suggestion path
+          if (d.sourcePdfPath) {
+            const msg = updated[assistantIndex]
+            if (msg) msg.sourcePdfPath = d.sourcePdfPath
+          }
+        }
+        return updated
+      })
+
+      // Persist server-assigned threadId for next turns (context is now server-managed)
+      if (data?.threadId && typeof data.threadId === 'string') {
+        setThreadId(data.threadId)
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('chatThreadId', data.threadId)
+        }
+      }
+
+      // Consume staged receipt if a journal was created (autonomous or via this response)
+      const usedPath = data?.sourcePdfPath || (data as any)?.entity?.sourcePdfPath || synthesizedSuggestion?.sourcePdfPath
+      if (usedPath && (d?.createdAutonomously || d?.executed || d?.action === 'CREATE_JOURNAL')) {
+        consumeStagedReceipt(usedPath)
+      }
+
+      scrollToBottom(true)
+
+      // When chat just created or updated a contact, open the form in the contacts view in focus
+      const act = (d.action || '').toString().toUpperCase()
+      if (act === 'CREATE_CONTACT' || act === 'UPDATE_CONTACT') {
+        const cid = d.entityId
+        window.__pendingContactForm = {
+          id: cid ?? '',
+          prefill: { name: (d.response || '').replace(/^(Created|Updated) contact.*?:\s*/i, '').trim() }
+        }
+        setTimeout(() => {
+          router.push('/app?view=contacts')
           setTimeout(() => {
-            router.push('/app?view=contacts')
-            setTimeout(() => {
-              window.dispatchEvent(new CustomEvent('open-contact-form', {
-                detail: window.__pendingContactForm
-              }))
-            }, 140)
-          }, 40)
-        }
+            window.dispatchEvent(new CustomEvent('open-contact-form', {
+              detail: window.__pendingContactForm
+            }))
+          }, 140)
+        }, 40)
+      }
 
-        // For journal proposals, open the entry modal directly (user expectation for "showing as proposal")
-        if (isCreateJournalProposal && synthesizedSuggestion) {
-          // small delay so the message appears first
-          setTimeout(() => openNewEntry(synthesizedSuggestion), 80)
-        }
+      // For journal proposals, open the entry modal directly (user expectation for "showing as proposal")
+      if (isCreateJournalProposal && synthesizedSuggestion) {
+        // small delay so the message appears first
+        setTimeout(() => openNewEntry(synthesizedSuggestion), 80)
+      }
 
-        // Auto-switch the right panel for autonomous creates (contacts / invoices / journals)
-        if (navigate) {
-          setTimeout(() => router.push(navigate!.href), 70)
-        }
+      // Auto-switch the right panel for autonomous creates (contacts / invoices / journals)
+      if (navigate) {
+        setTimeout(() => router.push(navigate!.href), 70)
+      }
 
-        // Chat-triggered ledger open (AI-first high-reachability) — Git model: carry branch/asOf
-        if (data.openLedger?.code) {
-          const ld = data.openLedger
-          const evt: PendingLedger = { code: ld.code }
-          if (ld.from) evt.from = ld.from
-          if (ld.to) evt.to = ld.to
-          if (ld.search) evt.search = ld.search
-          if (ld.branch) evt.branch = ld.branch
-          if (ld.asOf) evt.asOf = ld.asOf
-          window.dispatchEvent(new CustomEvent('open-ledger', { detail: evt }))
-        }
+      // Chat-triggered ledger open (AI-first high-reachability) — Git model: carry branch/asOf
+      if (data.openLedger?.code) {
+        const ld = data.openLedger
+        const evt: PendingLedger = { code: ld.code }
+        if (ld.from) evt.from = ld.from
+        if (ld.to) evt.to = ld.to
+        if (ld.search) evt.search = ld.search
+        if (ld.branch) evt.branch = ld.branch
+        if (ld.asOf) evt.asOf = ld.asOf
+        window.dispatchEvent(new CustomEvent('open-ledger', { detail: evt }))
+      }
 
         // Git model signals: refresh all views after AI autonomous actions (full scope)
         if (d?.createdAutonomously || d?.reconciled || d?.restored || d?.executed) {
@@ -499,7 +468,6 @@ export default function ChatPage() {
           window.dispatchEvent(new CustomEvent('feeds-updated'))
           window.dispatchEvent(new CustomEvent('git-head-changed'))
         }
-      }
     } catch {
       // Real outcome: hard failure (network, etc.)
       setLlmStatus(prev => ({
@@ -513,8 +481,8 @@ export default function ChatPage() {
       const { response } = generateErrorResponse(current)
         setMessages(prev => {
           const updated = [...prev]
-          if (updated[streamingMsgIndex]) {
-            updated[streamingMsgIndex] = {
+          if (updated[assistantIndex]) {
+            updated[assistantIndex] = {
               role: 'assistant',
               content: response
             }
@@ -531,17 +499,6 @@ export default function ChatPage() {
       }
     } finally {
       setIsLoading(false)
-      // Mark the message as no longer streaming
-      setMessages(prev => {
-        const updated = [...prev]
-        if (updated[streamingMsgIndex]?.isStreaming) {
-          updated[streamingMsgIndex] = {
-            ...updated[streamingMsgIndex],
-            isStreaming: false
-          }
-        }
-        return updated
-      })
       scrollToBottom(true)
     }
   }
@@ -776,66 +733,70 @@ export default function ChatPage() {
       >
         {/* Messages fill the space above */}
         <div className="flex-1 space-y-6">
-          {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : ''}`}>
-              <div className={`max-w-[82%] rounded-2xl px-5 py-3 text-sm whitespace-pre-wrap ${
-                msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-zinc-800'
-              }`}>
-                {msg.content || (msg.isStreaming ? '' : null)}
-                  {msg.isStreaming && !msg.content && (
-                    <span className="text-zinc-500">...</span>
-                  )}
+          {messages.map((msg, i) => {
+            // Pure loading state for assistant: show the amber terminal animation with NO bubble
+            if (msg.role === 'assistant' && !msg.content) {
+              return <AmberTerminalThinking key={i} />;
+            }
+
+            return (
+              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : ''}`}>
+                <div className={`max-w-[82%] rounded-2xl px-5 py-3 text-sm whitespace-pre-wrap ${
+                  msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-zinc-800'
+                }`}>
+                  {msg.content}
+
                   {msg.action === 'suggest_entry' && (
                     <button
                       onClick={() => handleSuggest(msg.suggestion)}
                       className="mt-2 block text-xs px-3 py-1 bg-white text-black rounded-full hover:bg-zinc-200 transition"
                     >
-                       {msg.suggestion?.reversingOriginalId
-                         ? t('reviewReversal')
-                         : (msg.suggestion?.needsConfirmation ? t('reviewAndConfirm') : t('createEntry'))}
+                      {msg.suggestion?.reversingOriginalId
+                        ? t('reviewReversal')
+                        : (msg.suggestion?.needsConfirmation ? t('reviewAndConfirm') : t('createEntry'))}
                     </button>
                   )}
 
-                    {msg.createInvoice && (
+                  {msg.createInvoice && (
+                    <button
+                      onClick={() => handleCreateInvoice(msg.createInvoice)}
+                      className="mt-2 block text-xs px-3 py-1 bg-emerald-500 text-black rounded-full hover:bg-emerald-400 transition"
+                    >
+                      Create Invoice
+                    </button>
+                  )}
+
+                  {/* Quick "view in list" button for autonomous creates */}
+                  {msg.navigate && (
+                    <button
+                      onClick={() => router.push(msg.navigate!.href)}
+                      className="mt-2 block text-xs px-3 py-1 bg-zinc-700 text-white rounded-full hover:bg-zinc-600 transition"
+                    >
+                      {msg.navigate.label}
+                    </button>
+                  )}
+
+                  {/* Autonomous proposal confirmation surface */}
+                  {(msg).proposedAction && (
+                    <div className="mt-3 p-2 border border-amber-700 bg-amber-950/30 rounded text-xs">
+                      <div className="mb-1 text-amber-400">Action requires confirmation:</div>
+                      <div className="font-mono text-[10px] mb-2">{JSON.stringify((msg).proposedAction)}</div>
                       <button
-                        onClick={() => handleCreateInvoice(msg.createInvoice)}
-                        className="mt-2 block text-xs px-3 py-1 bg-emerald-500 text-black rounded-full hover:bg-emerald-400 transition"
+                        onClick={() => handleApproveProposal(msg)}
+                        className="px-3 py-1 bg-amber-600 text-black rounded-full text-xs hover:bg-amber-500"
                       >
-                        Create Invoice
+                        Confirm & Execute
                       </button>
-                    )}
+                    </div>
+                  )}
 
-                    {/* Quick "view in list" button for autonomous creates (contact / invoice / journal) */}
-                    {msg.navigate && (
-                      <button
-                        onClick={() => router.push(msg.navigate!.href)}
-                        className="mt-2 block text-xs px-3 py-1 bg-zinc-700 text-white rounded-full hover:bg-zinc-600 transition"
-                      >
-                        {msg.navigate.label}
-                      </button>
-                    )}
-
-                   {/* New autonomous proposal confirmation surface */}
-                   {(msg).proposedAction && (
-                      <div className="mt-3 p-2 border border-amber-700 bg-amber-950/30 rounded text-xs">
-                        <div className="mb-1 text-amber-400">Action requires confirmation:</div>
-                        <div className="font-mono text-[10px] mb-2">{JSON.stringify((msg).proposedAction)}</div>
-                        <button
-                          onClick={() => handleApproveProposal(msg)}
-                         className="px-3 py-1 bg-amber-600 text-black rounded-full text-xs hover:bg-amber-500"
-                       >
-                         Confirm & Execute
-                       </button>
-                     </div>
-                   )}
-
-                  {/* Phase 1: show merchant + real feed rate usage */}
+                  {/* Phase 1: merchant + real feed rate usage */}
                   {msg.suggestion && (
                     <div className="mt-1 text-[10px] space-x-2">
                       {msg.suggestion.merchant && (
                         <span className="text-amber-400">from {msg.suggestion.merchant}</span>
                       )}
-                       {Array.isArray(msg.suggestion.lines) && msg.suggestion.lines.some((l: { fxSource?: string | null }) => String(l.fxSource || '').startsWith('BANK_FEED')) && (
+                      {Array.isArray(msg.suggestion.lines) && msg.suggestion.lines.some((l: { fxSource?: string | null }) => String(l.fxSource || '').startsWith('BANK_FEED')) && (
                         <span className="text-emerald-400">real feed rate</span>
                       )}
                       {msg.suggestion.merchant && !msg.suggestion.needsConfirmation && !msg.suggestion.reversingOriginalId && (
@@ -843,10 +804,11 @@ export default function ChatPage() {
                       )}
                     </div>
                   )}
+                </div>
               </div>
-            </div>
-           ))}
-         </div>
+            );
+          })}
+        </div>
          <div ref={messagesEndRef} />
 
           {/* Staged receipts (persistent pending receipt state) */}
@@ -890,8 +852,8 @@ export default function ChatPage() {
           {llmStatus ? (
             <span className={`inline-flex items-center gap-1.5 ${llmStatus.connected ? 'text-emerald-400' : 'text-rose-400'}`}>
               <span className={`inline-block w-1.5 h-1.5 rounded-full ${llmStatus.connected ? 'bg-emerald-400' : 'bg-rose-400'}`} />
-              {llmStatus.connected ? 'LLM connected' : (llmStatus.hasKey ? 'LLM unreachable' : 'LLM not configured')}
-              {llmStatus.model ? ` • ${llmStatus.model}` : ''}
+               {llmStatus.connected ? 'connected' : (llmStatus.hasKey ? 'unreachable' : 'not configured')}
+               {llmStatus.model ? ` • ${llmStatus.model}` : ''}
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 text-zinc-500">
