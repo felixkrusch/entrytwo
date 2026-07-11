@@ -25,6 +25,8 @@ import { createHash } from 'crypto'
 import { MAX_ATTACHMENT_BATCH_BYTES, MAX_ATTACHMENTS_PER_UPLOAD, storeAttachment } from '@/lib/attachments'
 import { requireUser } from '@/lib/authz'
 import { rateLimit } from '@/lib/rate-limit'
+import { createExpenseClaim } from '@/lib/expenseClaims'
+import { storeClaimBuffer } from '@/lib/claimFiles'
 
 /**
  * Trillion chat (thread context + Grok skills on demand).
@@ -132,7 +134,7 @@ Use the live data above for any question about this company's actual numbers, ac
 For general tax rules, laws, rates in a country, or anything that is not specific to this company's own configured records, check current external sources.
 
 When you need to create or change records (journal, contact, invoice, etc.):
-- First call the get_skill tool with the right skill name (e.g. "create-contact", "create-journal", "core").
+- First call the get_skill tool with the right skill name (e.g. "create-contact", "create-journal", "create-expense-claim", "core").
 - After receiving the skill instructions, output **exactly one** clean JSON action object (or a \`\`\`json block).
 - The server will parse, validate, and respect the lock.
 
@@ -156,6 +158,7 @@ Never emit fxSource starting with BANK_FEED unless the rate truly came from a fe
 For every transaction whose currency differs from the configured company base currency and has no current statement/feed rate, use web_search before emitting the action. Compare at least two independent public sources for the transaction date (or nearest prior market day), calculate base-currency units per one transaction-currency unit, and record fxSource as LLM_PROVISIONAL followed by the source URLs. Never omit, invent, or assume 1:1. If web search is unavailable or two sources cannot support a reasonable estimate, ask for the actual base amount instead.
 Never mutate master data (accounts, tax rates, settings, users) from chat.
 Normal conversation → normal text. Real actions → look up the skill if needed → one JSON action object.
+Personal expense or reimbursement claims → call get_skill("create-expense-claim") and create an editable claim draft, never a journal entry.
 `.trim()
 }
 
@@ -404,7 +407,7 @@ export async function POST(req: NextRequest) {
     // Define the on-demand skill retrieval tool (Grok skills style).
     // The model decides when it needs precise action schemas and calls this.
     const getSkillTool = tool({
-      description: 'Fetch the exact instructions, rules, and JSON shape for a Trillion action skill. Call this by name (core, create-contact, create-journal, create-invoice-draft, update-contact, extract-bank-statement) right before you need to emit a structured action. Use extract-bank-statement when the user provided a bank/credit card statement (PDF or pasted HTML table).',
+      description: 'Fetch the exact instructions, rules, and JSON shape for a Trillion action skill. Call this by name (core, create-contact, create-journal, create-expense-claim, create-invoice-draft, update-contact, extract-bank-statement) right before you need to emit a structured action. Use extract-bank-statement when the user provided a bank/credit card statement (PDF or pasted HTML table).',
       inputSchema: z.object({
         skill: z.string().describe('The skill name to load, e.g. "create-journal", "extract-bank-statement", "core".'),
       }),
@@ -516,6 +519,11 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      if (action === 'CREATE_EXPENSE_CLAIM_DRAFT') {
+        const p = params as { attachments?: unknown[] }
+        p.attachments = attachedFiles.map(file => ({ path: file.savedPath, originalName: file.name, mimeType: file.mimeType, size: file.size, sha256: file.sha256 }))
+      }
+
       // Server-side policy and validation (unchanged).
       if (isMasterDataAction(action)) {
         return Response.json({
@@ -571,6 +579,49 @@ export async function POST(req: NextRequest) {
           resolved.contactName = v.resolvedContactName
         }
         if (v.resolvedLines) resolved.lines = v.resolvedLines
+      } else if (action === 'CREATE_EXPENSE_CLAIM_DRAFT') {
+        const p = params as {
+          claimant?: string
+          lines?: Array<{ accountCode?: string; expenseDate?: string; merchant?: string; description?: string; grossAmount?: number; currency?: string; fxRateToBase?: number; fxSource?: string; taxRateId?: string | null; paymentMethod?: string }>
+          reimbursementAccountCode?: string
+        }
+        const claimant = String(p.claimant || '').trim()
+        const matchingUsers = claimant ? await prisma.user.findMany({
+          where: { OR: [{ email: { equals: claimant, mode: 'insensitive' } }, { name: { equals: claimant, mode: 'insensitive' } }] },
+          select: { id: true },
+          take: 2,
+        }) : []
+        if (matchingUsers.length !== 1) {
+          validationOk = false
+          validationError = matchingUsers.length > 1 ? `More than one user matches "${claimant}"` : `No user matches "${claimant}"`
+        } else {
+          const accountCodes = [...new Set((p.lines || []).map(line => line.accountCode).filter((code): code is string => !!code))]
+          const expenseAccounts = await prisma.account.findMany({ where: { code: { in: accountCodes }, type: 'EXPENSE' }, select: { id: true, code: true } })
+          if (expenseAccounts.length !== accountCodes.length) {
+            validationOk = false
+            validationError = 'Every claim line must use an existing expense account code'
+          } else {
+            const byCode = new Map(expenseAccounts.map(account => [account.code, account.id]))
+            const reimbursementAccount = p.reimbursementAccountCode
+              ? await prisma.account.findFirst({ where: { code: p.reimbursementAccountCode, type: 'LIABILITY' }, select: { id: true } })
+              : await prisma.account.findFirst({ where: { type: 'LIABILITY', OR: [{ name: { contains: 'reimburse', mode: 'insensitive' } }, { name: { contains: 'payable', mode: 'insensitive' } }] }, orderBy: { code: 'asc' }, select: { id: true } })
+            resolved.claimantUserId = matchingUsers[0].id
+            resolved.reimbursementAccountId = reimbursementAccount?.id || null
+            resolved.lines = (p.lines || []).map(line => ({
+              expenseDate: line.expenseDate || new Date().toISOString().slice(0, 10),
+              merchant: line.merchant,
+              description: line.description || 'Receipt requiring review',
+              accountId: byCode.get(line.accountCode || ''),
+              grossAmount: Number(line.grossAmount),
+              currency: (line.currency || 'EUR').toUpperCase(),
+              fxRateToBase: line.fxRateToBase,
+              fxSource: line.fxSource,
+              taxRateId: line.taxRateId,
+              paymentMethod: line.paymentMethod || 'PERSONAL_FUNDS',
+              receiptIds: [],
+            }))
+          }
+        }
       } else if (action === 'PROPOSE_RESTORE') {
         const v = await validateRestoreTarget(String(params.target ?? ''), branch)
         validationOk = v.ok
@@ -596,6 +647,8 @@ export async function POST(req: NextRequest) {
           proposalText = `Create this journal entry?`
         } else if (action === 'CREATE_JOURNAL_BATCH') {
           proposalText = `Create ${(params as { entries?: unknown[] }).entries?.length || 0} statement journal entries?`
+        } else if (action === 'CREATE_EXPENSE_CLAIM_DRAFT') {
+          proposalText = 'Create this editable expense claim draft?'
         }
 
         const proposalResponse: any = {
@@ -923,6 +976,59 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
       action,
       response: `Created invoice draft: ${invoice.invoiceNumber}`,
       entityId: invoice.id,
+      createdAutonomously: true,
+    }
+  }
+
+  if (action === 'CREATE_EXPENSE_CLAIM_DRAFT') {
+    if (!ctx.createdBy) throw new Error('A signed-in user is required')
+    const p = params as {
+      claimantUserId?: string
+      title?: string
+      purpose?: string
+      reimbursementAccountId?: string | null
+      lines?: unknown[]
+      attachments?: Array<{ path: string; originalName: string; mimeType: string; size: number; sha256: string }>
+    }
+    if (!p.claimantUserId) throw new Error('Claimant could not be resolved')
+    const actor = await prisma.user.findUnique({ where: { id: ctx.createdBy }, select: { role: true } })
+    if (!actor) throw new Error('Signed-in user was not found')
+    const claim = await createExpenseClaim({
+      claimantUserId: p.claimantUserId,
+      title: p.title || 'Personal expense claim',
+      purpose: p.purpose,
+      reimbursementAccountId: p.reimbursementAccountId,
+      lines: p.lines || [],
+    }, { id: ctx.createdBy, role: actor.role })
+
+    const createdReceiptIds: string[] = []
+    for (const attachment of p.attachments || []) {
+      const buffer = await readSavedAttachment(attachment.path)
+      if (!buffer.length) continue
+      const stored = await storeClaimBuffer(buffer, attachment.originalName, attachment.mimeType)
+      const duplicate = await prisma.expenseClaimReceipt.findFirst({ where: { sha256: stored.sha256, claimId: { not: claim.id } }, select: { id: true } })
+      try {
+        const receipt = await prisma.expenseClaimReceipt.create({
+          data: { claimId: claim.id, uploadedByUserId: ctx.createdBy, ...stored, source: 'chat', duplicateStatus: duplicate ? 'POSSIBLE_DUPLICATE' : 'CLEAR' },
+        })
+        createdReceiptIds.push(receipt.id)
+      } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'P2002')) throw error
+      }
+    }
+    if (createdReceiptIds.length) {
+      if (claim.lines.length === 1) {
+        await prisma.expenseClaimLineReceipt.createMany({ data: createdReceiptIds.map(claimReceiptId => ({ claimLineId: claim.lines[0].id, claimReceiptId })) })
+      } else if (claim.lines.length === createdReceiptIds.length) {
+        await prisma.expenseClaimLineReceipt.createMany({ data: claim.lines.map((line, index) => ({ claimLineId: line.id, claimReceiptId: createdReceiptIds[index] })) })
+      }
+      await prisma.expenseClaimActivity.create({ data: { claimId: claim.id, actorUserId: ctx.createdBy, revision: claim.revision, action: 'RECEIPTS_ADDED', payload: { source: 'chat', receiptIds: createdReceiptIds } } })
+    }
+    return {
+      executed: true,
+      action,
+      response: `Created editable draft ${claim.claimNumber} with ${claim.lines.length} line${claim.lines.length === 1 ? '' : 's'} and ${createdReceiptIds.length} receipt${createdReceiptIds.length === 1 ? '' : 's'}.`,
+      entityId: claim.id,
       createdAutonomously: true,
     }
   }

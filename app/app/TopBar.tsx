@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { Settings, BarChart3, FileText, Users, CreditCard, File, History, ChevronDown } from 'lucide-react'
+import { Settings, BarChart3, FileText, Users, CreditCard, File, History, ChevronDown, ReceiptText } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 
@@ -23,6 +23,7 @@ export default function TopBar({ showSettings = false }: TopBarProps) {
     { name: 'Contacts', view: 'contacts', icon: Users },
     { name: 'Reports', view: 'reports', icon: BarChart3 },
     { name: 'Receipts', view: 'receipts', icon: File },
+    { name: 'Claims', view: 'claims', icon: ReceiptText },
   ]
 
   useEffect(() => {

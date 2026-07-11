@@ -15,6 +15,7 @@ export const ActionType = z.enum([
   'CREATE_CONTACT',
   'UPDATE_CONTACT',
   'CREATE_INVOICE_DRAFT',
+  'CREATE_EXPENSE_CLAIM_DRAFT',
   'GENERATE_RECURRING_DRAFT',
   'MATCH_FEED_TRANSACTION',
   'SYNC_FEED',
@@ -104,6 +105,25 @@ export const InvoiceDraftParams = z.object({
   })).optional(),
 })
 
+export const ExpenseClaimDraftParams = z.object({
+  claimant: z.string().min(1),
+  title: z.string().min(2),
+  purpose: z.string().optional(),
+  reimbursementAccountCode: z.string().optional(),
+  lines: z.array(z.object({
+    expenseDate: z.string(),
+    merchant: z.string().optional(),
+    description: z.string().min(1),
+    accountCode: z.string(),
+    grossAmount: z.number().positive(),
+    currency: z.string().length(3),
+    fxRateToBase: z.number().positive().optional(),
+    fxSource: z.string().optional(),
+    taxRateId: z.string().optional().nullable(),
+    paymentMethod: z.enum(['PERSONAL_FUNDS', 'COMPANY_CARD', 'CASH_ADVANCE', 'OTHER']).optional(),
+  })).default([]),
+})
+
 export const RecurringGenerateParams = z.object({
   recurringId: z.string().optional(),
   contactId: z.string().optional(),
@@ -157,6 +177,7 @@ export const IntentSchema = z.object({
     CreateJournalBatchParams,
     ContactParams,
     InvoiceDraftParams,
+    ExpenseClaimDraftParams,
     RecurringGenerateParams,
     FeedMatchParams,
     ReconcileParams,
@@ -184,6 +205,7 @@ export const SAFE_AUTONOMOUS_ACTIONS: ActionType[] = [
   'CREATE_CONTACT',
   'UPDATE_CONTACT',
   'CREATE_INVOICE_DRAFT',
+  'CREATE_EXPENSE_CLAIM_DRAFT',
   'GENERATE_RECURRING_DRAFT',
   'MATCH_FEED_TRANSACTION',
   'SYNC_FEED',
@@ -246,6 +268,8 @@ export function getSchemaForAction(action: ActionType): z.ZodTypeAny | null {
       return ContactParams
     case 'CREATE_INVOICE_DRAFT':
       return InvoiceDraftParams
+    case 'CREATE_EXPENSE_CLAIM_DRAFT':
+      return ExpenseClaimDraftParams
     case 'GENERATE_RECURRING_DRAFT':
       return RecurringGenerateParams
     case 'MATCH_FEED_TRANSACTION':

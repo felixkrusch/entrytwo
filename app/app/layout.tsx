@@ -18,6 +18,7 @@ import GitModelControls from './GitModelControls'
 import BooksViewIndicator from './BooksViewIndicator'
 import ReceiptsPanel from './ReceiptsPanel'
 import RecurringJournalPanel from './RecurringJournalPanel'
+import ClaimsPanel from './ClaimsPanel'
 import { useTranslations } from 'next-intl'
 import toast from 'react-hot-toast'
 import { ErrorBoundary } from '../components/ErrorBoundary'
@@ -49,7 +50,7 @@ function AppContent({ children }: { children: ReactNode }) {
 
   const rawView = searchParams?.get('view')
   const hasAccountParam = !!(searchParams?.get('accountCode') || searchParams?.get('account'))
-  const view = (rawView as 'dashboard' | 'contacts' | 'invoicing' | 'reports' | 'ledger' | 'receipts' | 'journal' | 'history') ?? (hasAccountParam ? 'ledger' : 'dashboard')
+  const view = (rawView as 'dashboard' | 'contacts' | 'invoicing' | 'reports' | 'ledger' | 'receipts' | 'claims' | 'journal' | 'history') ?? (hasAccountParam ? 'ledger' : 'dashboard')
   const ledgerAccountCode = searchParams?.get('accountCode') || searchParams?.get('account') || undefined
 
   // Git Model for Accounting: branch + asOf (point in time / branch view)
@@ -309,6 +310,10 @@ function AppContent({ children }: { children: ReactNode }) {
 
                  {view === 'receipts' && (
                    <ReceiptsPanel />
+                 )}
+
+                 {view === 'claims' && (
+                   <ClaimsPanel />
                  )}
 
                   {/* Full journal view (all entries, with pagination). 5 most recent stay on dashboard. */}

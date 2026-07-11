@@ -42,29 +42,73 @@ enum Role {
   VIEWER
 }
 
+enum ExpenseClaimWorkflowStatus {
+  DRAFT
+  SUBMITTED
+  CHANGES_REQUESTED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ExpenseClaimPostingStatus {
+  UNPOSTED
+  POSTED
+  REVERSED
+}
+
+enum ExpenseClaimReimbursementStatus {
+  NOT_READY
+  READY
+  PARTIALLY_REIMBURSED
+  REIMBURSED
+}
+
+enum ExpenseClaimPaymentMethod {
+  PERSONAL_FUNDS
+  COMPANY_CARD
+  CASH_ADVANCE
+  OTHER
+}
+
+enum ExpenseClaimDecision {
+  APPROVED
+  REJECTED
+  CHANGES_REQUESTED
+}
+
 model User {
-  id          String   @id @default(uuid())
-  email       String   @unique
-  name        String?
-  role        Role     @default(ADMIN)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  events      Event[]
-  totpSecret  String? // Encrypted TOTP secret for 2FA
-  totpEnabled Boolean  @default(false) // Whether TOTP is enabled
-  settings    Json? // User preferences including 2FA settings
+  id                    String                      @id @default(uuid())
+  email                 String                      @unique
+  name                  String?
+  role                  Role                        @default(ADMIN)
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @updatedAt
+  events                Event[]
+  expenseClaims         ExpenseClaim[]              @relation("ExpenseClaimClaimant")
+  approvedExpenseClaims ExpenseClaim[]              @relation("ExpenseClaimApprover")
+  postedExpenseClaims   ExpenseClaim[]              @relation("ExpenseClaimPoster")
+  claimReceipts         ExpenseClaimReceipt[]
+  claimActivities       ExpenseClaimActivity[]
+  claimApprovals        ExpenseClaimApproval[]
+  claimReimbursements   ExpenseClaimReimbursement[]
+  totpSecret            String? // Encrypted TOTP secret for 2FA
+  totpEnabled           Boolean                     @default(false) // Whether TOTP is enabled
+  settings              Json? // User preferences including 2FA settings
 }
 
 model Account {
-  id              String           @id @default(uuid())
-  code            String           @unique
-  name            String
-  type            AccountType
-  description     String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  journalLines    JournalLine[]
-  bankConnections BankConnection[]
+  id                  String             @id @default(uuid())
+  code                String             @unique
+  name                String
+  type                AccountType
+  description         String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  journalLines        JournalLine[]
+  bankConnections     BankConnection[]
+  expenseClaimLines   ExpenseClaimLine[]
+  reimbursementClaims ExpenseClaim[]     @relation("ExpenseClaimReimbursementAccount")
 }
 
 model Contact {
@@ -94,20 +138,22 @@ model Contact {
 }
 
 model JournalEntry {
-  id                 String            @id @default(uuid())
-  date               DateTime
-  description        String?
-  entryNumber        String?           @unique // human reference, e.g. "JE-2026-0001"
-  sourcePdfPath      String?           // original uploaded PDF/image receipt path (under /uploads/receipts)
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
-  createdBy          String?
+  id                  String                      @id @default(uuid())
+  date                DateTime
+  description         String?
+  entryNumber         String?                     @unique // human reference, e.g. "JE-2026-0001"
+  sourcePdfPath       String? // original uploaded PDF/image receipt path (under /uploads/receipts)
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+  createdBy           String?
   // Git Model: the Event that introduced this entry into a branch's visible history
   introducedByEventId String?
-  lines              JournalLine[]
-  feedTransactions   FeedTransaction[]
-  invoices           Invoice[]
-  attachments        JournalAttachment[]
+  lines               JournalLine[]
+  feedTransactions    FeedTransaction[]
+  invoices            Invoice[]
+  attachments         JournalAttachment[]
+  postedExpenseClaim  ExpenseClaim?               @relation("ExpenseClaimPosting")
+  claimReimbursements ExpenseClaimReimbursement[]
 }
 
 model JournalAttachment {
@@ -163,8 +209,9 @@ model TaxRate {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  journalLines JournalLine[] // back-relation for tax on lines
-  invoiceLines InvoiceLine[] // back-relation for invoice tax
+  journalLines      JournalLine[] // back-relation for tax on lines
+  invoiceLines      InvoiceLine[] // back-relation for invoice tax
+  expenseClaimLines ExpenseClaimLine[]
 
   // Optional: link to dedicated tax accounts in the future
   // inputTaxAccountId  String?
@@ -188,9 +235,9 @@ model Event {
 }
 
 model Snapshot {
-  id        String   @id @default(uuid())
-  createdAt DateTime @default(now())
-  data      Json
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  data        Json
   // Git Model: the event up to which this snapshot is valid (for replay)
   upToEventId String?
 }
@@ -198,15 +245,15 @@ model Snapshot {
 // Git Model for Accounting: lightweight branches for main, AI proposals, experiments
 // See docs/Git-Model-for-Accounting.md and docs/Git-Model-Implementation-Plan.md
 model AccountingBranch {
-  id          String   @id @default(uuid())
-  name        String   @unique // "main", "ai-june-recon", etc.
-  description String?
-  headEventId String?  // points to the latest Event that is the head of this branch
+  id             String   @id @default(uuid())
+  name           String   @unique // "main", "ai-june-recon", etc.
+  description    String?
+  headEventId    String? // points to the latest Event that is the head of this branch
   headSnapshotId String? // optional: snapshot for fast restore
-  isMain      Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  createdBy   String?
-  updatedAt   DateTime @updatedAt
+  isMain         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  createdBy      String?
+  updatedAt      DateTime @updatedAt
 }
 
 // Global settings / company configuration (used by Admin UI)
@@ -262,22 +309,22 @@ model RecurringInvoice {
 // review before they post (or auto-post for convenience). Each generated entry
 // is a normal JournalEntry so it appears in the ledger/journal like any other.
 model RecurringJournalEntry {
-  id              String   @id @default(uuid())
+  id              String    @id @default(uuid())
   name            String // e.g. "Monthly rent"
   frequency       String // WEEKLY | MONTHLY | QUARTERLY | YEARLY
-  interval        Int      @default(1) // every N weeks/months/quarters/years
+  interval        Int       @default(1) // every N weeks/months/quarters/years
   startDate       DateTime
   nextDueDate     DateTime
   lastGeneratedAt DateTime?
   endDate         DateTime?
-  status          String   @default("ACTIVE") // ACTIVE | PAUSED | CANCELLED
+  status          String    @default("ACTIVE") // ACTIVE | PAUSED | CANCELLED
   notes           String?
-  autoPost        Boolean  @default(false) // if true, generated entries post immediately
+  autoPost        Boolean   @default(false) // if true, generated entries post immediately
   // Snapshot of what to book (lines with accountId, debit/credit, tax, currency, fx)
   templateData    Json // { currency, description?, lines: [...] }
   createdBy       String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
 
 model Invoice {
@@ -370,16 +417,170 @@ model FeedTransaction {
 // Learned patterns and app knowledge can be added over time.
 model AgentMemory {
   id        String   @id @default(uuid())
-  key       String   // e.g. "company.region", "merchant.acme.taxRate", "rule.always-bank-feed"
-  value     Json     // structured payload (can be string, object, array, etc.)
-  scope     String   // "company" | "merchant" | "user" | "global" | "tax" | "app" | ...
-  category  String?  // "fact" | "learned" | "preference" | "explanation" | ...
-  source    String?  // "system" | "ai" | "user"
-  metadata  Json?    // extra info (confidence, lastUsed, etc.)
+  key       String // e.g. "company.region", "merchant.acme.taxRate", "rule.always-bank-feed"
+  value     Json // structured payload (can be string, object, array, etc.)
+  scope     String // "company" | "merchant" | "user" | "global" | "tax" | "app" | ...
+  category  String? // "fact" | "learned" | "preference" | "explanation" | ...
+  source    String? // "system" | "ai" | "user"
+  metadata  Json? // extra info (confidence, lastUsed, etc.)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([scope, key])
   @@index([scope])
   @@index([key])
+}
+
+model ExpenseClaim {
+  id                     String                          @id @default(uuid())
+  claimNumber            String                          @unique
+  claimantUserId         String
+  title                  String
+  purpose                String?
+  workflowStatus         ExpenseClaimWorkflowStatus      @default(DRAFT)
+  postingStatus          ExpenseClaimPostingStatus       @default(UNPOSTED)
+  reimbursementStatus    ExpenseClaimReimbursementStatus @default(NOT_READY)
+  revision               Int                             @default(1)
+  approvedRevision       Int?
+  baseCurrency           String                          @default("EUR")
+  totalBaseAmount        Decimal                         @default(0)
+  submittedAt            DateTime?
+  approvedAt             DateTime?
+  approvedByUserId       String?
+  postedAt               DateTime?
+  postedByUserId         String?
+  postedJournalEntryId   String?                         @unique
+  reimbursementAccountId String?
+  createdAt              DateTime                        @default(now())
+  updatedAt              DateTime                        @updatedAt
+
+  claimant             User                        @relation("ExpenseClaimClaimant", fields: [claimantUserId], references: [id], onDelete: Restrict)
+  approvedBy           User?                       @relation("ExpenseClaimApprover", fields: [approvedByUserId], references: [id], onDelete: Restrict)
+  postedBy             User?                       @relation("ExpenseClaimPoster", fields: [postedByUserId], references: [id], onDelete: Restrict)
+  postedJournalEntry   JournalEntry?               @relation("ExpenseClaimPosting", fields: [postedJournalEntryId], references: [id], onDelete: Restrict)
+  reimbursementAccount Account?                    @relation("ExpenseClaimReimbursementAccount", fields: [reimbursementAccountId], references: [id], onDelete: Restrict)
+  lines                ExpenseClaimLine[]
+  receipts             ExpenseClaimReceipt[]
+  activities           ExpenseClaimActivity[]
+  approvals            ExpenseClaimApproval[]
+  reimbursements       ExpenseClaimReimbursement[]
+
+  @@index([claimantUserId, workflowStatus])
+  @@index([workflowStatus, postingStatus, reimbursementStatus])
+  @@index([createdAt])
+}
+
+model ExpenseClaimLine {
+  id            String                    @id @default(uuid())
+  claimId       String
+  position      Int
+  expenseDate   DateTime
+  merchant      String?
+  description   String
+  accountId     String
+  grossAmount   Decimal
+  netAmount     Decimal?
+  taxAmount     Decimal?
+  currency      String                    @default("EUR")
+  fxRateToBase  Decimal?
+  fxSource      String?
+  fxDate        DateTime?
+  baseAmount    Decimal
+  taxRateId     String?
+  taxIsInput    Boolean                   @default(true)
+  paymentMethod ExpenseClaimPaymentMethod @default(PERSONAL_FUNDS)
+  notes         String?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+
+  claim    ExpenseClaim              @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  account  Account                   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  taxRate  TaxRate?                  @relation(fields: [taxRateId], references: [id], onDelete: Restrict)
+  receipts ExpenseClaimLineReceipt[]
+
+  @@unique([claimId, position])
+  @@index([accountId])
+  @@index([expenseDate])
+}
+
+model ExpenseClaimReceipt {
+  id               String   @id @default(uuid())
+  claimId          String
+  storageKey       String   @unique
+  originalName     String
+  mimeType         String
+  size             Int
+  sha256           String
+  source           String   @default("manual")
+  uploadedByUserId String
+  extractionStatus String   @default("PENDING")
+  extractedData    Json?
+  duplicateStatus  String   @default("CLEAR")
+  createdAt        DateTime @default(now())
+
+  claim      ExpenseClaim              @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  uploadedBy User                      @relation(fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  lines      ExpenseClaimLineReceipt[]
+
+  @@unique([claimId, sha256])
+  @@index([sha256])
+}
+
+model ExpenseClaimLineReceipt {
+  claimLineId    String
+  claimReceiptId String
+
+  line    ExpenseClaimLine    @relation(fields: [claimLineId], references: [id], onDelete: Cascade)
+  receipt ExpenseClaimReceipt @relation(fields: [claimReceiptId], references: [id], onDelete: Cascade)
+
+  @@id([claimLineId, claimReceiptId])
+  @@index([claimReceiptId])
+}
+
+model ExpenseClaimApproval {
+  id             String               @id @default(uuid())
+  claimId        String
+  revision       Int
+  approverUserId String
+  decision       ExpenseClaimDecision
+  comment        String?
+  createdAt      DateTime             @default(now())
+
+  claim    ExpenseClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  approver User         @relation(fields: [approverUserId], references: [id], onDelete: Restrict)
+
+  @@index([claimId, revision])
+}
+
+model ExpenseClaimActivity {
+  id          String   @id @default(uuid())
+  claimId     String
+  actorUserId String
+  revision    Int
+  action      String
+  payload     Json?
+  comment     String?
+  createdAt   DateTime @default(now())
+
+  claim ExpenseClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  actor User         @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([claimId, createdAt])
+}
+
+model ExpenseClaimReimbursement {
+  id              String   @id @default(uuid())
+  claimId         String
+  journalEntryId  String
+  amount          Decimal
+  currency        String
+  paidAt          DateTime
+  createdByUserId String
+  createdAt       DateTime @default(now())
+
+  claim        ExpenseClaim @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  createdBy    User         @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([claimId, paidAt])
 }

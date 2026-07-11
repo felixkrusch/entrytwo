@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import { Send, Paperclip, Mic, Lock, Unlock } from 'lucide-react'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { Send, Paperclip, Mic, Lock, Unlock, FileImage, FileText, Plus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useNewEntry, NewEntrySuggestion } from './NewEntryContext'
 import { useTranslations } from 'next-intl'
@@ -145,6 +145,17 @@ export default function ChatPage() {
     syncStagedToWindow([])
   }
 
+  const syncPendingToWindow = (next: Array<{ file?: File; savedPath: string; name?: string }>) => {
+    if (typeof window !== 'undefined') window.__pendingAttachments = next
+  }
+
+  const removePendingAttachment = (savedPath: string) => {
+    setPendingAttachments(prev => {
+      syncPendingToWindow((window.__pendingAttachments || []).filter(item => item.savedPath !== savedPath))
+      return prev.filter(item => item.savedPath !== savedPath)
+    })
+  }
+
   // LLM live connection indicator (hybrid: real outcomes + cheap intent-driven probes + server cache)
   const [llmStatus, setLlmStatus] = useState<{
     connected: boolean
@@ -177,22 +188,33 @@ export default function ChatPage() {
     toast.success(next ? 'Chat locked — proposals only' : 'Chat unlocked — autonomous actions enabled when confident')
   }
 
-  // Chat scroll refs and auto-follow (standard chat app behaviour like GPT/Grok)
+  // Keep the latest assistant content visible after every render.
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const autoScrollRef = useRef(true)
 
-  const scrollToBottom = (force = false) => {
-    if (!force && !autoScrollRef.current) return
+  const scrollToBottom = () => {
     requestAnimationFrame(() => {
-      if (messagesEndRef.current) {
-        messagesEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' })
-      } else if (scrollContainerRef.current) {
-        const el = scrollContainerRef.current
-        el.scrollTop = el.scrollHeight
-      }
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current) {
+          const el = scrollContainerRef.current
+          el.scrollTop = el.scrollHeight
+        } else if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' })
+        }
+      })
     })
   }
+
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current
+    if (el) {
+      el.scrollTop = el.scrollHeight
+      requestAnimationFrame(() => {
+        const el = scrollContainerRef.current
+        if (el) el.scrollTop = el.scrollHeight
+      })
+    }
+  }, [messages, isLoading])
 
   // Hybrid LLM status:
   // - Primary signal: real /api/chat outcomes (updated in sendMessage success/failure)
@@ -239,7 +261,7 @@ export default function ChatPage() {
     const userMessage: Message = { role: 'user', content: input }
     const newMessages = [...messages, userMessage]
     setMessages(newMessages)
-    scrollToBottom(true)
+    scrollToBottom()
     const current = input
     setInput('')
     setIsLoading(true)
@@ -250,7 +272,7 @@ export default function ChatPage() {
       role: 'assistant',
       content: ''
     }])
-    scrollToBottom(true)
+    scrollToBottom()
 
     try {
       // Pass current Git view (branch / asOf) so autonomous actions respect the viewed state
@@ -377,6 +399,8 @@ export default function ChatPage() {
         const resp = String(d.response || '').toLowerCase()
         if (act === 'CREATE_CONTACT' || /contact/i.test(resp)) {
           navigate = { label: 'View contacts', href: '/app?view=contacts' }
+        } else if (act === 'CREATE_EXPENSE_CLAIM_DRAFT' || /claim/i.test(resp)) {
+          navigate = { label: 'Review claim', href: '/app?view=claims' }
         } else if (act === 'CREATE_INVOICE_DRAFT' || act === 'GENERATE_RECURRING_DRAFT' || /invoice/i.test(resp)) {
           navigate = { label: 'View invoices', href: '/app?view=invoicing' }
         } else if (act.includes('REVERSE') || /revers(ed|al)/i.test(resp)) {
@@ -426,7 +450,7 @@ export default function ChatPage() {
         consumeStagedReceipt(usedPath)
       }
 
-      scrollToBottom(true)
+      scrollToBottom()
 
       // When chat just created or updated a contact, open the form in the contacts view in focus
       const act = (d.action || '').toString().toUpperCase()
@@ -502,7 +526,7 @@ export default function ChatPage() {
           }
           return updated
         })
-        scrollToBottom(true)
+        scrollToBottom()
 
       // Local fallback path: also support ledger navigation hints
       const pending = window.__pendingLedger
@@ -512,7 +536,7 @@ export default function ChatPage() {
       }
     } finally {
       setIsLoading(false)
-      scrollToBottom(true)
+      scrollToBottom()
     }
   }
 
@@ -719,30 +743,11 @@ export default function ChatPage() {
     }
   }
 
-  // Always force scroll to bottom on assistant content (standard chat behaviour + explicit "always" requirement)
-  const forceScrollToLatest = () => {
-    autoScrollRef.current = true
-    scrollToBottom(true)
-  }
-
-  // Attach scroll listener to pause auto-follow only if user deliberately scrolled far up
-  useEffect(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    const onScroll = () => {
-      const threshold = 120
-      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold
-      autoScrollRef.current = isNearBottom
-    }
-    el.addEventListener('scroll', onScroll, { passive: true })
-    return () => el.removeEventListener('scroll', onScroll)
-  }, [])
-
   return (
     <div className="flex flex-col h-full">
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-auto p-6 pb-1 flex flex-col"
+        className="flex-1 overflow-auto p-6 pb-4 flex flex-col"
       >
         {/* Messages fill the space above */}
         <div className="flex-1 space-y-6">
@@ -822,41 +827,55 @@ export default function ChatPage() {
             );
           })}
         </div>
-         <div ref={messagesEndRef} />
+         <div ref={messagesEndRef} className="h-2 shrink-0" />
 
           {/* Staged receipts (persistent pending receipt state) */}
           {stagedReceipts.length > 0 && (
-            <div className="mt-auto mb-1 text-[10px] text-emerald-400">
-              <div className="flex items-center gap-2 mb-0.5">
-                <span>Staged for next journal entry:</span>
+            <div className="mt-2 rounded-lg border border-emerald-900/70 bg-emerald-950/10 p-2 text-[10px] text-emerald-400">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span>Staged receipts</span>
                 <button
                   onClick={clearAllStaged}
-                  className="text-[9px] px-1.5 py-px border border-emerald-800 text-emerald-400 hover:bg-emerald-950 rounded"
+                  className="rounded border border-emerald-900 px-1.5 py-0.5 text-[9px] text-emerald-400 hover:bg-emerald-950"
                 >
                   clear all
                 </button>
               </div>
               {stagedReceipts.map((r, i) => (
-                <div key={i} className="flex items-center gap-1">
-                  <span className="truncate">{r.name}</span>
+                <div key={i} className="flex items-center gap-1 border-t border-emerald-950 py-1 first:border-0">
+                  <Paperclip className="h-3 w-3 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">{r.name}</span>
                   <button
                     onClick={() => removeFromStaged(r.savedPath)}
-                    className="text-emerald-400 hover:text-rose-400 px-1"
+                    className="rounded p-0.5 text-emerald-600 hover:bg-zinc-800 hover:text-rose-400"
                     title="Unstage this receipt"
                   >
-                    ×
+                    <X className="h-3 w-3" />
                   </button>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Pending attachment filenames for the *next message* only (yellow, this-turn) */}
+          {/* Files selected in the system picker for the next message. */}
           {pendingAttachments.length > 0 && (
-            <div className="mt-auto mb-px text-[10px] text-amber-400 leading-tight">
-              {pendingAttachments.map((a, i) => (
-                <div key={i}>{a.name}</div>
-              ))}
+            <div className="mt-2 rounded-lg border border-zinc-800 bg-zinc-950/70 p-2">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-[10px] text-zinc-500">{pendingAttachments.length} attachment{pendingAttachments.length === 1 ? '' : 's'}</span>
+                <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] text-emerald-400 hover:bg-zinc-900 hover:text-emerald-300"><Plus className="h-3 w-3" />Add</button>
+              </div>
+              <div className="space-y-1">
+                {pendingAttachments.map((attachment) => {
+                  const image = /\.(jpg|jpeg|png|webp)$/i.test(attachment.name)
+                  return (
+                    <div key={attachment.savedPath} className="group flex min-w-0 items-center gap-1.5 rounded border border-zinc-800 bg-zinc-900 px-2 py-1">
+                      {image ? <FileImage className="h-3.5 w-3.5 shrink-0 text-sky-400" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-amber-400" />}
+                      <span className="min-w-0 flex-1 truncate text-[10px] text-zinc-300">{attachment.name}</span>
+                      <button type="button" onClick={() => removePendingAttachment(attachment.savedPath)} aria-label={`Remove ${attachment.name}`} className="rounded p-0.5 text-zinc-600 hover:bg-zinc-800 hover:text-rose-400"><X className="h-3 w-3" /></button>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
 
@@ -877,11 +896,12 @@ export default function ChatPage() {
         </div>
       </div>
 
-      <div className="border-t border-zinc-800 p-4">
-        <div className="flex gap-3 items-center">
+      <div className="border-t border-zinc-800 p-3">
+        <div className="flex items-center gap-2">
             <input
               ref={fileInputRef}
               type="file"
+              multiple
               accept=".pdf,image/jpeg,image/jpg,image/png,image/webp,.csv,text/csv"
               className="hidden"
               onChange={handleAttachment}
@@ -889,10 +909,11 @@ export default function ChatPage() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="p-3 text-zinc-400 hover:text-zinc-200 transition-colors"
-              title="Attach file (PDF, image, or CSV)"
+              className="rounded p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+              title="Attach one or more files (PDF, image, or CSV)"
+              aria-label="Attach one or more files"
             >
-              <Paperclip className="w-5 h-5" />
+              <Paperclip className="h-4 w-4" />
             </button>
 
           <input
@@ -902,27 +923,27 @@ export default function ChatPage() {
             onKeyDown={handleKeyDown}
             onFocus={() => refreshLlmStatus()}
             placeholder={t('placeholder')}
-            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-3 text-sm focus:outline-none focus:border-zinc-700"
+            className="min-w-0 flex-1 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-2.5 text-sm focus:border-zinc-700 focus:outline-none"
           />
 
-          <button className="p-3 text-zinc-400 hover:text-zinc-200 transition-colors">
-            <Mic className="w-5 h-5" />
+          <button className="rounded p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200">
+            <Mic className="h-4 w-4" />
           </button>
            <button
               onClick={toggleChatLock}
-              className={`p-3 transition-colors ${chatLocked ? 'text-sky-400 hover:text-sky-300' : 'text-zinc-400 hover:text-zinc-200'}`}
+              className={`rounded p-2 transition-colors hover:bg-zinc-800 ${chatLocked ? 'text-sky-400 hover:text-sky-300' : 'text-zinc-400 hover:text-zinc-200'}`}
               title={chatLocked ? 'Chat is locked (proposals only — click to unlock)' : 'Chat is unlocked (autonomous actions when confident — click to lock)'}
               aria-label={chatLocked ? 'Unlock chat' : 'Lock chat'}
             >
-              {chatLocked ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
+              {chatLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
             </button>
 
           <button
             onClick={sendMessage}
             disabled={!input.trim() || isLoading}
-            className="p-3 bg-white text-black rounded-2xl disabled:opacity-50 transition-all active:scale-[0.985]"
+            className="rounded-lg bg-white p-2.5 text-black transition-all active:scale-[0.985] disabled:opacity-50"
           >
-            <Send className="w-5 h-5" />
+            <Send className="h-4 w-4" />
           </button>
         </div>
         {chatLocked && (
