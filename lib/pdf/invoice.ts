@@ -1,255 +1,198 @@
-import PDFDocument from 'pdfkit/js/pdfkit.standalone'
-import { prisma } from '@/lib/prisma'
+import PDFDocument from 'pdfkit'
 import QRCode from 'qrcode'
-import fs from 'fs'
-import path from 'path'
 import sharp from 'sharp'
+import { prisma } from '@/lib/prisma'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
+
+const geistRegularPath = join(process.cwd(), 'node_modules', 'geist', 'dist', 'fonts', 'geist-sans', 'Geist-Regular.ttf')
+const geistSemiboldPath = join(process.cwd(), 'node_modules', 'geist', 'dist', 'fonts', 'geist-sans', 'Geist-SemiBold.ttf')
+
+type JsonRecord = Record<string, unknown>
+
+const valueOf = (value: unknown): unknown => value && typeof value === 'object' && 'value' in value ? (value as JsonRecord).value : value
+const text = (value: unknown): string => typeof value === 'string' ? value : ''
 
 export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
+  const [geistRegular, geistSemibold] = await Promise.all([
+    readFile(geistRegularPath),
+    readFile(geistSemiboldPath),
+  ])
   const invoice = await prisma.invoice.findUnique({
     where: { id: invoiceId },
-    include: {
-      contact: true,
-      lines: { include: { taxRate: true } },
-    },
+    include: { contact: true, lines: { include: { taxRate: true } } },
   })
+  if (!invoice) throw new Error('Invoice not found')
 
-  if (!invoice) {
-    throw new Error('Invoice not found')
-  }
+  const settings = await prisma.setting.findMany({ where: { key: { startsWith: 'company.' } } })
+  const setting = new Map(settings.map(item => [item.key, valueOf(item.value)]))
+  const companyName = text(setting.get('company.name')) || 'Your Company'
+  const address = (setting.get('company.address') || {}) as JsonRecord
+  const bank = (setting.get('company.bank') || {}) as JsonRecord
+  const logoData = text(setting.get('company.logo'))
+  const sellerTaxId = text(setting.get('company.taxId'))
+  const registrationNumber = text(setting.get('company.registrationNumber'))
+  const iban = text(bank.iban)
+  const bic = text(bank.bic)
+  const bankName = text(bank.bankName)
+  const routing = text(bank.routing || bank.transit)
+  const accountNumber = text(bank.accountNumber || bank.account)
+  const currency = (invoice.currency || 'EUR').toUpperCase()
 
-  // Company settings
-  const [nameS, addrS, bankS, logoS, taxIdS, regS] = await Promise.all([
-    prisma.setting.findUnique({ where: { key: 'company.name' } }),
-    prisma.setting.findUnique({ where: { key: 'company.address' } }),
-    prisma.setting.findUnique({ where: { key: 'company.bank' } }),
-    prisma.setting.findUnique({ where: { key: 'company.logo' } }),
-    prisma.setting.findUnique({ where: { key: 'company.taxId' } }),
-    prisma.setting.findUnique({ where: { key: 'company.registrationNumber' } }),
-  ])
+  const money = new Intl.NumberFormat(invoice.language || 'en', { style: 'currency', currency })
+  const date = new Intl.DateTimeFormat(invoice.language || 'en', { year: 'numeric', month: 'short', day: '2-digit' })
+  const companyAddress = [
+    text(address.street || address.addressStreet),
+    text(address.addressLine2 || address.line2),
+    [text(address.zip || address.addressZip || address.postal), text(address.city || address.addressCity)].filter(Boolean).join(' '),
+    text(address.state || address.addressState),
+    text(address.country || address.addressCountry),
+  ].filter(Boolean)
+  const customerAddress = [
+    invoice.contact.addressStreet,
+    [invoice.contact.addressZip, invoice.contact.addressCity].filter(Boolean).join(' '),
+    invoice.contact.addressState,
+    invoice.contact.addressCountry,
+  ].filter((item): item is string => Boolean(item))
 
-  const companyName = ((nameS?.value as Record<string, unknown>)?.value as string) || 'Your Company'
-  const addr = (addrS?.value as Record<string, unknown>) || {}
-  const bank = (bankS?.value as Record<string, unknown>) || {}
-  const iban = ((bank as Record<string, unknown>).iban as string) || ''
-  const bic = ((bank as Record<string, unknown>).bic as string) || ''
-  const bankName = ((bank as Record<string, unknown>).bankName as string) || ''
-  const routing = ((bank as Record<string, unknown>).routing as string) || ((bank as Record<string, unknown>).transit as string) || ''
-  const accountNumber = ((bank as Record<string, unknown>).accountNumber as string) || ((bank as Record<string, unknown>).account as string) || ''
-  const logoData = (logoS?.value as Record<string, unknown>)?.value as string | undefined
-
-  let logoForPdf: Buffer | null = null
-  if (logoData && typeof logoData === 'string' && logoData.startsWith('data:')) {
+  let logoUrl: string | null = null
+  if (logoData.startsWith('data:')) {
     try {
-      const base64 = logoData.split(',')[1] || ''
-      const raw = Buffer.from(base64, 'base64')
-      // Convert any uploaded format (PNG/JPG/SVG/WebP/...) to PNG.
-      // pdfkit's standalone bundle here only works reliably with PNG/JPEG passed as a data: URL *string* (Buffers trigger fs shim error).
-      logoForPdf = await sharp(raw)
-        .resize(440, 144, { fit: 'inside', withoutEnlargement: true })
-        .png()
-        .toBuffer()
-    } catch (e) {
-      console.error('Logo processing failed, skipping logo on invoice:', e)
+      const raw = Buffer.from(logoData.split(',')[1] || '', 'base64')
+      const png = await sharp(raw).resize(420, 120, { fit: 'inside', withoutEnlargement: true }).png().toBuffer()
+      logoUrl = `data:image/png;base64,${png.toString('base64')}`
+    } catch (error) {
+      console.error('Invoice logo processing failed:', error)
     }
   }
-  const sellerTaxId = ((taxIdS?.value as Record<string, unknown>)?.value as string) || ''
-  const regNumber = ((regS?.value as Record<string, unknown>)?.value as string) || ''
 
-  const addressLines: string[] = [
-    (addr.street || addr.addressStreet) as string | undefined,
-    (addr.addressLine2 || (addr as Record<string, unknown>).line2) as string | undefined,
-    [addr.city || addr.addressCity, addr.state || addr.addressState].filter(Boolean).join(', '),
-    [addr.zip || addr.addressZip, (addr as Record<string, unknown>).postal].filter(Boolean).join(' '),
-    addr.country || addr.addressCountry,
-  ].filter((x): x is string => Boolean(x))
-
-  // Generate EPC QR for bank transfer (if IBAN present)
-  let qrBuffer: Buffer | null = null
+  let qrUrl: string | null = null
   if (iban) {
-    const amount = Number(invoice.total).toFixed(2).replace('.', ',')
-    const cur = (invoice.currency || 'EUR').toUpperCase()
-    const ref = invoice.invoiceNumber
-
-    const payload = [
-      'BCD',
-      '002',
-      '1',
-      '',
-      companyName.substring(0, 70),
-      iban.replace(/\s+/g, ''),
-      `${cur}${amount}`,
-      '',
-      ref.substring(0, 35),
-      '',
-      '',
-    ].join('\n')
-
     try {
-      qrBuffer = await QRCode.toBuffer(payload, { type: 'png', width: 180, margin: 1 })
-    } catch {}
+      const amount = Number(invoice.total).toFixed(2).replace('.', ',')
+      const payload = ['BCD', '002', '1', '', companyName.slice(0, 70), iban.replace(/\s+/g, ''), `${currency}${amount}`, '', invoice.invoiceNumber.slice(0, 35), '', ''].join('\n')
+      const qr = await QRCode.toBuffer(payload, { type: 'png', width: 240, margin: 1, errorCorrectionLevel: 'M' })
+      qrUrl = `data:image/png;base64,${qr.toString('base64')}`
+    } catch (error) {
+      console.error('Invoice payment QR generation failed:', error)
+    }
   }
 
+  const doc = new PDFDocument({ size: 'A4', margin: 44, info: { Title: `Invoice ${invoice.invoiceNumber}`, Author: companyName } })
+  doc.registerFont('Geist', geistRegular)
+  doc.registerFont('Geist-SemiBold', geistSemibold)
   const chunks: Buffer[] = []
-  const doc = new PDFDocument({ size: 'A4', margin: 40 })
-  doc.on('data', (c: Buffer) => chunks.push(c))
+  doc.on('data', (chunk: Buffer) => chunks.push(chunk))
 
-  // Load local Geist TTFs (fallback to built-in if missing) - store Geist*.ttf in public/fonts/
-  const geistRegPath = path.join(process.cwd(), 'public/fonts/Geist-Regular.ttf')
-  const geistBoldPath = path.join(process.cwd(), 'public/fonts/Geist-Bold.ttf')
-  let hasGeist = false
-  try {
-    if (fs.existsSync(geistRegPath)) {
-      doc.registerFont('Geist', geistRegPath)
-      hasGeist = true
-    }
-    if (fs.existsSync(geistBoldPath)) {
-      doc.registerFont('GeistBold', geistBoldPath)
-    }
-  } catch {}
-
-  // Use Geist if available, else default Helvetica (pdfkit built-in)
-  const fontReg = hasGeist ? 'Geist' : 'Helvetica'
-  const fontBold = hasGeist && fs.existsSync(geistBoldPath) ? 'GeistBold' : 'Helvetica-Bold'
-  doc.font(fontReg)
-
-  return await new Promise<Buffer>((resolve, reject) => {
+  return new Promise<Buffer>((resolve, reject) => {
     doc.on('end', () => resolve(Buffer.concat(chunks)))
     doc.on('error', reject)
 
-    // Use registered fonts (Geist if present)
-    const use = (name: string) => { try { doc.font(name) } catch {} }
+    const left = 44
+    const right = 551
+    const contentWidth = right - left
+    const ink = '#18181b'
+    const muted = '#71717a'
+    const border = '#e4e4e7'
+    const panel = '#f4f4f5'
+    const accent = '#2563eb'
+    const regular = 'Geist'
+    const bold = 'Geist-SemiBold'
 
-    // === HEADER (logo left, seller right) - matches example style ===
-    if (logoForPdf) {
-      try {
-        // Must pass data URL string (not Buffer) because the pdfkit standalone bundle
-        // has a broken fs shim and throws on Buffers for image embedding.
-        const logoDataUrl = 'data:image/png;base64,' + logoForPdf.toString('base64')
-        doc.image(logoDataUrl, 40, 30, { fit: [110, 36] })
-      } catch (e) {
-        console.error('Failed to embed logo in PDF:', e)
-      }
-    }
+    if (logoUrl) doc.image(logoUrl, left, 42, { fit: [132, 42] })
+    else doc.font(bold).fontSize(15).fillColor(ink).text(companyName, left, 48, { width: 250 })
 
-    use(fontBold)
-    doc.fontSize(16).text(companyName, 180, 28)
-    use(fontReg)
-    doc.fontSize(9)
-    const sellerLines: string[] = []
-    addressLines.forEach(l => sellerLines.push(l))
-    if (sellerTaxId) sellerLines.push(`VAT/Tax ID: ${sellerTaxId}`)
-    if (regNumber) sellerLines.push(`Reg: ${regNumber}`)
-    if (iban) sellerLines.push(`IBAN: ${iban}${bic ? `  BIC: ${bic}` : ''}`)
-    else if (routing || accountNumber) {
-      if (bankName) sellerLines.push(bankName)
-      if (routing) sellerLines.push(`Routing: ${routing}`)
-      if (accountNumber) sellerLines.push(`Account: ${accountNumber}`)
+    doc.font(bold).fontSize(25).fillColor(ink).text('INVOICE', 350, 40, { width: 201, align: 'right' })
+    doc.font(regular).fontSize(9).fillColor(muted).text(invoice.invoiceNumber, 350, 72, { width: 201, align: 'right' })
+    doc.roundedRect(468, 89, 83, 20, 10).fill(invoice.status === 'PAID' ? '#dcfce7' : '#dbeafe')
+    doc.font(bold).fontSize(8).fillColor(invoice.status === 'PAID' ? '#166534' : '#1d4ed8').text(invoice.status, 468, 96, { width: 83, align: 'center' })
+
+    const german = (invoice.language || 'en').toLowerCase().startsWith('de')
+    doc.moveTo(left, 124).lineTo(right, 124).lineWidth(0.7).strokeColor(border).stroke()
+    doc.font(bold).fontSize(9.5).fillColor(ink).text(companyName, left, 147, { width: 220 })
+    doc.font(regular).fontSize(9.5).fillColor(ink)
+    let sellerY = 166
+    for (const line of companyAddress) { doc.text(line, left, sellerY, { width: 220 }); sellerY += 14 }
+    if (sellerTaxId) { doc.text(`${german ? 'USt-IdNr.' : 'Tax ID'} ${sellerTaxId}`, left, sellerY, { width: 220 }); sellerY += 14 }
+    if (registrationNumber) doc.text(`${german ? 'Registernr.' : 'Registration'} ${registrationNumber}`, left, sellerY, { width: 220 })
+
+    doc.font(bold).fontSize(9.5).fillColor(ink).text(german ? 'Rechnungsempfänger' : 'Bill to', 310, 147, { width: 241 })
+    doc.font(regular).fontSize(9.5).fillColor(ink)
+    let customerY = 166
+    doc.text(invoice.contact.name, 310, customerY, { width: 241 }); customerY += 14
+    for (const line of customerAddress) { doc.text(line, 310, customerY, { width: 241 }); customerY += 14 }
+    if (invoice.contact.email) { doc.text(invoice.contact.email, 310, customerY, { width: 241 }); customerY += 14 }
+    if (invoice.contact.taxId) doc.text(`${german ? 'USt-IdNr.' : 'Tax ID'} ${invoice.contact.taxId}`, 310, customerY, { width: 241 })
+
+    const addressBottom = Math.max(sellerY, customerY)
+    let y = Math.max(292, addressBottom + 42)
+    doc.font(bold).fontSize(15).fillColor(ink).text(
+      german
+        ? `${money.format(Number(invoice.total))} fällig am ${date.format(invoice.dueDate)}`
+        : `${money.format(Number(invoice.total))} due ${date.format(invoice.dueDate)}`,
+      left,
+      y,
+      { width: contentWidth },
+    )
+    y += 54
+    const drawTableHeader = () => {
+      doc.font(regular).fontSize(7.5).fillColor(ink)
+      doc.text(german ? 'Beschreibung' : 'Description', left, y, { width: 290 })
+      doc.text(german ? 'Menge' : 'Quantity', 329, y, { width: 55, align: 'right' })
+      doc.text(german ? 'Preis pro Einheit' : 'Unit price', 393, y, { width: 90, align: 'right' })
+      doc.text(german ? 'Betrag' : 'Amount', 491, y, { width: 60, align: 'right' })
+      y += 15
+      doc.moveTo(left, y).lineTo(right, y).lineWidth(0.7).strokeColor(ink).stroke()
+      y += 3
     }
-    sellerLines.slice(0, 6).forEach((l, i) => {
-      doc.text(l, 180, 46 + i * 11)
+    drawTableHeader()
+
+    invoice.lines.forEach((line, index) => {
+      if (y > 650) { doc.addPage(); y = 50; drawTableHeader() }
+      const rowHeight = Math.max(34, doc.heightOfString(line.description, { width: 290 }) + 20)
+      doc.font(regular).fontSize(9.5).fillColor(ink).text(line.description, left, y + 8, { width: 290 })
+      doc.text(String(Number(line.quantity)), 329, y + 8, { width: 55, align: 'right' })
+      doc.text(money.format(Number(line.unitPrice)), 393, y + 8, { width: 90, align: 'right' })
+      doc.text(money.format(Number(line.lineTotal)), 491, y + 8, { width: 60, align: 'right' })
+      y += rowHeight
+      doc.moveTo(left, y).lineTo(right, y).lineWidth(0.4).strokeColor(border).stroke()
     })
 
-    // === META (right aligned) ===
-    doc.fontSize(10)
-    doc.text('INVOICE', 450, 28, { align: 'right' })
-    doc.fontSize(9)
-    doc.text(invoice.invoiceNumber, 450, 42, { align: 'right' })
-    doc.text(`Issue: ${invoice.issueDate.toISOString().slice(0, 10)}`, 450, 55, { align: 'right' })
-    doc.text(`Due: ${invoice.dueDate.toISOString().slice(0, 10)}`, 450, 67, { align: 'right' })
-    doc.text(invoice.status, 450, 79, { align: 'right' })
+    y += 6
+    const totalsX = 291
+    const subtotal = Number(invoice.subtotal)
+    const taxAmount = Number(invoice.taxAmount)
+    const totalRow = (label: string, value: string, bold = false) => {
+      doc.moveTo(totalsX, y - 4).lineTo(right, y - 4).lineWidth(0.4).strokeColor(border).stroke()
+      doc.font(bold ? 'Geist-SemiBold' : 'Geist').fontSize(9.5).fillColor(ink).text(label, totalsX, y, { width: 155 })
+      doc.text(value, 448, y, { width: 103, align: 'right' })
+      y += 16
+    }
+    totalRow(german ? 'Zwischensumme' : 'Subtotal', money.format(subtotal))
+    if (taxAmount) totalRow(german ? 'Steuer' : 'Tax', money.format(taxAmount))
+    totalRow(german ? 'Summe' : 'Total', money.format(Number(invoice.total)))
+    totalRow(german ? 'Fälliger Betrag' : 'Amount due', money.format(Number(invoice.total)), true)
 
-    // === BILL TO (left) ===
-    let y = 140
-    use(fontBold)
-    doc.fontSize(9).text('Bill To', 40, y)
-    use(fontReg)
-    doc.fontSize(11).text(invoice.contact.name || '', 40, y + 14)
-    const cAddr = [
-      invoice.contact.addressStreet,
-      [invoice.contact.addressZip, invoice.contact.addressCity].filter(Boolean).join(' '),
-      invoice.contact.addressState,
-      invoice.contact.addressCountry,
-    ].filter((x): x is string => Boolean(x))
-    cAddr.forEach((l, i) => doc.fontSize(9).text(l, 40, y + 28 + i * 12))
-    const contactEmail = (invoice.contact as unknown as Record<string, unknown>).email as string | undefined
-    if (contactEmail) doc.fontSize(8).text(contactEmail, 40, y + 28 + cAddr.length * 12 + 4)
-    if (invoice.contact.taxId) doc.fontSize(8).text(`VAT: ${invoice.contact.taxId}`, 40, y + 28 + cAddr.length * 12 + 16)
-
-    // === LINES ===
-    y = Math.max(y + 110, 240)
-    use(fontReg)
-    doc.fontSize(9)
-    doc.text('Description', 40, y)
-    doc.text('Qty', 340, y)
-    doc.text('Unit', 400, y)
-    doc.text('Tax', 460, y)
-    doc.text('Amount', 520, y)
-    y += 14
-    doc.moveTo(40, y).lineTo(555, y).stroke()
-    y += 8
-
-    for (const line of invoice.lines) {
-      const taxPct = line.taxRate ? `${(Number(line.taxRate.rate) * 100).toFixed(0)}%` : ''
-      doc.text((line.description || '').substring(0, 52), 40, y)
-      doc.text(String(Number(line.quantity) || 0), 340, y)
-      doc.text(Number(line.unitPrice).toFixed(2), 400, y)
-      doc.text(taxPct, 460, y)
-      doc.text(Number(line.lineTotal).toFixed(2), 520, y)
-      y += 14
-      if (y > 620) break
+    let paymentY = Math.max(y + 10, 560)
+    if (paymentY > 690) { doc.addPage(); paymentY = 55 }
+    if (iban || routing || accountNumber) {
+      doc.roundedRect(left, paymentY, contentWidth, qrUrl ? 105 : 82, 7).fill(panel)
+      if (qrUrl) doc.image(qrUrl, left + 14, paymentY + 14, { width: 76, height: 76 })
+      const paymentX = qrUrl ? left + 108 : left + 18
+      doc.font(bold).fontSize(9).fillColor(ink).text('PAYMENT DETAILS', paymentX, paymentY + 16)
+      doc.font(regular).fontSize(8).fillColor(muted)
+      let detailY = paymentY + 34
+      const details = [bankName && `Bank  ${bankName}`, iban && `IBAN  ${iban}`, bic && `BIC  ${bic}`, routing && `Routing  ${routing}`, accountNumber && `Account  ${accountNumber}`, `Reference  ${invoice.invoiceNumber}`].filter(Boolean) as string[]
+      details.forEach(item => { doc.text(item, paymentX, detailY, { width: right - paymentX - 14 }); detailY += 11 })
+      paymentY += qrUrl ? 119 : 96
     }
 
-    // === TOTALS (right column, tight) ===
-    y += 12
-    const inv = invoice as unknown as Record<string, unknown>
-    const sub = Number(inv.subtotal ?? (Number(inv.total) || 0) - (Number(inv.taxAmount) || 0)) || 0
-    doc.text('Subtotal', 420, y)
-    doc.text(sub.toFixed(2), 520, y)
-    y += 14
-    const taxAmt = Number(inv.taxAmount) || 0
-    if (taxAmt > 0) {
-      doc.text('Tax', 420, y)
-      doc.text(taxAmt.toFixed(2), 520, y)
-      y += 14
-    }
-    use(fontBold)
-    doc.fontSize(11).text('Total', 420, y)
-    doc.text(`${invoice.currency} ${Number(inv.total || 0).toFixed(2)}`, 520, y)
-    use(fontReg)
-
-    // === PAYMENT / BANK (clean block, below totals) ===
-    y += 28
-    if (qrBuffer && iban) {
-      doc.image(qrBuffer, 40, y, { width: 72, height: 72 })
-      doc.fontSize(8).text('Scan to pay (SEPA/EPC)', 120, y + 4)
-      doc.text(`Ref: ${invoice.invoiceNumber}`, 120, y + 16)
-      doc.text(`IBAN ${iban}${bic ? '  BIC ' + bic : ''}`, 120, y + 28)
-      y += 88
-    } else if (iban || routing || accountNumber) {
-      doc.fontSize(8).text('Pay by bank transfer', 40, y)
-      y += 12
-      if (iban) { doc.text(`IBAN: ${iban}${bic ? '  BIC: ' + bic : ''}`, 40, y); y += 11 }
-      if (bankName) { doc.text(`Bank: ${bankName}`, 40, y); y += 11 }
-      if (routing) { doc.text(`Routing/Transit: ${routing}`, 40, y); y += 11 }
-      if (accountNumber) { doc.text(`Account: ${accountNumber}`, 40, y); y += 11 }
-      y += 6
+    if (invoice.notes) {
+      doc.font(bold).fontSize(8).fillColor(ink).text('NOTES', left, paymentY)
+      doc.font(regular).fontSize(8).fillColor(muted).text(invoice.notes, left, paymentY + 15, { width: contentWidth })
     }
 
-    // === NOTES (free text) ===
-    const invNotes = (invoice as unknown as Record<string, unknown>).notes as string | undefined
-    if (invNotes) {
-      y += 4
-      doc.fontSize(9).text('Notes', 40, y)
-      y += 12
-      doc.fontSize(8).text(String(invNotes), 40, y, { width: 515 })
-      y += 24
-    }
-
-    // === FOOTER (small) ===
-    y = Math.max(y + 10, 700)
-    doc.fontSize(7).text('Thank you.', 40, y)
-
+    doc.font(regular).fontSize(7).fillColor('#a1a1aa').text(`Thank you for your business · ${companyName} · ${invoice.invoiceNumber}`, left, 800, { width: contentWidth, align: 'center' })
     doc.end()
   })
 }

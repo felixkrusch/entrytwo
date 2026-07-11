@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+import { calculateFxBalance } from '@/lib/accounting/fxBalance'
+import { getCompanyProfile } from '@/lib/companyProfile'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { auth } from '@/lib/auth'
@@ -14,7 +16,7 @@ const createSchema = z.object({
   autoPost: z.boolean().optional(),
   notes: z.string().optional(),
   // The booked lines (accountId based) + currency + optional description
-  currency: z.string().min(3).max(3).default('EUR'),
+  currency: z.string().min(3).max(3).optional(),
   description: z.string().optional(),
   lines: z.array(z.object({
     accountId: z.string().uuid(),
@@ -53,6 +55,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid schedule', details: parsed.error.format() }, { status: 400 })
     }
     const data = parsed.data
+    const baseCurrency = (await getCompanyProfile()).baseCurrency.toUpperCase()
+    data.lines = data.lines.map(line => ({ ...line, currency: line.currency || baseCurrency }))
 
     const session = await auth().catch(() => null)
     const createdBy = session?.user?.id || null
@@ -61,15 +65,7 @@ export async function POST(request: Request) {
     const endDate = data.endDate ? new Date(data.endDate) : null
 
     // Validate base-currency balance of the template lines before saving.
-    const toBase = (cur: string | null | undefined, rate: number | null | undefined, amt: number) => {
-      const c = (cur || 'EUR').toUpperCase()
-      if (c === 'EUR') return amt
-      const r = rate != null ? Number(rate) : null
-      return r != null && isFinite(r) ? amt * r : amt
-    }
-    const baseDebits = data.lines.reduce((s, l) => s + toBase(l.currency, l.fxRateToBase, l.debit), 0)
-    const baseCredits = data.lines.reduce((s, l) => s + toBase(l.currency, l.fxRateToBase, l.credit), 0)
-    if (Math.abs(baseDebits - baseCredits) > 0.005 || baseDebits === 0) {
+    if (!calculateFxBalance(data.lines, baseCurrency).balanced) {
       return NextResponse.json({ error: 'Schedule lines must balance in base currency' }, { status: 400 })
     }
 

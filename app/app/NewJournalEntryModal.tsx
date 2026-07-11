@@ -7,6 +7,7 @@ import { useTranslations, useFormatter } from 'next-intl'
 import { getTaxDirection } from '@/lib/taxDirection'
 import toast from 'react-hot-toast'
 import { isAuthoritativeBankFeed } from '@/lib/fxSources'
+import { calculateFxBalance } from '@/lib/accounting/fxBalance'
 
 interface Account {
   id: string
@@ -43,6 +44,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   const [accounts, setAccounts] = useState<Account[]>([])
   const [taxRates, setTaxRates] = useState<TaxRate[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
+  const [baseCurrency, setBaseCurrency] = useState('EUR')
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [description, setDescription] = useState('')
   const [contactId, setContactId] = useState<string>('')
@@ -59,11 +61,11 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
     fxDate?: string
     contactId?: string
   }>>([
-    { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: 'EUR' },
-    { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: 'EUR' }
+    { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: '' },
+    { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', currency: '' }
   ])
 
-  const CURRENCIES = ['EUR', 'USD', 'GBP']
+  const CURRENCIES = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('currency') : [baseCurrency]
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [userConfirmed, setUserConfirmed] = useState(false)
@@ -127,11 +129,21 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
       Promise.all([
         fetch('/api/accounts').then(r => r.json()),
         fetch('/api/tax-rates').then(r => r.json()),
-        fetch('/api/contacts').then(r => r.json())
-      ]).then(([accData, taxData, contactData]) => {
+        fetch('/api/contacts').then(r => r.json()),
+        fetch('/api/settings').then(r => r.json())
+      ]).then(([accData, taxData, contactData, settingsData]) => {
         if (Array.isArray(accData)) setAccounts(accData)
         if (Array.isArray(taxData)) setTaxRates(taxData)
         if (contactData?.contacts) setContacts(contactData.contacts)
+        if (Array.isArray(settingsData)) {
+          const setting = settingsData.find((item: { key?: string }) => item.key === 'baseCurrency')
+          const value = setting?.value && typeof setting.value === 'object' ? setting.value.value : setting?.value
+          if (typeof value === 'string' && value.trim()) {
+            const configuredBase = value.trim().toUpperCase()
+            setBaseCurrency(configuredBase)
+            setLines(current => current.map(line => line.currency ? line : { ...line, currency: configuredBase }))
+          }
+        }
       }).catch(() => {})
     }
   }, [isOpen])
@@ -154,7 +166,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
           description: l.description || '',
           taxRateId: l.taxRateId || '',
           taxIsInput: l.taxIsInput,
-          currency: l.currency || 'EUR',
+          currency: l.currency || baseCurrency,
           fxRateToBase: l.fxRateToBase,
           fxSource: l.fxSource,
           fxDate: l.fxDate,
@@ -183,7 +195,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                     description: `Tax (${(Number(tr.rate) * 100).toFixed(0)}%)`,
                     taxRateId: tr.id,
                     taxIsInput: explicitDir,
-                    currency: line.currency || 'EUR',
+                    currency: line.currency || baseCurrency,
                     fxRateToBase: (line as { fxRateToBase?: number }).fxRateToBase,
                     fxSource: (line as { fxSource?: string }).fxSource,
                     fxDate: (line as { fxDate?: string }).fxDate,
@@ -201,7 +213,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
               description: '',
               taxRateId: '',
               taxIsInput: undefined,
-              currency: 'EUR',
+              currency: baseCurrency,
               fxRateToBase: undefined,
               fxSource: undefined,
               fxDate: undefined,
@@ -220,7 +232,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
             description: '',
             taxRateId: '',
             taxIsInput: undefined,
-            currency: 'EUR',
+            currency: baseCurrency,
             fxRateToBase: undefined,
             fxSource: undefined,
             fxDate: undefined,
@@ -261,7 +273,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
     const newLines = [...lines]
 
     if (field === 'currency') {
-      const prevCur = (newLines[index].currency || 'EUR').toUpperCase()
+      const prevCur = (newLines[index].currency || baseCurrency).toUpperCase()
       const nextCur = String(value).toUpperCase()
       newLines[index] = {
         ...newLines[index],
@@ -269,19 +281,8 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
       }
       if (prevCur !== nextCur) {
         newLines[index].fxRateToBase = undefined
-        newLines[index].fxSource = 'LLM_PROVISIONAL'
+        newLines[index].fxSource = 'MANUAL_PROVISIONAL'
         newLines[index].fxDate = undefined
-        if (nextCur !== 'EUR') {
-          void fetch(`/api/fx?currency=${encodeURIComponent(nextCur)}&date=${encodeURIComponent(date)}`)
-            .then(r => r.json())
-            .then((quote: { fxRateToBase?: number | null; source?: string; date?: string }) => {
-              if (!quote.fxRateToBase) return
-              setLines(current => current.map((line, lineIndex) => lineIndex === index && line.currency === nextCur
-                ? { ...line, fxRateToBase: quote.fxRateToBase || undefined, fxSource: quote.source || 'ECB_PROVISIONAL', fxDate: quote.date || date }
-                : line))
-            })
-            .catch(() => {})
-        }
       }
     } else {
       newLines[index] = { ...newLines[index], [field]: value }
@@ -294,7 +295,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
         const next = newLines[index + 1]
         if (next && next.taxRateId === value && next.description && /tax/i.test(next.description)) {
           next.debit = expectedTax
-          next.currency = newLines[index].currency || 'EUR'
+          next.currency = newLines[index].currency || baseCurrency
         } else {
           const mainAcc = accounts.find(a => a.id === newLines[index].accountId)
           const explicitDir = mainAcc ? getTaxDirection(mainAcc.type, newLines[index]) : undefined
@@ -305,7 +306,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
             description: `Tax (${(Number(tr.rate) * 100).toFixed(0)}%)`,
             taxRateId: String(value),
             taxIsInput: explicitDir,
-            currency: newLines[index].currency || 'EUR',
+            currency: newLines[index].currency || baseCurrency,
             fxRateToBase: (newLines[index] as { fxRateToBase?: number }).fxRateToBase,
             fxSource: (newLines[index] as { fxSource?: string }).fxSource,
             fxDate: (newLines[index] as { fxDate?: string }).fxDate,
@@ -339,7 +340,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
           accountCode: accounts.find(a => a.id === l.accountId)?.code,
           debit: Number(l.debit) || 0,
           credit: Number(l.credit) || 0,
-          currency: l.currency || 'EUR',
+          currency: l.currency || baseCurrency,
           fxRateToBase: l.fxRateToBase,
           fxSource: l.fxSource,
           taxRateId: l.taxRateId || undefined,
@@ -377,15 +378,15 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
     setScheduleEndDate('')
     setScheduleAutoPost(false)
     setLines([
-      { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: 'EUR' },
-      { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: 'EUR' }
+      { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: baseCurrency },
+      { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: baseCurrency }
     ])
     setError('')
     onClose()
   }
 
   const addLineWithFx = () => {
-    setLines([...lines, { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: 'EUR', contactId: contactId || undefined }])
+    setLines([...lines, { accountId: '', debit: 0, credit: 0, description: '', taxRateId: '', taxIsInput: undefined, currency: baseCurrency, contactId: contactId || undefined }])
   }
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -437,11 +438,10 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
 
   if (!isOpen) return null
 
-  const toBase = (amount: number, currency: string, rate?: number) =>
-    currency.toUpperCase() === 'EUR' ? amount : (rate ? amount * rate : Number.NaN)
-  const totalDebits = lines.reduce((sum, l) => sum + toBase(l.debit || 0, l.currency || 'EUR', l.fxRateToBase), 0)
-  const totalCredits = lines.reduce((sum, l) => sum + toBase(l.credit || 0, l.currency || 'EUR', l.fxRateToBase), 0)
-  const isBalanced = Number.isFinite(totalDebits) && Number.isFinite(totalCredits) && Math.abs(totalDebits - totalCredits) <= 0.005 && totalDebits > 0
+  const fxBalance = calculateFxBalance(lines, baseCurrency)
+  const totalDebits = fxBalance.debitBase
+  const totalCredits = fxBalance.creditBase
+  const isBalanced = fxBalance.balanced
 
   const handleSubmit = async () => {
     setError('')
@@ -459,7 +459,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
               accountId: l.accountId || undefined,
               debit: Number(l.debit) || 0,
               credit: Number(l.credit) || 0,
-              currency: l.currency || 'EUR',
+              currency: l.currency || baseCurrency,
               fxRateToBase: l.fxRateToBase,
               fxSource: l.fxSource,
               taxRateId: l.taxRateId || undefined,
@@ -531,7 +531,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
           description: l.description || undefined,
           taxRateId: l.taxRateId || undefined,
           taxIsInput: typeof l.taxIsInput === 'boolean' ? l.taxIsInput : undefined,
-          currency: l.currency || 'EUR',
+          currency: l.currency || baseCurrency,
           fxRateToBase: l.fxRateToBase,
           fxSource: l.fxSource,
           fxDate: l.fxDate,
@@ -575,7 +575,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
               startDate: scheduleStartDate,
               endDate: scheduleEndDate || undefined,
               autoPost: scheduleAutoPost,
-              currency: lines[0]?.currency || 'EUR',
+              currency: lines[0]?.currency || baseCurrency,
               description,
               lines: lines.map(l => ({
                 accountId: l.accountId,
@@ -584,7 +584,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                 description: l.description || undefined,
                 taxRateId: l.taxRateId || undefined,
                 taxIsInput: typeof l.taxIsInput === 'boolean' ? l.taxIsInput : undefined,
-                currency: l.currency || 'EUR',
+                currency: l.currency || baseCurrency,
                 fxRateToBase: l.fxRateToBase,
                 fxSource: l.fxSource,
                 fxDate: l.fxDate,
@@ -613,7 +613,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
   }
 
   return (
-    <section className="w-full text-white" aria-label="Journal entry proposal">
+    <section className="journal-entry-form w-full text-white" aria-label="Journal entry proposal">
       <div className="border border-zinc-700 bg-zinc-950/40 rounded-xl p-6">
         <div className="flex justify-between items-center mb-6">
           <div>
@@ -649,7 +649,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
 
                 {initialSuggestion.source === 'repeat' &&
                  Array.isArray(initialSuggestion.lines) &&
-                 initialSuggestion.lines.some((l: { currency?: string; fxRateToBase?: number | null }) => l.currency && l.currency !== 'EUR' && l.fxRateToBase != null) && (
+                  initialSuggestion.lines.some((l: { currency?: string; fxRateToBase?: number | null }) => l.currency && l.currency !== baseCurrency && l.fxRateToBase != null) && (
                   <span className="ml-2 text-amber-400">• verify FX rates (copied from original date)</span>
                 )}
               </div>
@@ -798,6 +798,14 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                     className="col-span-2 bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-sm text-white"
                   />
                   <select
+                    value={line.currency || baseCurrency}
+                    onChange={e => updateLine(index, 'currency', e.target.value)}
+                    className="col-span-1 bg-zinc-900 border border-zinc-800 rounded px-1 py-1.5 text-xs text-white"
+                    title="Currency"
+                  >
+                    {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <select
                     value={line.taxRateId || ''}
                     onChange={e => updateLine(index, 'taxRateId', e.target.value)}
                     className="col-span-3 bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-sm text-white"
@@ -809,137 +817,54 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
                       </option>
                     ))}
                   </select>
-                   <input
-                      placeholder={t('note')}
-                      value={line.description}
-                      onChange={e => updateLine(index, 'description', e.target.value)}
-                      className="col-span-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-sm text-white"
-                    />
-                    <select
-                      value={line.currency || 'EUR'}
-                      onChange={e => updateLine(index, 'currency', e.target.value)}
-                      className="col-span-1 bg-zinc-900 border border-zinc-800 rounded px-1 py-1.5 text-xs text-white"
-                      title="Currency"
-                    >
-                      {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
+                  <input
+                    placeholder={t('note')}
+                    value={line.description}
+                    onChange={e => updateLine(index, 'description', e.target.value)}
+                    className="col-span-12 bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-sm text-white"
+                  />
 
-                      {/* FX rate for foreign currency lines.
-                          LLM provides the provisional rate when document is attached.
-                          No automatic ECB lookup. User can override or leave pending.
-                          Redundant ECB fetching removed per streamlined LLM_PROVISIONAL flow. */}
-                      {line.currency && line.currency !== 'EUR' && (
-                        <div className="col-span-12 mt-1 text-[11px] space-y-1">
-                          <div className="flex flex-wrap gap-2 items-center text-zinc-400">
-                            <span className="text-[10px] uppercase tracking-widest">FX rate:</span>
-
-                            <label className="flex items-center gap-1 cursor-pointer">
-                              <input
-                                type="radio"
-                                name={`fxchoice-${index}`}
-                                checked={!!(line.fxRateToBase != null && (line.fxSource || '').includes('LLM')) && !isAuthoritativeBankFeed(line.fxSource) && line.fxSource !== 'MANUAL'}
-                                onChange={() => {
-                                  // LLM supplied the rate for the attached document.
-                                  if (line.fxRateToBase != null) {
-                                    updateLineFx(index, {
-                                      fxRateToBase: line.fxRateToBase,
-                                      fxSource: 'LLM_PROVISIONAL',
-                                      fxDate: line.fxDate || date || undefined
-                                    })
-                                  }
-                                }}
-                              />
-                              <span>LLM estimate (provisional)</span>
-                            </label>
-
-                            <label className="flex items-center gap-1 cursor-pointer">
-                              <input
-                                type="radio"
-                                name={`fxchoice-${index}`}
-                                checked={!!(line.fxSource && line.fxSource === 'MANUAL' && line.fxRateToBase != null)}
-                                onChange={() => {
-                                  updateLineFx(index, { fxRateToBase: undefined, fxSource: 'MANUAL', fxDate: date || undefined })
-                                }}
-                              />
-                              <span>Enter my own rate (manual)</span>
-                            </label>
-
-                            <label className="flex items-center gap-1 cursor-pointer">
-                              <input
-                                type="radio"
-                                name={`fxchoice-${index}`}
-                                checked={!line.fxRateToBase && !isAuthoritativeBankFeed(line.fxSource)}
-                                onChange={() => {
-                                  updateLineFx(index, { fxRateToBase: undefined, fxSource: 'LLM_PROVISIONAL', fxDate: undefined })
-                                }}
-                              />
-                              <span>Leave rate pending</span>
-                            </label>
-
-                            <label className="flex items-center gap-1 cursor-pointer">
-                              <input
-                                type="radio"
-                                name={`fxchoice-${index}`}
-                                checked={!!(line.fxSource && line.fxSource === 'MANUAL' && line.fxRateToBase != null)}
-                                onChange={() => {
-                                  updateLineFx(index, { fxRateToBase: undefined, fxSource: 'MANUAL', fxDate: date || undefined })
-                                }}
-                              />
-                              <span>Enter my own rate (manual)</span>
-                            </label>
-
-                            <label className="flex items-center gap-1 cursor-pointer">
-                              <input
-                                type="radio"
-                                name={`fxchoice-${index}`}
-                                checked={!line.fxRateToBase && !isAuthoritativeBankFeed(line.fxSource)}
-                                onChange={() => {
-                                  updateLineFx(index, { fxRateToBase: undefined, fxSource: 'PROVISIONAL', fxDate: undefined })
-                                }}
-                              />
-                              <span>Leave rate pending</span>
-                            </label>
-
-                            {isAuthoritativeBankFeed(line.fxSource) && (
-                              <span className="ml-2 px-1.5 py-px rounded bg-emerald-900/40 text-emerald-400 border border-emerald-800 text-[9px]">BANK_FEED (authoritative)</span>
-                            )}
-                          </div>
-
-                          {/* Manual rate input */}
-                          {line.fxSource === 'MANUAL' && (
-                            <div className="flex items-center gap-2 pl-1">
+                      {line.currency && line.currency !== baseCurrency && (
+                        <div className="col-span-12 mt-1 rounded-lg border border-zinc-800 bg-zinc-950/70 p-3 text-[11px]">
+                          {line.fxRateToBase != null ? (
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <div className="font-medium text-zinc-200">
+                                  {isAuthoritativeBankFeed(line.fxSource) ? 'Statement FX rate' : line.fxSource === 'MANUAL_PROVISIONAL' ? 'Manual base amount' : 'Sourced LLM estimate'}
+                                </div>
+                                <div className="mt-1 text-zinc-500">
+                                  1 {line.currency} = {line.fxRateToBase.toFixed(6)} {baseCurrency} · {(line.fxDate || date)}
+                                </div>
+                              </div>
+                              <div className="font-mono text-sm text-amber-300">
+                                {format.number(Math.round((line.debit || line.credit) * line.fxRateToBase * 100) / 100, { style: 'currency', currency: baseCurrency })}
+                              </div>
+                            </div>
+                          ) : (
+                            <div>
+                              <div className="font-medium text-zinc-200">Amount charged in {baseCurrency}</div>
+                              <div className="mt-1 text-zinc-500">No sourced estimate is available. Enter the actual card amount; the original {line.currency} amount stays on this line.</div>
+                              <div className="mt-2 flex items-center gap-2">
                               <input
                                 type="number"
-                                step="0.000001"
-                                placeholder="fx rate to base (e.g. 0.875)"
-                                value={line.fxRateToBase ?? ''}
-                                onChange={e => updateLineFx(index, { fxRateToBase: parseFloat(e.target.value) || undefined, fxSource: 'MANUAL', fxDate: date || undefined })}
-                                className="w-40 bg-zinc-900 border border-zinc-700 rounded px-2 py-0.5 text-xs"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const d = date || new Date().toISOString().slice(0, 10)
-                                  updateLineFx(index, { fxRateToBase: line.fxRateToBase, fxSource: 'MANUAL', fxDate: d })
+                                step="0.01"
+                                min="0"
+                                placeholder={`Amount in ${baseCurrency}`}
+                                value=""
+                                onChange={e => {
+                                  const foreignAmount = line.debit || line.credit
+                                  const baseAmount = Number(e.target.value)
+                                  updateLineFx(index, {
+                                    fxRateToBase: foreignAmount > 0 && baseAmount > 0 ? baseAmount / foreignAmount : undefined,
+                                    fxSource: 'MANUAL_PROVISIONAL',
+                                    fxDate: date || undefined,
+                                  })
                                 }}
-                                className="text-[10px] px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 rounded"
-                              >
-                                Lock as MANUAL
-                              </button>
+                                className="w-44 rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm"
+                              />
+                               <span className="text-zinc-500">{baseCurrency}</span>
+                              </div>
                             </div>
-                          )}
-
-                          {/* Current rate display */}
-                          {line.fxRateToBase != null && (
-                            <div className={`text-[10px] px-1 ${isAuthoritativeBankFeed(line.fxSource) ? 'text-emerald-400' : 'text-amber-400'}`}>
-                              fx {line.fxRateToBase.toFixed(6)} via {line.fxSource || 'LLM_PROVISIONAL'} on {line.fxDate || 'n/a'}
-                              {!isAuthoritativeBankFeed(line.fxSource) && (
-                                <span className="ml-1 text-amber-500/80">(provisional / estimated)</span>
-                              )}
-                            </div>
-                          )}
-                          {!line.fxRateToBase && !isAuthoritativeBankFeed(line.fxSource) && line.currency !== 'EUR' && (
-                            <div className="text-[10px] text-amber-400 px-1">No rate yet — entry will be recorded with pending/provisional FX.</div>
                           )}
                         </div>
                       )}
@@ -955,10 +880,10 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
             <div className="flex justify-between items-center pt-2 text-sm">
             <div>
               <span className="text-zinc-400">{t('debits')} </span>
-              <span className="font-mono text-emerald-400">{format.number(totalDebits, { style: 'currency', currency: 'EUR' })}</span>
+              <span className="font-mono text-emerald-400">{format.number(totalDebits, { style: 'currency', currency: baseCurrency })}</span>
               <span className="mx-3 text-zinc-600">|</span>
               <span className="text-zinc-400">{t('credits')} </span>
-              <span className="font-mono text-rose-400">{format.number(totalCredits, { style: 'currency', currency: 'EUR' })}</span>
+              <span className="font-mono text-rose-400">{format.number(totalCredits, { style: 'currency', currency: baseCurrency })}</span>
             </div>
             <div className={`text-xs px-2 py-0.5 rounded ${isBalanced ? 'bg-emerald-950 text-emerald-400' : 'bg-zinc-800 text-zinc-400'}`}>
               {isBalanced ? t('balanced') : t('notBalanced')}

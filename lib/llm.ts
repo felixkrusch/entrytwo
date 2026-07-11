@@ -1,5 +1,7 @@
 import { createOpenAI } from '@ai-sdk/openai'
 import { createXai } from '@ai-sdk/xai'
+import { webSearch as xaiWebSearch } from '@ai-sdk/xai'
+import type { ToolSet } from 'ai'
 
 export type LlmProvider =
   | 'openai'
@@ -111,4 +113,13 @@ export function createLlmModel(config: LlmConfig) {
 
   const base = config.baseURL || providerBase[config.provider]
   return openaiCompat(base)(config.model)
+}
+
+export function createLlmSearchTools(config: LlmConfig): ToolSet {
+  if (config.provider === 'xai') return { web_search: xaiWebSearch() }
+  if (config.provider === 'openai') {
+    const provider = createOpenAI({ apiKey: config.apiKey || process.env.OPENAI_API_KEY || process.env.LLM_API_KEY || '' })
+    return { web_search: provider.tools.webSearch({ searchContextSize: 'medium' }) }
+  }
+  return {}
 }

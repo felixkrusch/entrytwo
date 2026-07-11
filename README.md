@@ -54,7 +54,7 @@ On a fresh database, create the first **ADMIN** user (bootstrap flow).
   - `JournalLine`: `currency`, `fxRateToBase`, `fxSource`, `fxDate`
   - Bank/credit card feed rates are authoritative (BANK_FEED source)
   - Automatic date-pinned conversion to base currency
-  - Public FX fallbacks (ECB lookup)
+  - LLM multi-source web research for provisional FX rates
   - PDF uploads extract currency and cross-check feeds; chat asks for confirmation when uncertain
 - Chat Lock (advisory-only safety mode)
 - PDF processing extracts currency + tax hints + cross-checks feeds

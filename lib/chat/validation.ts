@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { isAuthoritativeBankFeed, normalizeToProvisional } from '@/lib/fxSources'
-import { getProvisionalFxQuote } from '@/lib/fx'
+import { calculateFxBalance } from '@/lib/accounting/fxBalance'
+import { getCompanyProfile } from '@/lib/companyProfile'
 
 export type JournalLineInput = {
   accountCode?: string
@@ -19,6 +20,7 @@ export type JournalLineInput = {
 
 type ResolvedJournalLine = {
   accountId: string
+  accountCode: string
   debit: number
   credit: number
   description?: string
@@ -39,45 +41,25 @@ export async function validateJournalIntent(params: unknown, _branch: string): P
 
   const lines = p.lines as JournalLineInput[]
   const entryDate = (params as { date?: string } | null)?.date || new Date().toISOString().slice(0, 10)
+  const baseCurrency = (await getCompanyProfile()).baseCurrency.toUpperCase()
 
   for (const line of lines) {
-    const cur = (line.currency || 'EUR').toUpperCase()
-    if (cur === 'EUR') continue
+    const cur = (line.currency || baseCurrency).toUpperCase()
+    if (cur === baseCurrency) continue
     const suppliedRate = Number(line.fxRateToBase)
-    if (Number.isFinite(suppliedRate) && suppliedRate > 0) continue
-
-    const quote = await getProvisionalFxQuote(cur, line.fxDate || entryDate)
-    if (!quote) {
-      return { ok: false, error: `No provisional FX rate is available for ${cur} on ${line.fxDate || entryDate}` }
+    if (Number.isFinite(suppliedRate) && suppliedRate > 0) {
+      const source = line.fxSource || ''
+      if (isAuthoritativeBankFeed(source) || /^MANUAL(?:_PROVISIONAL)?$/i.test(source)) continue
+      const sourceUrls = source.match(/https?:\/\/[^\s,;]+/g) || []
+      if (source.startsWith('LLM_PROVISIONAL:') && new Set(sourceUrls).size >= 2) continue
+      return { ok: false, error: `Provisional FX rate for ${cur} must include at least two source URLs, or be marked MANUAL_PROVISIONAL` }
     }
-    line.fxRateToBase = quote.fxRateToBase
-    line.fxSource = quote.fxSource
-    line.fxDate = quote.date
+
+    return { ok: false, error: `The LLM must provide a sourced provisional FX rate for ${cur} on ${line.fxDate || entryDate}, or the user must provide the base-currency amount` }
   }
 
-  let totalDebitBase = 0
-  let totalCreditBase = 0
-  let totalDebitRaw = 0
-  let totalCreditRaw = 0
-
-  for (const l of lines) {
-    const d = Number(l.debit) || 0
-    const c = Number(l.credit) || 0
-    totalDebitRaw += d
-    totalCreditRaw += c
-
-    const cur = (l.currency || 'EUR').toUpperCase()
-    const rate = cur === 'EUR' ? 1 : Number(l.fxRateToBase)
-    totalDebitBase += d * rate
-    totalCreditBase += c * rate
-  }
-
-  const hasForeignCurrency = lines.some((l) => (l.currency || 'EUR').toUpperCase() !== 'EUR')
-  const balanced = hasForeignCurrency
-    ? Math.abs(totalDebitBase - totalCreditBase) <= 0.01
-    : Math.abs(totalDebitRaw - totalCreditRaw) <= 0.01
-
-  if (!balanced) {
+  const balance = calculateFxBalance(lines, baseCurrency)
+  if (!balance.balanced) {
     return { ok: false, error: 'Journal is not balanced (in base currency after FX)' }
   }
 
@@ -99,13 +81,14 @@ export async function validateJournalIntent(params: unknown, _branch: string): P
   }
 
   const resolved: ResolvedJournalLine[] = lines.map((l) => {
-    const cur = (l.currency || 'EUR').toUpperCase()
-    let src = l.fxSource || 'AI_AUTONOMOUS'
-    if (cur !== 'EUR' && !isAuthoritativeBankFeed(src)) {
+    const cur = (l.currency || baseCurrency).toUpperCase()
+    let src = l.fxSource || 'LLM_PROVISIONAL'
+    if (cur !== baseCurrency && !isAuthoritativeBankFeed(src)) {
       src = normalizeToProvisional(src)
     }
     return {
       accountId: codeToId[l.accountCode!],
+      accountCode: l.accountCode!,
       debit: Number(l.debit) || 0,
       credit: Number(l.credit) || 0,
       description: l.description,

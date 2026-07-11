@@ -25,6 +25,18 @@ input:focus, select:focus, textarea:focus {
   outline: none;
 }
 
+/* Numeric fields keep validation and mobile keyboards without browser spin controls. */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
 /* === Make EVERYTHING clickable show the hand pointer === */
 /* Native controls */
 button:not(:disabled),

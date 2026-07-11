@@ -54,7 +54,7 @@ First call the skill, then emit exactly one `CREATE_JOURNAL_BATCH` JSON action. 
   - `fxSource`: `"BANK_FEED:statement:visa-..."` or `"mastercard-..."` or bank name
   - `fxRateToBase`
   - `fxDate`
-- Prefer the rate **shown on this document** over previous feeds or ECB.
+- Prefer the rate **shown on this document** over every provisional estimate.
 
 ### 2. Fees must be explicit
 - Foreign transaction or conversion fee tied to a purchase → separate line in that transaction's entry.
@@ -78,7 +78,7 @@ First call the skill, then emit exactly one `CREATE_JOURNAL_BATCH` JSON action. 
 - Record original merchant currency + amount when shown.
 - Always provide `fxRateToBase` on the line that differs from base currency.
 - If the statement shows only original and billed amounts, derive `fxRateToBase = billed base amount / original foreign amount` and mark it with the statement BANK_FEED source.
-- If no statement conversion exists, call `get_provisional_fx_rate`; never assume 1:1.
+- If no statement conversion exists, use `web_search` and compare at least two independent sources; never assume 1:1.
 
 ### 7. Use real account codes
 - Only use codes that exist in the live balances shown this turn.
@@ -95,7 +95,7 @@ First call the skill, then emit exactly one `CREATE_JOURNAL_BATCH` JSON action. 
 
 ### 9. Provisional entries + FX adjustments (when real statement arrives later)
 Most foreign-currency purchases are first recorded on the transaction/invoice date using a clearly marked **provisional** rate:
-- fxSource = "PROVISIONAL", "ECB_PROVISIONAL", "MANUAL_PROVISIONAL", "AI_AUTONOMOUS", "DERIVED_FROM_ENTRY", etc.
+- fxSource is not authoritative unless it starts with `BANK_FEED`; all LLM/manual/legacy estimates remain provisional.
 - These are NOT authoritative.
 
 When you receive a bank/credit card statement (PDF or pasted HTML):

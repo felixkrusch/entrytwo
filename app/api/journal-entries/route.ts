@@ -5,9 +5,10 @@ import { recordCommitOnBranch } from '@/lib/accounting/commit'
 import { getVisibleJournalEntryIds, getVisibleJournalEntryIdsAtPoint } from '@/lib/accounting/ancestry'
 import { nextEntryNumber } from '@/lib/accounting/entryNumber'
 import { isAuthoritativeBankFeed, normalizeToProvisional } from '@/lib/fxSources'
-import { getProvisionalFxQuote } from '@/lib/fx'
 import { parseAttachmentInput } from '@/lib/attachments'
 import { requireUser } from '@/lib/authz'
+import { calculateFxBalance } from '@/lib/accounting/fxBalance'
+import { getCompanyProfile } from '@/lib/companyProfile'
 
 const createEntrySchema = z.object({
   date: z.string().refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid date format' }),
@@ -39,6 +40,7 @@ export async function GET(request: Request) {
   const session = await requireUser()
   if (!session) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   try {
+    const baseCurrency = (await getCompanyProfile()).baseCurrency.toUpperCase()
     const { searchParams } = new URL(request.url)
 
     const accountCode = searchParams.get('accountCode') || searchParams.get('account')
@@ -190,7 +192,8 @@ export async function GET(request: Request) {
       totalPages: Math.ceil(total / limit) || 1,
       // Git model context echoed back
       branch: targetBranch,
-      asOf: asOf || null
+      asOf: asOf || null,
+      baseCurrency,
     })
   } catch (error) {
     console.error('Error fetching journal entries:', error)
@@ -221,36 +224,26 @@ export async function POST(request: Request) {
       attachments.unshift({ path: sourcePdfPath, originalName: sourcePdfPath.split('/').pop() || 'attachment', mimeType: 'application/octet-stream', size: 0, sha256: 'legacy-unverified' })
     }
 
-    const entryDate = date
+    const baseCurrency = (await getCompanyProfile()).baseCurrency.toUpperCase()
 
     // Resolve missing foreign rates before balance checks. Never treat a foreign amount as base currency.
     for (const l of lines) {
-      const cur = (l.currency || 'EUR').toUpperCase()
-      if (cur === 'EUR') continue
+      const cur = (l.currency || baseCurrency).toUpperCase()
+      if (cur === baseCurrency) continue
       if (l.fxRateToBase == null) {
-        const quote = await getProvisionalFxQuote(cur, l.fxDate || entryDate)
-        if (!quote) {
-          return NextResponse.json({ error: `No provisional FX rate is available for ${cur}` }, { status: 400 })
-        }
-        l.fxRateToBase = quote.fxRateToBase
-        l.fxSource = quote.fxSource
-        l.fxDate = quote.date
+        return NextResponse.json({ error: `A sourced provisional FX rate is required for ${cur}` }, { status: 400 })
       } else if (!isAuthoritativeBankFeed(l.fxSource)) {
+        const source = l.fxSource || ''
+        const sourceUrls = source.match(/https?:\/\/[^\s,;]+/g) || []
+        if (!/^MANUAL(?:_PROVISIONAL)?$/i.test(source) && !(source.startsWith('LLM_PROVISIONAL:') && new Set(sourceUrls).size >= 2)) {
+          return NextResponse.json({ error: `Provisional FX rate for ${cur} requires two source URLs or MANUAL_PROVISIONAL` }, { status: 400 })
+        }
         l.fxSource = normalizeToProvisional(l.fxSource)
       }
     }
 
-    const toBase = (line: { currency?: string | null; fxRateToBase?: number | string | null }, amount: number): number => {
-      const cur = (line.currency || 'EUR').toUpperCase()
-      if (cur === 'EUR') return amount
-      const rate = line.fxRateToBase != null ? Number(line.fxRateToBase) : null
-      return rate != null && isFinite(rate) ? amount * rate : Number.NaN
-    }
-
-    const baseDebits = lines.reduce((sum, l) => sum + toBase(l, l.debit), 0)
-    const baseCredits = lines.reduce((sum, l) => sum + toBase(l, l.credit), 0)
-
-    if (Math.abs(baseDebits - baseCredits) > 0.005 || baseDebits === 0) {
+    const balance = calculateFxBalance(lines, baseCurrency)
+    if (!balance.balanced) {
       return NextResponse.json(
         { error: 'Debits must equal credits (in base currency) and be greater than zero' },
         { status: 400 }
@@ -286,7 +279,7 @@ export async function POST(request: Request) {
               taxRateId: line.taxRateId || null,
               taxIsInput: typeof line.taxIsInput === 'boolean' ? line.taxIsInput : null,
               cleared: false,
-              currency: line.currency || 'EUR',
+              currency: line.currency || baseCurrency,
               fxRateToBase: line.fxRateToBase != null ? line.fxRateToBase : null,
               fxSource: line.fxSource || null,
               fxDate: line.fxDate ? new Date(line.fxDate) : null,

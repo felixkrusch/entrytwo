@@ -1,4 +1,6 @@
 import { prisma } from '@/lib/prisma'
+import { calculateFxBalance } from '@/lib/accounting/fxBalance'
+import { getCompanyProfile } from '@/lib/companyProfile'
 
 export interface VerificationResult {
   ok: boolean
@@ -31,40 +33,14 @@ export async function verifySuggestion(sugg: SuggestionToVerify): Promise<Verifi
   }
 
   const lines = sugg.lines
+  const baseCurrency = (await getCompanyProfile()).baseCurrency.toUpperCase()
 
-  // 1. Basic numeric balance check (raw amounts)
-  const totalDebit = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0)
-  const totalCredit = lines.reduce((s, l) => s + (Number(l.credit) || 0), 0)
-  if (Math.abs(totalDebit - totalCredit) > 0.005) {
-    warnings.push('Debits and credits are not balanced')
-    ok = false
-  }
-
-  // 2. FX-aware base currency balance
+  // 1. Balance every entry in base-currency cents. Nominal USD and EUR values
+  // must never be compared directly.
   try {
-    let baseDebit = 0
-    let baseCredit = 0
-
-    for (const l of lines) {
-      const cur = (l.currency || 'EUR').toUpperCase()
-      const d = Number(l.debit) || 0
-      const c = Number(l.credit) || 0
-      if (cur === 'EUR') {
-        baseDebit += d
-        baseCredit += c
-      } else {
-        const rate = l.fxRateToBase != null ? Number(l.fxRateToBase) : null
-        if (rate != null && isFinite(rate) && rate > 0) {
-          baseDebit += d * rate
-          baseCredit += c * rate
-        } else {
-          // No rate → we cannot confidently convert; treat as warning but still count raw for now
-          warnings.push(`Missing fxRateToBase for ${cur} line`)
-        }
-      }
-    }
-
-    if (Math.abs(baseDebit - baseCredit) > 0.01) {
+    const balance = calculateFxBalance(lines, baseCurrency)
+    for (const currency of balance.missingRates) warnings.push(`Missing fxRateToBase for ${currency} line`)
+    if (!balance.balanced) {
       warnings.push('Entry does not balance in base currency after FX conversion')
       ok = false
     }
@@ -136,8 +112,8 @@ export async function verifySuggestion(sugg: SuggestionToVerify): Promise<Verifi
 
   // 5. FX rate sanity for foreign lines
   for (const l of lines) {
-    const cur = (l.currency || 'EUR').toUpperCase()
-    if (cur !== 'EUR' && l.fxRateToBase != null) {
+    const cur = (l.currency || baseCurrency).toUpperCase()
+    if (cur !== baseCurrency && l.fxRateToBase != null) {
       const r = Number(l.fxRateToBase)
       if (!isFinite(r) || r <= 0) {
         warnings.push(`Invalid FX rate for ${cur}`)

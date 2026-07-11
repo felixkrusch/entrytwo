@@ -73,6 +73,6 @@ export async function getRecentFeedRatesPromptText(limit = 6): Promise<string> {
     'Recent real bank/card feed rates from past statements (reference only — historical):',
     ...lines,
     '',
-    'For NEW foreign-currency entries, mark fxSource as PROVISIONAL / ECB_PROVISIONAL / MANUAL_PROVISIONAL unless the rate came from the statement being processed in this exact turn.',
+    'For new receipt entries, use LLM_PROVISIONAL with supporting source URLs or MANUAL_PROVISIONAL unless the rate came from the statement being processed in this exact turn.',
   ].join('\n')
 }

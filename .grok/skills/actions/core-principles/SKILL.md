@@ -11,8 +11,9 @@
 - When chat is locked: you may still propose, the server will force `proposed: true`.
 
 - FX provisional policy (critical):
-  - Foreign purchases are normally first recorded with a real provisional quote and fxSource = ECB_PROVISIONAL / HISTORICAL_FEED_PROVISIONAL / LLM_PROVISIONAL / MANUAL_PROVISIONAL.
-  - If the current statement/feed does not show a rate, call `get_provisional_fx_rate` with the transaction currency and date before emitting the action.
+  - Foreign purchases are normally first recorded with a sourced provisional quote and fxSource = LLM_PROVISIONAL:<source URLs> or MANUAL_PROVISIONAL.
+  - If the current statement/feed does not show a rate, use `web_search` and compare at least two independent public sources for the transaction date or nearest prior market day before emitting the action.
+  - Include the supporting source URLs in `fxSource` after `LLM_PROVISIONAL:`.
   - Never omit `fxRateToBase`, invent a rate, or use 1:1 for a foreign currency. If the lookup is unavailable, explain the blocker instead of creating the journal.
   - When processing a statement, look for prior provisional lines for the same merchants and emit small FX adjustment entries (difference + fees) using the authoritative BANK_FEED rate from the current statement.
   - Never mutate or reverse the original provisional entries.

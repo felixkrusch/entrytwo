@@ -3,7 +3,7 @@ import { generateText, tool, stepCountIs, type ModelMessage, uploadFile } from '
 import { createXai } from '@ai-sdk/xai'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { getLlmConfig, createLlmModel } from '@/lib/llm'
+import { getLlmConfig, createLlmModel, createLlmSearchTools } from '@/lib/llm'
 import { getCompanyProfile } from '@/lib/companyProfile'
 import { getVisibleJournalEntryIds, getVisibleJournalEntryIdsAtPoint } from '@/lib/accounting/ancestry'
 import { ActionType } from '@/lib/chat/intent'
@@ -20,8 +20,7 @@ import { readFile } from 'fs/promises'
 import { join } from 'path'
 import { loadOrCreateThread, appendToThread, getContextForModel } from '@/lib/chatThreadStore'
 import { loadSkill } from '@/lib/skills'
-import { normalizeToProvisional } from '@/lib/fxSources'
-import { getProvisionalFxQuote } from '@/lib/fx'
+import { isAuthoritativeBankFeed, normalizeToProvisional } from '@/lib/fxSources'
 import { createHash } from 'crypto'
 import { MAX_ATTACHMENT_BATCH_BYTES, MAX_ATTACHMENTS_PER_UPLOAD, storeAttachment } from '@/lib/attachments'
 import { requireUser } from '@/lib/authz'
@@ -144,17 +143,17 @@ Special case — bank and credit card **statements** (PDF uploads or pasted HTML
 - Capture any FX/conversion rates shown on the statement itself.
 - For resulting journal lines, set fxSource starting with "BANK_FEED:statement:" (e.g. "BANK_FEED:statement:visa-1234-2026-06", "mastercard-...", bank name).
 - When a PDF was attached this turn, set sourcePdfPath on the journal entry.
-- These statement-derived rates are authoritative (they win over ECB/manual).
-- IMPORTANT: Prior foreign purchases were likely recorded with PROVISIONAL rates (ECB_PROVISIONAL, MANUAL_PROVISIONAL, PROVISIONAL, AI_AUTONOMOUS etc.).
+- These statement-derived rates are authoritative and win over every provisional or manual estimate.
+- IMPORTANT: Prior foreign purchases were likely recorded with provisional rates (LLM_PROVISIONAL, MANUAL_PROVISIONAL, or legacy provisional sources).
   When you see prior provisional lines for the same merchants, emit small FX adjustment CREATE_JOURNAL entries (difference + fees) using the authoritative BANK_FEED rate from this statement.
   Do NOT mutate or reverse the original provisional entries. Reference the original entry number in the adjustment description.
 
 Otherwise just answer normally in clear text.
 
 Bank/credit card feed rates (including from uploaded or pasted statements) are authoritative for FX when available.
-Recent feed rates shown below are historical reference only — new entries must be marked PROVISIONAL (ECB_PROVISIONAL / PROVISIONAL / MANUAL_PROVISIONAL) unless the rate came directly from the current statement/feed context.
+Recent feed rates shown below are historical reference only. New receipt entries use LLM_PROVISIONAL with source URLs, or MANUAL_PROVISIONAL when the user supplies the base amount, unless the rate came directly from the current statement/feed context.
 Never emit fxSource starting with BANK_FEED unless the rate truly came from a feed line in this turn.
-For foreign transactions without a statement/feed rate, call get_provisional_fx_rate. Never omit the rate and never assume 1:1.
+For every transaction whose currency differs from the configured company base currency and has no current statement/feed rate, use web_search before emitting the action. Compare at least two independent public sources for the transaction date (or nearest prior market day), calculate base-currency units per one transaction-currency unit, and record fxSource as LLM_PROVISIONAL followed by the source URLs. Never omit, invent, or assume 1:1. If web search is unavailable or two sources cannot support a reasonable estimate, ask for the actual base amount instead.
 Never mutate master data (accounts, tax rates, settings, users) from chat.
 Normal conversation → normal text. Real actions → look up the skill if needed → one JSON action object.
 `.trim()
@@ -415,33 +414,28 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    const getProvisionalFxRateTool = tool({
-      description: 'Look up a provisional FX rate to the EUR base currency for a foreign transaction. Use this whenever the current document/feed does not provide an authoritative conversion rate. Never assume 1:1.',
-      inputSchema: z.object({
-        currency: z.string().length(3),
-        date: z.string().optional().describe('Transaction date in YYYY-MM-DD format.'),
-      }),
-      execute: async ({ currency, date }) => {
-        const quote = await getProvisionalFxQuote(currency, date)
-        return quote || { error: `No provisional FX rate available for ${currency.toUpperCase()}${date ? ` on ${date}` : ''}` }
-      },
-    })
-
     // Call the model with the windowed context + tools.
     // The model decides when to call get_skill (like web search).
     let assistantText = ''
+    let webSearchSourceUrls: string[] = []
     try {
-      const { text } = await generateText({
+      const generation = await generateText({
         model,
         system,
         messages: llmMessages as ModelMessage[],
         tools: {
           get_skill: getSkillTool,
-          get_provisional_fx_rate: getProvisionalFxRateTool,
+          ...createLlmSearchTools(llmConfig),
         },
         stopWhen: stepCountIs(12),
       })
-      assistantText = text || ''
+      assistantText = generation.text || ''
+      const searchTrace = JSON.stringify({ steps: generation.steps, sources: generation.sources })
+      webSearchSourceUrls = Array.from(new Set(
+        (searchTrace.match(/https?:\\?\/\\?\/[^"\\\s,;]+/g) || [])
+          .map(url => url.replace(/\\\//g, '/'))
+          .filter(url => /^https?:\/\//.test(url))
+      )).slice(0, 8)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
       console.error('generateText error (Trillion chat):', msg, e)
@@ -504,6 +498,8 @@ export async function POST(req: NextRequest) {
               }
             } else if (ln.fxSource && /statement/i.test(String(ln.fxSource)) && !String(ln.fxSource).startsWith('BANK_FEED')) {
               ln.fxSource = 'BANK_FEED:' + String(ln.fxSource).replace(/^BANK_FEED:?/i, '')
+            } else if (ln.fxRateToBase != null && !isAuthoritativeBankFeed(String(ln.fxSource || '')) && webSearchSourceUrls.length >= 2) {
+              ln.fxSource = `LLM_PROVISIONAL:${webSearchSourceUrls.join(';')}`
             }
             return ln
           })

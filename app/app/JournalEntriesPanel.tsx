@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import { useTranslations, useFormatter } from 'next-intl'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Paperclip, RefreshCw, Upload } from 'lucide-react'
+import { calculateFxBalance } from '@/lib/accounting/fxBalance'
 import { isAuthoritativeBankFeed, getFxSourceLabel } from '@/lib/fxSources'
 
 interface JournalLine {
@@ -81,6 +82,7 @@ export default function JournalEntriesPanel({
   const [expandAll, setExpandAll] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [uploadingEntryId, setUploadingEntryId] = useState<string | null>(null)
+  const [baseCurrency, setBaseCurrency] = useState('EUR')
 
   // Date-range + account filters for the full journal view
   const [search, setSearch] = useState('')
@@ -120,6 +122,7 @@ export default function JournalEntriesPanel({
         return res.json()
       })
       .then(data => {
+        if (typeof data?.baseCurrency === 'string') setBaseCurrency(data.baseCurrency.toUpperCase())
         let list: JournalEntry[] = []
         if (Array.isArray(data)) list = data
         else if (data && Array.isArray(data.entries)) list = data.entries
@@ -194,10 +197,9 @@ export default function JournalEntriesPanel({
   let totalDebits = 0
   let totalCredits = 0
   filteredEntries.forEach(entry => {
-    entry.lines.forEach(l => {
-      totalDebits += parseFloat(l.debit)
-      totalCredits += parseFloat(l.credit)
-    })
+    const balance = calculateFxBalance(entry.lines, baseCurrency)
+    totalDebits += balance.debitBase
+    totalCredits += balance.creditBase
   })
 
   const router = useRouter()
@@ -346,10 +348,8 @@ export default function JournalEntriesPanel({
           <div className="space-y-4">
             {filteredEntries.map(entry => {
               const isOpen = expandAll || expanded === entry.id
-              const entryDebits = entry.lines.reduce((s, l) => s + parseFloat(l.debit), 0)
-              const entryCredits = entry.lines.reduce((s, l) => s + parseFloat(l.credit), 0)
-              // Balanced when total debits equal total credits (base-currency independent check on raw columns)
-              const balanced = Math.abs(entryDebits - entryCredits) < 0.005
+               const entryBalance = calculateFxBalance(entry.lines, baseCurrency)
+               const balanced = entryBalance.balanced
               const isReversal = !!entry.reversalOfEntryNumber || entry.description?.startsWith('Reversal of')
               const hasBeenReversed = reversalMap.has(entry.id)
 
@@ -449,7 +449,7 @@ export default function JournalEntriesPanel({
                                 debit: parseFloat(l.debit) || 0,
                                 credit: parseFloat(l.credit) || 0,
                                 description: l.description || undefined,
-                                currency: l.currency || 'EUR',
+                                 currency: l.currency || baseCurrency,
                                 fxRateToBase: l.fxRateToBase ? Number(l.fxRateToBase) : undefined,
                                 fxSource: l.fxSource || undefined,
                                 fxDate: l.fxDate || undefined,
@@ -459,7 +459,7 @@ export default function JournalEntriesPanel({
 
                               // Phase 2 reliability: when repeating a foreign-currency entry,
                               // force confirmation so the user re-verifies the (potentially stale) FX rate.
-                              const hasForeign = entry.lines.some(l => (l.currency || 'EUR') !== 'EUR')
+                              const hasForeign = entry.lines.some(l => (l.currency || baseCurrency) !== baseCurrency)
 
                               openNewEntry({
                                 description: entry.description
@@ -519,7 +519,7 @@ export default function JournalEntriesPanel({
                                 <span className="text-emerald-400">
                                   +{format.number(parseFloat(line.debit), { style: 'currency', currency: (line.currency || 'EUR').toUpperCase() })}
                                   {line.fxRateToBase != null && (
-                                    <span className="ml-1 text-[10px] text-emerald-500">→ {format.number(parseFloat(line.debit) * Number(line.fxRateToBase), { style: 'currency', currency: 'EUR' })}</span>
+                                    <span className="ml-1 text-[10px] text-emerald-500">→ {format.number(parseFloat(line.debit) * Number(line.fxRateToBase), { style: 'currency', currency: baseCurrency })}</span>
                                   )}
                                 </span>
                               )}
@@ -527,7 +527,7 @@ export default function JournalEntriesPanel({
                                 <span className="text-rose-400">
                                   -{format.number(parseFloat(line.credit), { style: 'currency', currency: (line.currency || 'EUR').toUpperCase() })}
                                   {line.fxRateToBase != null && (
-                                    <span className="ml-1 text-[10px] text-rose-500">→ {format.number(parseFloat(line.credit) * Number(line.fxRateToBase), { style: 'currency', currency: 'EUR' })}</span>
+                                    <span className="ml-1 text-[10px] text-rose-500">→ {format.number(parseFloat(line.credit) * Number(line.fxRateToBase), { style: 'currency', currency: baseCurrency })}</span>
                                   )}
                                 </span>
                               )}
@@ -575,10 +575,8 @@ export default function JournalEntriesPanel({
                      <div className="mt-3 pt-3 border-t border-zinc-800 text-xs text-zinc-400 space-y-1">
                        <div className="flex justify-between">
                             <div>
-                              {t('debitsCredits', { debits: entryDebits.toFixed(2), credits: entryCredits.toFixed(2) })}
-                              {entry.lines[0]?.currency && (
-                                <span className="ml-2 text-zinc-500">({entry.lines[0].currency})</span>
-                              )}
+                              {t('debitsCredits', { debits: entryBalance.debitBase.toFixed(2), credits: entryBalance.creditBase.toFixed(2) })}
+                              <span className="ml-2 text-zinc-500">({baseCurrency})</span>
                             </div>
                             <div className="text-zinc-500">{t('clickToCollapse')}</div>
                           </div>

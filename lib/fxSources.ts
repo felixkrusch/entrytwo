@@ -9,6 +9,7 @@ const BANK_FEED_PREFIX = 'BANK_FEED';
 
 const PROVISIONAL_VALUES = new Set([
   'PROVISIONAL',
+  // Legacy values remain readable for journals created before LLM web research.
   'ECB_PROVISIONAL',
   'MANUAL_PROVISIONAL',
   'LLM_PROVISIONAL',
@@ -18,7 +19,7 @@ const WEAK_VALUES = new Set([
   'AI_AUTONOMOUS',
   'DERIVED_FROM_ENTRY',
   'AI_REMEMBERED',
-  'ECB',
+  'ECB', // legacy source classification only; no active lookup exists
   'MANUAL', // when used without explicit user intent to lock it as final
 ]);
 
@@ -74,9 +75,10 @@ export function getFxCategory(src?: string | null): FxSourceCategory {
  */
 export function normalizeToProvisional(preferred?: string | null): string {
   if (preferred) {
-    const s = preferred.trim().toUpperCase();
-    if (s.includes('PROVISIONAL')) return s;
-    if (s === 'ECB') return 'ECB_PROVISIONAL';
+    const original = preferred.trim();
+    const s = original.toUpperCase();
+    if (s.includes('PROVISIONAL')) return original;
+    if (s === 'ECB') return 'ECB_PROVISIONAL'; // normalize legacy records only
     if (s === 'MANUAL') return 'MANUAL_PROVISIONAL';
     if (s === 'LLM' || s === 'AI' || s.includes('LLM') || s.includes('GROK')) return 'LLM_PROVISIONAL';
   }

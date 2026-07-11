@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server'
 import { generateInvoicePDF } from '@/lib/pdf/invoice'
+import { requireUser } from '@/lib/authz'
+
+export const runtime = 'nodejs'
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   const { id } = await params
   try {
     const pdfBuffer = await generateInvoicePDF(id)
