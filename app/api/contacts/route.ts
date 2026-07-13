@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { EventType } from '@prisma/client'
 import { requireUser } from '@/lib/authz'
+import { logger } from '@/lib/logger'
 
 const ContactSchema = z.object({
   name: z.string().min(2).max(100),
@@ -62,16 +63,16 @@ const [contacts, total] = await Promise.all([
        }))
      )
 
-     return NextResponse.json({
-       contacts: contactsWithEntryCount,
-       total,
-       page,
-       pages: Math.ceil(total / limit),
-     })
-  } catch (error) {
-    console.error('Error fetching contacts:', error)
-    return NextResponse.json({ error: 'Failed to fetch contacts' }, { status: 500 })
-  }
+      return NextResponse.json({
+        contacts: contactsWithEntryCount,
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+      })
+   } catch (error) {
+     logger.error('Error fetching contacts', { error: error instanceof Error ? error.message : String(error) })
+     return NextResponse.json({ error: 'Failed to fetch contacts' }, { status: 500 })
+   }
 }
 
 export async function POST(request: Request) {
@@ -123,7 +124,7 @@ export async function POST(request: Request) {
       entryCount: 0,
     }, { status: 201 })
   } catch (error) {
-    console.error('Error creating contact:', error)
+    logger.error('Error creating contact', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to create contact' }, { status: 500 })
   }
 }

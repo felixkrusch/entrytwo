@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireUser } from '@/lib/authz'
 import { enqueueJob } from '@/lib/jobs'
+import { logger } from '@/lib/logger'
 
 export async function POST(
   request: Request,
@@ -18,7 +19,7 @@ export async function POST(
     if (err?.message === 'Email not configured') {
       return NextResponse.json({ error: 'Email not configured (set SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM)' }, { status: 503 })
     }
-    console.error('Email send error:', error)
+    logger.error('Email send error', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to send email' }, { status: 500 })
   }
 }

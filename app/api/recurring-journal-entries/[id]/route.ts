@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/authz'
+import { logger } from '@/lib/logger'
 
 export async function PATCH(
   request: Request,
@@ -20,7 +21,7 @@ export async function PATCH(
     })
     return NextResponse.json({ schedule: updated })
   } catch (e) {
-    console.error('Error updating recurring journal schedule', e)
+    logger.error('Error updating recurring journal schedule', { error: e instanceof Error ? e.message : String(e) })
     return NextResponse.json({ error: 'Failed to update schedule' }, { status: 500 })
   }
 }
@@ -35,7 +36,7 @@ export async function DELETE(
     await prisma.recurringJournalEntry.delete({ where: { id } })
     return NextResponse.json({ ok: true })
   } catch (e) {
-    console.error('Error deleting recurring journal schedule', e)
+    logger.error('Error deleting recurring journal schedule', { error: e instanceof Error ? e.message : String(e) })
     return NextResponse.json({ error: 'Failed to delete schedule' }, { status: 500 })
   }
 }

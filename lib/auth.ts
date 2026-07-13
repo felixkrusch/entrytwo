@@ -166,6 +166,17 @@ const authConfig = NextAuth({
   session: { strategy: 'jwt' },
   providers: allProviders,
   secret: process.env.AUTH_SECRET || (process.env.NODE_ENV !== 'production' ? 'development-secret' : undefined),
+  useSecureCookies: process.env.NODE_ENV === 'production',
+  cookies: {
+    sessionToken: {
+      options: {
+        httpOnly: true,
+        sameSite: 'strict',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+      },
+    },
+  },
   pages: {
     signIn: '/auth/signin',
     verifyRequest: '/auth/verify',

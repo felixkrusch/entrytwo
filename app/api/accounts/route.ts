@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { requireUser } from '@/lib/authz'
+import { logger } from '@/lib/logger'
 
 const ALLOWED_TYPES = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'] as const
 
@@ -97,7 +98,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(withBalances)
   } catch (error) {
-    console.error('Error fetching accounts:', error)
+    logger.error('Error fetching accounts', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json(
       { error: 'Failed to fetch accounts' },
       { status: 500 }
@@ -155,7 +156,7 @@ export async function POST(request: Request) {
     if (err.code === 'P2002') {
       return NextResponse.json({ error: 'Account code already exists' }, { status: 409 })
     }
-    console.error('Error creating account:', error)
+    logger.error('Error creating account', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to create account' }, { status: 500 })
   }
 }

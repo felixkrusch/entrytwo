@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { requireUser } from '@/lib/authz'
 import { createAutonomousJournal } from '@/lib/accounting/autonomous'
 import { RECURRING_FREQUENCIES } from '@/lib/accounting/recurring'
+import { logger } from '@/lib/logger'
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -43,7 +44,7 @@ export async function GET() {
     })
     return NextResponse.json({ schedules })
   } catch (e) {
-    console.error('Error listing recurring journal schedules', e)
+    logger.error('Error listing recurring journal schedules', { error: e instanceof Error ? e.message : String(e) })
     return NextResponse.json({ error: 'Failed to list schedules' }, { status: 500 })
   }
 }
@@ -124,7 +125,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ schedule, firstEntryId }, { status: 201 })
   } catch (e) {
-    console.error('Error creating recurring journal schedule', e)
+    logger.error('Error creating recurring journal schedule', { error: e instanceof Error ? e.message : String(e) })
     return NextResponse.json({ error: 'Failed to create schedule' }, { status: 500 })
   }
 }

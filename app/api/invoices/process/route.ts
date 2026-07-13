@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { MAX_ATTACHMENTS_PER_UPLOAD, MAX_ATTACHMENT_BATCH_BYTES, storeAttachment } from '@/lib/attachments'
 import { requireUser } from '@/lib/authz'
+import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
 
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ success: true, saved })
   } catch (error) {
-    console.error('Attachment save error:', error)
+    logger.error('Attachment save error', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to save attachment(s)' }, { status: 400 })
   }
 }

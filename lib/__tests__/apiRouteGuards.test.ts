@@ -12,6 +12,7 @@ const locallyPublicRoutes = new Set([
   'onboarding/route.ts',
   'webhooks/paypal/route.ts',
   'webhooks/stripe/route.ts',
+  'invitations/validate/route.ts',
 ])
 
 function routeFiles(directory: string): string[] {

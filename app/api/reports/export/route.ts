@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getCompanyProfile } from '@/lib/companyProfile'
 import { buildBalanceSheet, buildProfitLoss, buildCashFlow, type ReportAccount, type CashFlowSection } from '@/lib/reports'
 import { requireUser } from '@/lib/authz'
+import { logger } from '@/lib/logger'
 
 function csvCell(value: string | number): string {
   const s = String(value)
@@ -94,7 +95,7 @@ export async function GET(request: Request) {
       },
     })
   } catch (error) {
-    console.error('Export error:', error)
+    logger.error('Export error', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to export report' }, { status: 500 })
   }
 }

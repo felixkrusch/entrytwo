@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/authz'
+import { logger } from '@/lib/logger'
 
 export async function GET() {
   if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
@@ -32,7 +33,7 @@ export async function GET() {
 
     return NextResponse.json(formatted)
   } catch (error) {
-    console.error('Error fetching events:', error)
+    logger.error('Error fetching events', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to fetch audit log' }, { status: 500 })
   }
 }

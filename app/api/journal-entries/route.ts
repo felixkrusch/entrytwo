@@ -8,6 +8,7 @@ import { requireUser } from '@/lib/authz'
 import { calculateFxBalance } from '@/lib/accounting/fxBalance'
 import { getCompanyProfile } from '@/lib/companyProfile'
 import { commitJournalAtomic } from '@/lib/accounting/atomicCommit'
+import { logger } from '@/lib/logger'
 
 const createEntrySchema = z.object({
   date: z.string().refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid date format' }),
@@ -204,7 +205,7 @@ export async function GET(request: Request) {
       baseCurrency,
     })
   } catch (error) {
-    console.error('Error fetching journal entries:', error)
+    logger.error('Error fetching journal entries', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json(
       { error: 'Failed to fetch journal entries' },
       { status: 500 }
@@ -268,7 +269,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(createdEntry, { status: 201 })
   } catch (error: unknown) {
-    console.error('Error creating journal entry:', error)
+    logger.error('Error creating journal entry', { error: error instanceof Error ? error.message : String(error) })
 
     const err = error as { code?: string; message?: string }
     if (err?.code === 'P2025') {
@@ -310,7 +311,7 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json(updated)
   } catch (error) {
-    console.error('Error updating journal line:', error)
+    logger.error('Error updating journal line', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to update journal line' }, { status: 500 })
   }
 }

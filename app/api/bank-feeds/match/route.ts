@@ -5,6 +5,7 @@ import type { FeedTransaction } from '@prisma/client'
 import { requireUser } from '@/lib/authz'
 import { commitJournalAtomic } from '@/lib/accounting/atomicCommit'
 import { getCompanyProfile } from '@/lib/companyProfile'
+import { logger } from '@/lib/logger'
 
 interface FeedTxWithConn extends FeedTransaction {
   connection: { accountId: string; provider: string | null } | null
@@ -79,9 +80,9 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
+        return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
   } catch (error) {
-    console.error('Feed match error:', error)
+    logger.error('Feed match error', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to process transaction' }, { status: 500 })
   }
 }

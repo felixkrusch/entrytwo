@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { upsertFeedTransaction, type NormalizedProcessorTx } from '@/lib/processors/normalize'
 import { verifyPaypalSignature } from '@/lib/webhook'
 import { getRequestId } from '@/lib/correlation'
+import { logger } from '@/lib/logger'
 import { enqueueJob } from '@/lib/jobs'
 
 /**
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
     res.headers.set('x-request-id', requestId)
     return res
   } catch (e) {
-    console.error('PayPal webhook error:', e)
+    logger.error('PayPal webhook error', { error: e instanceof Error ? e.message : String(e) }, request)
   }
 
   const res = NextResponse.json({ received: true, requestId })

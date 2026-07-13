@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit'
 import QRCode from 'qrcode'
 import sharp from 'sharp'
+import { logger } from '../logger'
 import { prisma } from '@/lib/prisma'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
@@ -62,7 +63,7 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
       const png = await sharp(raw).resize(420, 120, { fit: 'inside', withoutEnlargement: true }).png().toBuffer()
       logoUrl = `data:image/png;base64,${png.toString('base64')}`
     } catch (error) {
-      console.error('Invoice logo processing failed:', error)
+      logger.error('Invoice logo processing failed', { error: error instanceof Error ? error.message : String(error) })
     }
   }
 
@@ -74,7 +75,7 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
       const qr = await QRCode.toBuffer(payload, { type: 'png', width: 240, margin: 1, errorCorrectionLevel: 'M' })
       qrUrl = `data:image/png;base64,${qr.toString('base64')}`
     } catch (error) {
-      console.error('Invoice payment QR generation failed:', error)
+      logger.error('Invoice payment QR generation failed', { error: error instanceof Error ? error.message : String(error) })
     }
   }
 

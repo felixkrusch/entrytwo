@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import Stripe from 'stripe'
 import { requireUser } from '@/lib/authz'
+import { logger } from '@/lib/logger'
 
 function getStripe() {
   if (!process.env.STRIPE_SECRET_KEY) {
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === 'Stripe not configured') {
       return NextResponse.json({ error: 'Stripe not configured' }, { status: 503 })
     }
-    console.error('Stripe payment error:', error)
+    logger.error('Stripe payment error', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to create payment' }, { status: 500 })
   }
 }

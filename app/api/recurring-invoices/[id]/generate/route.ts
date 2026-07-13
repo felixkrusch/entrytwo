@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/authz'
 import { commitJournalInTransaction } from '@/lib/accounting/atomicCommit'
 import { getCompanyProfile } from '@/lib/companyProfile'
+import { logger } from '@/lib/logger'
 
 function advanceDate(date: Date, frequency: string, interval: number): Date {
   const d = new Date(date)
@@ -238,7 +239,7 @@ export async function POST(
 
     return NextResponse.json({ invoiceId: invoice.id, nextDueDate: nextDue })
   } catch (e) {
-    console.error('Recurring generate error', e)
+    logger.error('Recurring generate error', { error: e instanceof Error ? e.message : String(e) })
     return NextResponse.json({ error: 'Failed to generate recurring invoice' }, { status: 500 })
   }
 }

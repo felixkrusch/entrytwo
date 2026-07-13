@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { findMatch } from '@/lib/matching'
 import type { FeedTransaction } from '@prisma/client'
 import { requireUser } from '@/lib/authz'
+import { logger } from '@/lib/logger'
 
 interface FeedTxWithConn extends FeedTransaction {
   connection: { accountId: string; provider: string | null } | null
@@ -67,7 +68,7 @@ export async function PATCH(
 
     return NextResponse.json(tx)
   } catch (error) {
-    console.error('Status update error:', error)
+    logger.error('Status update error', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to update status' }, { status: 500 })
   }
 }

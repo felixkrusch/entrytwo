@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { logger } from '@/lib/logger'
 
 const accountSchema = z.object({
   code: z.string(),
@@ -88,7 +89,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, userId: user.id })
   } catch (error) {
     if (error instanceof Error && error.message === 'BOOTSTRAP_COMPLETE') return NextResponse.json({ error: 'Bootstrap already complete' }, { status: 409 })
-    console.error('Onboarding error:', error)
+    logger.error('Onboarding error', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Onboarding failed' }, { status: 500 })
   }
 }

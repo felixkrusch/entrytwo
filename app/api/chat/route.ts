@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { generateText, tool, stepCountIs, type ModelMessage, uploadFile } from 'ai'
 import { createXai } from '@ai-sdk/xai'
 import { z } from 'zod'
@@ -24,6 +24,7 @@ import { requireUser } from '@/lib/authz'
 import { rateLimit } from '@/lib/rate-limit'
 import { createExpenseClaim } from '@/lib/expenseClaims'
 import { getRequestId } from '@/lib/correlation'
+import { logger } from '@/lib/logger'
 
 /**
  * Trillion chat (thread context + Grok skills on demand).
@@ -162,10 +163,10 @@ Personal expense or reimbursement claims → call get_skill("create-expense-clai
 export async function POST(req: NextRequest) {
   const limited = await rateLimit(req)
   if (limited) return limited
+  const requestId = getRequestId(req) || req.headers.get('idempotency-key') || undefined
   const session = await requireUser(['ADMIN', 'ACCOUNTANT'])
-  if (!session) return Response.json({ error: 'Accountant access required' }, { status: 403 })
+  if (!session) return Response.json({ error: 'Accountant access required', requestId }, { status: 403 })
   try {
-    const requestId = getRequestId(req) || req.headers.get('idempotency-key') || undefined
     let userMessage = ''
     let chatLocked = false
     let branch = 'main'
@@ -254,14 +255,14 @@ export async function POST(req: NextRequest) {
     }
 
     if (!userMessage.trim() && attachedFiles.length === 0) {
-      return Response.json({ response: 'No message provided.' })
+      return Response.json({ response: 'No message provided.', requestId })
     }
 
     const llmConfig = getLlmConfig()
     const skillVersions = new Map<string, string>()
     const hasKey = !!(llmConfig.apiKey || process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || process.env.XAI_API_KEY)
     if (!hasKey) {
-      return Response.json({ response: 'LLM not configured.' })
+      return Response.json({ response: 'LLM not configured.', requestId })
     }
 
     const model = createLlmModel(llmConfig)
@@ -286,7 +287,7 @@ export async function POST(req: NextRequest) {
               })
               ;(f as any).__providerRef = providerReference
             } catch (e) {
-              console.error('xAI Files API upload failed for PDF attachment:', e)
+              logger.error('xAI Files API upload failed for PDF attachment', { error: e instanceof Error ? e.message : String(e) })
             }
           }
         }
@@ -459,7 +460,7 @@ export async function POST(req: NextRequest) {
       )).slice(0, 8)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
-      console.error('generateText error (Trillion chat):', msg, e)
+      logger.error('generateText error (Trillion chat)', { error: msg })
       assistantText = 'Chat temporarily unavailable.'
     }
 
@@ -741,11 +742,12 @@ export async function POST(req: NextRequest) {
     return Response.json({
       response: assistantText || 'Understood.',
       threadId: thread.id,
+      requestId,
     })
   } catch (e) {
-    if (e instanceof ChatThreadAccessError) return Response.json({ error: 'Chat thread not found' }, { status: 404 })
-    console.error('chat error', e)
-    return Response.json({ response: 'Chat temporarily unavailable.' })
+    if (e instanceof ChatThreadAccessError) return Response.json({ error: 'Chat thread not found', requestId }, { status: 404 })
+    logger.error('chat error', { error: e instanceof Error ? e.message : String(e) })
+    return Response.json({ response: 'Chat temporarily unavailable.', requestId })
   }
 }
 

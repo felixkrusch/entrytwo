@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/authz'
+import { logger } from '@/lib/logger'
 
 // Lazy-init PayPal client
 function getPayPalClient() {
@@ -118,7 +119,7 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === 'PayPal not configured') {
       return NextResponse.json({ error: 'PayPal not configured' }, { status: 503 })
     }
-    console.error('PayPal payment error:', error)
+    logger.error('PayPal payment error', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to create PayPal invoice' }, { status: 500 })
   }
 }

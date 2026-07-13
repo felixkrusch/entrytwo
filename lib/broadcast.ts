@@ -1,6 +1,7 @@
 import type { FeedTransaction } from '@prisma/client'
+import { logger } from './logger'
 
 // Placeholder for future real-time feed event broadcasting
 export function broadcastFeedEvent(tx: FeedTransaction): void {
-  console.log('[FEED EVENT] New transaction:', tx.id, tx.merchant, tx.amount)
+  logger.info('New feed transaction', { id: tx.id, merchant: tx.merchant, amount: tx.amount })
 }

@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client'
 import { requireUser } from '@/lib/authz'
 import { getCompanyProfile } from '@/lib/companyProfile'
 import { commitJournalInTransaction } from '@/lib/accounting/atomicCommit'
+import { logger } from '@/lib/logger'
 
 const InvoiceLineSchema = z.object({
   description: z.string(),
@@ -89,7 +90,7 @@ export async function GET(request: Request) {
       pages: Math.ceil(total / limit),
     })
   } catch (error) {
-    console.error('Error fetching invoices:', error)
+    logger.error('Error fetching invoices', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to fetch invoices' }, { status: 500 })
   }
 }
@@ -304,7 +305,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(invoice, { status: 201 })
   } catch (error) {
-    console.error('Error creating invoice:', error)
+    logger.error('Error creating invoice', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to create invoice' }, { status: 500 })
   }
 }

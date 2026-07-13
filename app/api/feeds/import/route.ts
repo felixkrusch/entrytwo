@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { isAuthoritativeBankFeed } from '@/lib/fxSources'
 import { requireUser } from '@/lib/authz'
 import { commitJournalAtomic } from '@/lib/accounting/atomicCommit'
+import { logger } from '@/lib/logger'
 
 const feedImportSchema = z.object({
   date: z.string(),
@@ -108,7 +109,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(created, { status: 201 })
   } catch (error) {
-    console.error('Feed import error:', error)
+    logger.error('Feed import error', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to import feed' }, { status: 500 })
   }
 }

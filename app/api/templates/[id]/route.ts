@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/authz'
+import { logger } from '@/lib/logger'
 
 export async function DELETE(
   request: NextRequest,
@@ -12,7 +13,7 @@ export async function DELETE(
     await prisma.template.delete({ where: { id } })
     return NextResponse.json({ ok: true })
   } catch (error) {
-    console.error('Error deleting template:', error)
+    logger.error('Error deleting template', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to delete template' }, { status: 500 })
   }
 }

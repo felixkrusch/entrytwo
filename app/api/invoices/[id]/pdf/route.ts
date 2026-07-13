@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { generateInvoicePDF } from '@/lib/pdf/invoice'
 import { requireUser } from '@/lib/authz'
+import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
 
@@ -23,7 +24,7 @@ export async function GET(
       },
     })
   } catch (error) {
-    console.error('PDF generation error:', error)
+    logger.error('PDF generation error', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to generate invoice PDF' }, { status: 500 })
   }
 }

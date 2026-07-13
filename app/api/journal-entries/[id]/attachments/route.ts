@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { MAX_ATTACHMENTS_PER_UPLOAD, MAX_ATTACHMENT_BATCH_BYTES, storeAttachment, deleteAttachmentAsset, type StoredAttachment } from '@/lib/attachments'
 import { requireUser } from '@/lib/authz'
+import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
 
@@ -52,7 +53,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ attachments: created }, { status: 201 })
   } catch (error) {
     await Promise.all(stored.map(attachment => prisma.fileAsset.findUnique({ where: { id: attachment.id }, select: { id: true, storageKey: true } }).then(asset => asset ? deleteAttachmentAsset(asset) : undefined).catch(() => undefined)))
-    console.error('Journal attachment upload failed:', error)
+    logger.error('Journal attachment upload failed', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Attachment upload failed' }, { status: 400 })
   }
 }

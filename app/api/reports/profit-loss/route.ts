@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getCompanyProfile } from '@/lib/companyProfile'
 import { buildProfitLoss } from '@/lib/reports'
 import { requireUser } from '@/lib/authz'
+import { logger } from '@/lib/logger'
 
 export async function GET(request: Request) {
   if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
@@ -45,7 +46,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(data)
   } catch (error) {
-    console.error('P&L error:', error)
+    logger.error('P&L error', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to generate P&L' }, { status: 500 })
   }
 }

@@ -8,6 +8,7 @@ import { auth } from '@/lib/auth'
 import { BACKUP_EXTENSION, restoreBackupDirectory, validateBackupDirectory } from '@/lib/backup'
 import { rateLimit } from '@/lib/rate-limit'
 import { NextRequest } from 'next/server'
+import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
     const imported = await restoreBackupDirectory(contentRoot, manifest)
     return Response.json({ ok: true, version: manifest.version, exportedAt: manifest.exportedAt, imported })
   } catch (error) {
-    console.error('Portable backup import failed:', error)
+    logger.error('Portable backup import failed', { error: error instanceof Error ? error.message : String(error) })
     return Response.json({ error: error instanceof Error ? error.message : 'Failed to import backup' }, { status: 400 })
   } finally {
     await rm(tempRoot, { recursive: true, force: true })

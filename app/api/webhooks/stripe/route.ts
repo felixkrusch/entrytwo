@@ -5,6 +5,7 @@ import { upsertFeedTransaction } from '@/lib/processors/normalize'
 import type { NormalizedProcessorTx } from '@/lib/processors/normalize'
 import { enqueueJob } from '@/lib/jobs'
 import { getRequestId } from '@/lib/correlation'
+import { logger } from '@/lib/logger'
 
 /**
  * Modern Stripe webhook handler.
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
     res.headers.set('x-request-id', requestId)
     return res
   } catch (e) {
-    console.error('Stripe webhook processing error:', e)
+    logger.error('Stripe webhook processing error', { error: e instanceof Error ? e.message : String(e) }, request)
   }
 
   const res = NextResponse.json({ received: true, requestId })

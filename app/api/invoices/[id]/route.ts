@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { requireUser } from '@/lib/authz'
 import { getCompanyProfile } from '@/lib/companyProfile'
 import { commitJournalAtomic } from '@/lib/accounting/atomicCommit'
+import { logger } from '@/lib/logger'
 
 const InvoiceLineSchema = z.object({
   description: z.string(),
@@ -53,7 +54,7 @@ export async function GET(
 
     return NextResponse.json(invoice)
   } catch (error) {
-    console.error('Error fetching invoice:', error)
+    logger.error('Error fetching invoice', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to fetch invoice' }, { status: 500 })
   }
 }
@@ -212,7 +213,7 @@ export async function PUT(
 
     return NextResponse.json(updated)
   } catch (error) {
-    console.error('Error updating invoice:', error)
+    logger.error('Error updating invoice', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to update invoice' }, { status: 500 })
   }
 }
@@ -250,7 +251,7 @@ export async function DELETE(
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error deleting invoice:', error)
+    logger.error('Error deleting invoice', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to delete invoice' }, { status: 500 })
   }
 }

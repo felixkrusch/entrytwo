@@ -27,3 +27,6 @@ export function logWithRequestId(requestId: string, ...args: any[]) {
   // eslint-disable-next-line no-console
   console.log(`[req:${requestId}]`, ...args)
 }
+
+import { logger } from './logger'
+export { logger }

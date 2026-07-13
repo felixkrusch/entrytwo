@@ -7,6 +7,7 @@ import * as tar from 'tar'
 import { auth } from '@/lib/auth'
 import { BACKUP_CONTENT_TYPE, BACKUP_EXTENSION, buildBackupDirectory } from '@/lib/backup'
 import { prisma } from '@/lib/prisma'
+import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -38,7 +39,7 @@ export async function GET() {
     })
   } catch (error) {
     await rm(tempRoot, { recursive: true, force: true })
-    console.error('Portable backup export failed:', error)
+    logger.error('Portable backup export failed', { error: error instanceof Error ? error.message : String(error) })
     return Response.json({ error: error instanceof Error ? error.message : 'Failed to export backup' }, { status: 500 })
   }
 }

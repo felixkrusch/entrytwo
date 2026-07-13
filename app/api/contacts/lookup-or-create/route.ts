@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/authz'
+import { logger } from '@/lib/logger'
 
 function normalizeName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '')
@@ -96,7 +97,7 @@ export async function GET(request: Request) {
       exactMatch: matches.find(m => m.score >= 0.9) || null,
     })
   } catch (error) {
-    console.error('Error searching contacts:', error)
+    logger.error('Error searching contacts', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to search contacts' }, { status: 500 })
   }
 }
@@ -131,7 +132,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ contact, created: true })
   } catch (error) {
-    console.error('Error in lookup-or-create:', error)
+    logger.error('Error in lookup-or-create', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to lookup/create contact' }, { status: 500 })
   }
 }

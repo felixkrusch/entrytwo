@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { requireUser } from '@/lib/authz'
 import { commitJournalAtomic } from '@/lib/accounting/atomicCommit'
+import { logger } from '@/lib/logger'
 
 const reverseSchema = z.object({
   originalId: z.string(),
@@ -61,7 +62,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(reversingEntry, { status: 201 })
   } catch (error) {
-    console.error('Reverse error:', error)
+    logger.error('Reverse error', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: 'Failed to reverse entry' }, { status: 500 })
   }
 }

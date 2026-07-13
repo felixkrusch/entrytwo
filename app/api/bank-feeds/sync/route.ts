@@ -7,6 +7,7 @@ import {
   upsertFeedTransaction,
   createProcessorJournalEntry,
 } from '@/lib/processors/normalize'
+import { logger } from '@/lib/logger'
 
 /**
  * Stripe sync using Balance Transactions (the correct authoritative source).
@@ -242,8 +243,8 @@ export async function POST(request: Request) {
       total: result?.total || 0,
     })
   } catch (error: unknown) {
-    console.error('Sync error:', error)
     const message = error instanceof Error ? error.message : 'Failed to sync'
+    logger.error('Sync error', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

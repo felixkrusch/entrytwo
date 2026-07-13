@@ -7,6 +7,7 @@ import { writeFile, mkdir, readFile, unlink } from 'fs/promises'
 import { join } from 'path'
 import { getRequestId } from '@/lib/correlation'
 import { rateLimit } from '@/lib/rate-limit'
+import { logger } from '@/lib/logger'
 
 const execAsync = promisify(exec)
 
@@ -129,7 +130,7 @@ async function createFullBackup(): Promise<{ path: string; success: boolean }> {
     await writeFile(path, JSON.stringify(backupData, null, 2))
     return { path, success: true }
   } catch (e) {
-    console.error('Backup failed:', e)
+    logger.error('Backup failed', { error: e instanceof Error ? e.message : String(e) })
     return { path: '', success: false }
   }
 }
