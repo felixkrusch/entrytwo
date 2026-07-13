@@ -5,7 +5,18 @@ import { TOTP_SESSION_COOKIE, verifyTotpSessionProof } from '@/lib/totpSession'
 
 export default auth((request) => {
   const pathname = request.nextUrl.pathname
-  if (pathname.startsWith('/api/') && isPublicApiPath(pathname, request.method)) return NextResponse.next()
+  const nonce = Buffer.from(crypto.randomUUID()).toString('base64')
+  const csp = `default-src 'self'; script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''}; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https:; font-src 'self' data:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests`
+  const next = () => {
+    const headers = new Headers(request.headers)
+    headers.set('x-nonce', nonce)
+    headers.set('Content-Security-Policy', csp)
+    const response = NextResponse.next({ request: { headers } })
+    response.headers.set('Content-Security-Policy', csp)
+    return response
+  }
+  if (pathname.startsWith('/api/') && isPublicApiPath(pathname, request.method)) return next()
+  if (pathname.startsWith('/auth/') && pathname !== '/auth/totp' && pathname !== '/auth/totp/setup') return next()
   if (!request.auth?.user?.id) {
     if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
     const signIn = new URL('/auth/signin', request.url)
@@ -17,11 +28,11 @@ export default auth((request) => {
     && request.auth.user.role === 'ADMIN'
     && !request.auth.user.totpEnabled
   if (adminNeedsSetup) {
-    if (pathname === '/auth/totp/setup') return NextResponse.next()
+    if (pathname === '/auth/totp/setup') return next()
     if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'Administrator TOTP setup required', code: 'TOTP_SETUP_REQUIRED' }, { status: 403 })
     return NextResponse.redirect(new URL('/auth/totp/setup', request.url))
   }
-  if (pathname === '/auth/totp') return NextResponse.next()
+  if (pathname === '/auth/totp') return next()
   if (request.auth.user.totpEnabled) {
     const verified = request.auth.totpSessionId && verifyTotpSessionProof(
       request.cookies.get(TOTP_SESSION_COOKIE)?.value,
@@ -52,7 +63,7 @@ export default auth((request) => {
     }
   }
 
-  return NextResponse.next()
+  return next()
 })
 
 export const config = {
@@ -64,7 +75,6 @@ export const config = {
     '/invoices/:path*',
     '/invoicing/:path*',
     '/reports/:path*',
-    '/auth/totp',
-    '/auth/totp/setup',
+    '/auth/:path*',
   ],
 }

@@ -8,6 +8,7 @@ const locallyPublicRoutes = new Set([
   'auth/dev/route.ts',
   'bootstrap/status/route.ts',
   'health/route.ts',
+  'jobs/run/route.ts',
   'onboarding/route.ts',
   'webhooks/paypal/route.ts',
   'webhooks/stripe/route.ts',

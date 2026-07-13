@@ -15,6 +15,7 @@ export const API_ACCESS_POLICIES: ApiAccessPolicy[] = [
   { prefix: '/api/onboarding', access: 'bootstrap-only', description: 'First-admin setup, closed after bootstrap' },
   { prefix: '/api/webhooks/stripe', access: 'signed-webhook', description: 'Stripe signature verified in handler' },
   { prefix: '/api/webhooks/paypal', access: 'signed-webhook', description: 'PayPal signature verified in handler' },
+  { prefix: '/api/jobs/run', access: 'signed-webhook', methods: ['POST'], description: 'Job runner bearer secret verified in handler' },
   { prefix: '/api/backup/', access: 'admin', description: 'Full financial backup and restore' },
   { prefix: '/api/admin/', access: 'admin', description: 'Administrative operations' },
   { prefix: '/api/users', access: 'admin', description: 'User and role management' },

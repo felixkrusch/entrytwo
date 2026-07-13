@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { upsertFeedTransaction, type NormalizedProcessorTx } from '@/lib/processors/normalize'
 import { verifyPaypalSignature } from '@/lib/webhook'
+import { enqueueJob } from '@/lib/jobs'
 
 /**
  * Modern PayPal webhook handler.
@@ -20,12 +21,30 @@ export async function POST(request: Request) {
 
   try {
     const event = JSON.parse(body)
-    await handlePayPalEvent(event)
+    if (!event.id || !event.event_type) return NextResponse.json({ error: 'Invalid event payload' }, { status: 400 })
+    const stored = await prisma.webhookEvent.upsert({
+      where: { provider_externalId: { provider: 'paypal', externalId: event.id } },
+      create: { provider: 'paypal', externalId: event.id, eventType: event.event_type, payload: event },
+      update: {},
+    })
+    const job = await enqueueJob('WEBHOOK_PAYPAL', `webhook:paypal:${event.id}`, { webhookEventId: stored.id })
+    return NextResponse.json({ received: true, jobId: job.id }, { status: 202 })
   } catch (e) {
     console.error('PayPal webhook error:', e)
   }
 
   return NextResponse.json({ received: true })
+}
+
+export async function processPayPalWebhook(webhookEventId: string) {
+  const stored = await prisma.webhookEvent.update({ where: { id: webhookEventId }, data: { status: 'PROCESSING', attempts: { increment: 1 }, lastError: null } })
+  try {
+    await handlePayPalEvent(stored.payload)
+    await prisma.webhookEvent.update({ where: { id: stored.id }, data: { status: 'SUCCEEDED', processedAt: new Date() } })
+  } catch (error) {
+    await prisma.webhookEvent.update({ where: { id: stored.id }, data: { status: 'FAILED', lastError: error instanceof Error ? error.message.slice(0, 2000) : 'Unknown error' } })
+    throw error
+  }
 }
 
 async function handlePayPalEvent(event: any) {

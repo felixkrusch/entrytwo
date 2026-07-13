@@ -32,7 +32,7 @@ export async function PATCH(
         const adminCount = await tx.user.count({ where: { role: 'ADMIN' } })
         if (adminCount <= 1) throw new Error('LAST_ADMIN')
       }
-      const updated = await tx.user.update({ where: { id }, data: { role } })
+       const updated = await tx.user.update({ where: { id }, data: { role, sessionVersion: { increment: 1 } } })
       await tx.event.create({
         data: {
           eventType: 'MANUAL_ADJUSTMENT', entityType: 'User', entityId: updated.id,

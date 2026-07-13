@@ -3,7 +3,9 @@ import EmailProvider from 'next-auth/providers/email'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import GoogleProvider from 'next-auth/providers/google'
 import GitHubProvider from 'next-auth/providers/github'
+import MicrosoftEntraIDProvider from 'next-auth/providers/microsoft-entra-id'
 import { PrismaAdapter } from '@auth/prisma-adapter'
+import type { Adapter, AdapterAccount, AdapterUser } from '@auth/core/adapters'
 import { randomUUID } from 'crypto'
 import { prisma } from './prisma'
 
@@ -18,6 +20,8 @@ declare module 'next-auth' {
       totpEnabled?: boolean
     }
     totpSessionId?: string
+    sessionVersion?: number
+    revoked?: boolean
   }
 }
 
@@ -69,6 +73,14 @@ if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
   )
 }
 
+if (process.env.MICROSOFT_ENTRA_ID_ID && process.env.MICROSOFT_ENTRA_ID_SECRET) {
+  oauthProviders.push(MicrosoftEntraIDProvider({
+    clientId: process.env.MICROSOFT_ENTRA_ID_ID,
+    clientSecret: process.env.MICROSOFT_ENTRA_ID_SECRET,
+    issuer: process.env.MICROSOFT_ENTRA_ID_ISSUER,
+  }))
+}
+
 // Fallback credentials provider for development when no SMTP configured
 const devProvider = CredentialsProvider({
   id: 'credentials',
@@ -101,8 +113,45 @@ if (process.env.NODE_ENV === 'production' && !process.env.AUTH_SECRET) {
   throw new Error('AUTH_SECRET is required in production')
 }
 
+const baseAdapter = PrismaAdapter(prisma)
+const adapter: Adapter = {
+  ...baseAdapter,
+  async createUser(user: AdapterUser) {
+    const email = user.email.toLowerCase()
+    const invitation = await prisma.userInvitation.findFirst({ where: { email: { equals: email, mode: 'insensitive' }, acceptedAt: null, expiresAt: { gt: new Date() } }, orderBy: { createdAt: 'desc' } })
+    if (!invitation) throw new Error('Access requires an active invitation')
+    return prisma.$transaction(async tx => {
+      const created = await tx.user.create({ data: { id: user.id, email, name: user.name, role: invitation.role } })
+      await tx.userInvitation.update({ where: { id: invitation.id }, data: { acceptedAt: new Date() } })
+      await tx.event.create({ data: { eventType: 'USER_CREATED', entityType: 'User', entityId: created.id, createdBy: invitation.createdById, payload: { action: 'INVITATION_ACCEPTED', email, provider: 'oauth' } } })
+      return { ...created, emailVerified: user.emailVerified, image: user.image }
+    })
+  },
+  async getUserByAccount({ provider, providerAccountId }) {
+    const account = await prisma.oAuthAccount.findUnique({ where: { provider_providerAccountId: { provider, providerAccountId } }, include: { user: true } })
+    return account ? { ...account.user, emailVerified: null, image: null } : null
+  },
+  async linkAccount(account: AdapterAccount) {
+    const allowed = new Set(['google', 'github', 'microsoft-entra-id'])
+    if (!allowed.has(account.provider)) throw new Error('OAuth provider is not allowed')
+    await prisma.$transaction(async tx => {
+      await tx.oAuthAccount.create({ data: {
+        userId: account.userId, type: account.type, provider: account.provider, providerAccountId: account.providerAccountId,
+        refreshToken: account.refresh_token, accessToken: account.access_token, expiresAt: account.expires_at,
+        tokenType: account.token_type, scope: account.scope, idToken: account.id_token, sessionState: account.session_state as string | null | undefined,
+      } })
+      await tx.event.create({ data: { eventType: 'MANUAL_ADJUSTMENT', entityType: 'User', entityId: account.userId, createdBy: account.userId, payload: { action: 'OAUTH_ACCOUNT_LINKED', provider: account.provider } } })
+    })
+    return account
+  },
+  async unlinkAccount({ provider, providerAccountId }) {
+    const account = await prisma.oAuthAccount.delete({ where: { provider_providerAccountId: { provider, providerAccountId } } })
+    return { ...account, refresh_token: account.refreshToken, access_token: account.accessToken, expires_at: account.expiresAt, token_type: account.tokenType, id_token: account.idToken, session_state: account.sessionState } as AdapterAccount
+  },
+}
+
 const authConfig = NextAuth({
-  adapter: PrismaAdapter(prisma),
+  adapter,
   session: { strategy: 'jwt' },
   providers: allProviders,
   secret: process.env.AUTH_SECRET || (process.env.NODE_ENV !== 'production' ? 'development-secret' : undefined),
@@ -120,22 +169,37 @@ const authConfig = NextAuth({
         session.user.id = userId
         const dbUser = await prisma.user.findUnique({
           where: { id: userId },
-          select: { role: true, totpEnabled: true },
+         select: { role: true, totpEnabled: true, sessionVersion: true },
         })
-        session.user.role = dbUser?.role || 'VIEWER'
+       if (!dbUser || token?.revoked || token?.sessionVersion !== dbUser.sessionVersion) return { ...session, user: { ...session.user, id: '' } }
+       session.user.role = dbUser.role
         session.user.totpEnabled = dbUser?.totpEnabled || false
       }
       session.totpSessionId = token?.totpSessionId
       return session
     },
-    async jwt({ token, user }) {
+     async jwt({ token, user }) {
       if (user) {
         token.id = user.id as string
         const role = 'role' in user ? user.role : undefined
-        token.role = role === 'ADMIN' || role === 'ACCOUNTANT' || role === 'VIEWER' ? role : undefined
-      }
+       token.role = role === 'ADMIN' || role === 'ACCOUNTANT' || role === 'VIEWER' ? role : undefined
+       token.sessionVersion = await prisma.user.findUnique({ where: { id: user.id as string }, select: { sessionVersion: true } }).then(value => value?.sessionVersion ?? 0)
+     } else if (token.id || token.sub) {
+       const current = await prisma.user.findUnique({ where: { id: String(token.id || token.sub) }, select: { sessionVersion: true } })
+       if (!current || current.sessionVersion !== token.sessionVersion) token.revoked = true
+     }
       if (!token.totpSessionId) token.totpSessionId = randomUUID()
       return token
+    },
+  },
+  events: {
+    async signIn({ user, account }) {
+      if (!user.id) return
+      await prisma.event.create({ data: { eventType: 'MANUAL_ADJUSTMENT', entityType: 'User', entityId: user.id, createdBy: user.id, payload: { action: 'AUTH_SIGN_IN', provider: account?.provider || 'unknown' } } })
+    },
+    async signOut(message) {
+      const userId = 'token' in message ? String(message.token?.id || message.token?.sub || '') : ''
+      if (userId) await prisma.event.create({ data: { eventType: 'MANUAL_ADJUSTMENT', entityType: 'User', entityId: userId, createdBy: userId, payload: { action: 'AUTH_SIGN_OUT' } } })
     },
   },
   trustHost: process.env.NODE_ENV !== 'production' || process.env.AUTH_TRUST_HOST === 'true',

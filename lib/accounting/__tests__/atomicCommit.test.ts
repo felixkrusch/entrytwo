@@ -79,6 +79,22 @@ describe('atomic accounting commits', () => {
     expect(await prisma.journalEntry.findFirst({ where: { description: key } })).toBeNull()
   })
 
+  it('rejects posting into a closed accounting period without partial records', async () => {
+    if (!dbReady) return expect(true).toBe(true)
+    const date = new Date('2040-04-15T00:00:00.000Z')
+    const period = await prisma.accountingPeriod.create({ data: {
+      name: `Closed test ${Date.now()}`, startDate: new Date('2040-04-01T00:00:00.000Z'), endDate: new Date('2040-04-30T23:59:59.999Z'), status: 'CLOSED', closedAt: new Date(),
+    } })
+    const key = `atomic:test:${Date.now()}:closed-period`
+    try {
+      await expect(commitJournalAtomic({ ...input(key), date })).rejects.toThrow(/is closed/)
+      expect(await prisma.event.findUnique({ where: { idempotencyKey: key } })).toBeNull()
+      expect(await prisma.journalEntry.findFirst({ where: { description: key } })).toBeNull()
+    } finally {
+      await prisma.accountingPeriod.delete({ where: { id: period.id } })
+    }
+  })
+
   it('serializes concurrent commits into one complete ancestry chain', async () => {
     if (!dbReady) return expect(true).toBe(true)
     const prefix = `atomic:test:${Date.now()}:concurrent`

@@ -36,6 +36,21 @@ services:
       timeout: 5s
       retries: 5
 
+  worker:
+    image: ${APP_IMAGE:-entrytwo:latest}
+    restart: unless-stopped
+    command: ["worker"]
+    env_file: .env
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/entrytwo
+      - JOB_RUNNER_URL=http://app:3000
+    depends_on:
+      app:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+
   # Isolated updater sidecar. It — not the app — holds the Docker socket and
   # performs pull / migrate / recreate / health-gate / rollback. The app only
   # triggers it over HTTP with UPDATER_TOKEN (docs/Self-Hosted-Update-Delivery.md §6).

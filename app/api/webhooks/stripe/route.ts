@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { verifyStripeSignature } from '@/lib/webhook'
 import { upsertFeedTransaction } from '@/lib/processors/normalize'
 import type { NormalizedProcessorTx } from '@/lib/processors/normalize'
+import { enqueueJob } from '@/lib/jobs'
 
 /**
  * Modern Stripe webhook handler.
@@ -22,12 +23,30 @@ export async function POST(request: Request) {
 
   try {
     const event = JSON.parse(body)
-    await handleStripeEvent(event)
+    if (!event.id || !event.type) return NextResponse.json({ error: 'Invalid event payload' }, { status: 400 })
+    const stored = await prisma.webhookEvent.upsert({
+      where: { provider_externalId: { provider: 'stripe', externalId: event.id } },
+      create: { provider: 'stripe', externalId: event.id, eventType: event.type, payload: event },
+      update: {},
+    })
+    const job = await enqueueJob('WEBHOOK_STRIPE', `webhook:stripe:${event.id}`, { webhookEventId: stored.id })
+    return NextResponse.json({ received: true, jobId: job.id }, { status: 202 })
   } catch (e) {
     console.error('Stripe webhook processing error:', e)
   }
 
   return NextResponse.json({ received: true })
+}
+
+export async function processStripeWebhook(webhookEventId: string) {
+  const stored = await prisma.webhookEvent.update({ where: { id: webhookEventId }, data: { status: 'PROCESSING', attempts: { increment: 1 }, lastError: null } })
+  try {
+    await handleStripeEvent(stored.payload)
+    await prisma.webhookEvent.update({ where: { id: stored.id }, data: { status: 'SUCCEEDED', processedAt: new Date() } })
+  } catch (error) {
+    await prisma.webhookEvent.update({ where: { id: stored.id }, data: { status: 'FAILED', lastError: error instanceof Error ? error.message.slice(0, 2000) : 'Unknown error' } })
+    throw error
+  }
 }
 
 async function handleStripeEvent(event: any) {

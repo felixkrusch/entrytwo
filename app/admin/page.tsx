@@ -85,6 +85,11 @@ export default function AdminOverview() {
           <div className="text-xs text-zinc-500">Export/import all data as JSON.</div>
         </Link>
 
+        <Link href="/admin/webhooks" className="block border border-zinc-800 rounded-lg p-5 hover:border-zinc-700 transition-colors bg-zinc-950">
+          <div className="font-medium mb-1">Webhook Deliveries</div>
+          <div className="text-xs text-zinc-500">Inspect Stripe and PayPal failures and retry durable jobs.</div>
+        </Link>
+
         <Link
           href="/admin/update"
           className="block border border-zinc-800 rounded-lg p-5 hover:border-zinc-700 transition-colors bg-zinc-950 relative"

@@ -1,57 +1,50 @@
 import { readFile } from 'fs/promises'
-import { join } from 'path'
-
-const SKILL_BASE = join(/* turbopackIgnore: true */ process.cwd(), '.grok', 'skills')
+import { createHash } from 'crypto'
 
 // Map logical skill names to filesystem locations under .grok/skills
-const SKILL_PATHS: Record<string, string[]> = {
+const SKILL_PATHS: Record<string, URL[]> = {
   core: [
-    join(SKILL_BASE, 'actions', 'core-principles', 'SKILL.md'),
-    join(SKILL_BASE, 'trillion', 'SKILL.md'),
+    new URL('../.grok/skills/actions/core-principles/SKILL.md', import.meta.url),
+    new URL('../.grok/skills/trillion/SKILL.md', import.meta.url),
   ],
   'create-journal': [
-    join(SKILL_BASE, 'actions', 'create-journal', 'SKILL.md'),
+    new URL('../.grok/skills/actions/create-journal/SKILL.md', import.meta.url),
   ],
   'create-contact': [
-    join(SKILL_BASE, 'actions', 'create-contact', 'SKILL.md'),
+    new URL('../.grok/skills/actions/create-contact/SKILL.md', import.meta.url),
   ],
   'update-contact': [
-    join(SKILL_BASE, 'actions', 'create-contact', 'SKILL.md'), // reuse for now; update-contact is small
+    new URL('../.grok/skills/actions/create-contact/SKILL.md', import.meta.url),
   ],
   'create-invoice-draft': [
-    join(SKILL_BASE, 'actions', 'create-invoice-draft', 'SKILL.md'),
+    new URL('../.grok/skills/actions/create-invoice-draft/SKILL.md', import.meta.url),
   ],
   'extract-bank-statement': [
-    join(SKILL_BASE, 'actions', 'extract-bank-statement', 'SKILL.md'),
+    new URL('../.grok/skills/actions/extract-bank-statement/SKILL.md', import.meta.url),
   ],
 }
 
 export async function loadSkill(skill: string): Promise<string> {
+  return (await loadVersionedSkill(skill))?.content || ''
+}
+
+export type VersionedSkill = { name: string; version: string; content: string }
+
+export async function loadVersionedSkill(skill: string): Promise<VersionedSkill | null> {
   const normalized = (skill || '').toLowerCase().trim()
-  const candidates = SKILL_PATHS[normalized] || [
-    join(SKILL_BASE, normalized, 'SKILL.md'),
-    join(SKILL_BASE, normalized + '.md'),
-    join(SKILL_BASE, 'actions', normalized, 'SKILL.md'),
-  ]
+  const candidates = SKILL_PATHS[normalized] || []
 
   for (const p of candidates) {
     try {
       const content = await readFile(p, 'utf8')
-      if (content && content.trim()) return content.trim()
+      if (content && content.trim()) return versioned(normalized, content)
     } catch {}
   }
 
-  // Fallback: try a direct relative under actions or root
-  const fallbacks = [
-    join(SKILL_BASE, 'actions', normalized, 'SKILL.md'),
-    join(SKILL_BASE, normalized, 'SKILL.md'),
-  ]
-  for (const p of fallbacks) {
-    try {
-      const content = await readFile(p, 'utf8')
-      if (content && content.trim()) return content.trim()
-    } catch {}
-  }
+  return null
+}
 
-  return ''
+function versioned(name: string, content: string): VersionedSkill {
+  const normalized = content.trim()
+  return { name, content: normalized, version: `sha256:${createHash('sha256').update(normalized).digest('hex')}` }
 }

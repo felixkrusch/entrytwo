@@ -17,7 +17,7 @@ import { isSafeAutonomous } from '@/lib/chat/intent'
 import { createAutonomousJournal } from '@/lib/accounting/autonomous'
 import { EventType } from '@prisma/client'
 import { ChatThreadAccessError, loadOrCreateThread, appendToThread, getContextForModel } from '@/lib/chatThreadStore'
-import { loadSkill } from '@/lib/skills'
+import { loadVersionedSkill } from '@/lib/skills'
 import { isAuthoritativeBankFeed, normalizeToProvisional } from '@/lib/fxSources'
 import { MAX_ATTACHMENT_BATCH_BYTES, MAX_ATTACHMENTS_PER_UPLOAD, readAttachment, storeAttachment } from '@/lib/attachments'
 import { requireUser } from '@/lib/authz'
@@ -159,7 +159,7 @@ Personal expense or reimbursement claims → call get_skill("create-expense-clai
 }
 
 export async function POST(req: NextRequest) {
-  const limited = rateLimit(req)
+  const limited = await rateLimit(req)
   if (limited) return limited
   const session = await requireUser(['ADMIN', 'ACCOUNTANT'])
   if (!session) return Response.json({ error: 'Accountant access required' }, { status: 403 })
@@ -257,6 +257,7 @@ export async function POST(req: NextRequest) {
     }
 
     const llmConfig = getLlmConfig()
+    const skillVersions = new Map<string, string>()
     const hasKey = !!(llmConfig.apiKey || process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || process.env.XAI_API_KEY)
     if (!hasKey) {
       return Response.json({ response: 'LLM not configured.' })
@@ -427,8 +428,9 @@ export async function POST(req: NextRequest) {
         skill: z.string().describe('The skill name to load, e.g. "create-journal", "extract-bank-statement", "core".'),
       }),
       execute: async ({ skill }) => {
-        const content = await loadSkill(skill)
-        return content || `No instructions found for skill: ${skill}`
+        const loaded = await loadVersionedSkill(skill)
+        if (loaded) skillVersions.set(loaded.name, loaded.version)
+        return loaded?.content || `No instructions found for skill: ${skill}`
       },
     })
 
@@ -679,7 +681,7 @@ export async function POST(req: NextRequest) {
           role: 'assistant',
           content: String(proposalResponse.response),
           action,
-          metadata: { proposed: true, proposedAction: finalPayload, model: llmConfig.model, provider: llmConfig.provider },
+           metadata: { proposed: true, proposedAction: finalPayload, model: llmConfig.model, provider: llmConfig.provider, modelVersion: process.env.NEXT_LLM_MODEL_VERSION || llmConfig.model, skillVersions: Object.fromEntries(skillVersions) },
           idempotencyKey: requestId ? `${requestId}:proposal` : undefined,
         })
         return Response.json(proposalResponse)
@@ -698,7 +700,7 @@ export async function POST(req: NextRequest) {
           role: 'assistant',
           content: String(execResponse.response || 'Action completed.'),
           action,
-          metadata: { executed: true, entityId: execResponse.entityId, model: llmConfig.model, provider: llmConfig.provider },
+           metadata: { executed: true, entityId: execResponse.entityId, model: llmConfig.model, provider: llmConfig.provider, modelVersion: process.env.NEXT_LLM_MODEL_VERSION || llmConfig.model, skillVersions: Object.fromEntries(skillVersions) },
           idempotencyKey: requestId ? `${requestId}:execution` : undefined,
         })
         return Response.json(execResponse)
@@ -731,7 +733,7 @@ export async function POST(req: NextRequest) {
       userId: session.user.id,
       role: 'assistant',
       content: assistantText || 'Understood.',
-      metadata: { model: llmConfig.model, provider: llmConfig.provider },
+       metadata: { model: llmConfig.model, provider: llmConfig.provider, modelVersion: process.env.NEXT_LLM_MODEL_VERSION || llmConfig.model, skillVersions: Object.fromEntries(skillVersions) },
       idempotencyKey: requestId ? `${requestId}:assistant` : undefined,
     })
 

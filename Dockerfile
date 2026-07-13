@@ -29,6 +29,7 @@ COPY --from=build /app/entrytwo/.next ./.next
 COPY --from=build /app/entrytwo/public ./public
 COPY --from=build /app/entrytwo/.grok ./.grok
 COPY --from=build /app/entrytwo/prisma ./prisma
+COPY --from=build /app/entrytwo/scripts ./scripts
 COPY --from=build /app/entrytwo/package.json ./package.json
 COPY --from=build /app/entrytwo/next.config.ts ./next.config.ts
 COPY --from=build /app/entrytwo/compose.yaml ./compose.yaml

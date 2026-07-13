@@ -26,12 +26,23 @@ Completed:
 - Authenticated, resource-authorized file delivery with no public upload directory
 - Development and test databases reset after the private-storage cutover; existing documents intentionally discarded
 - Persistent PostgreSQL chat threads and messages with user ownership, bounded context, attachment links, and idempotent appends
+- Fiscal accounting periods with centralized closed-period posting enforcement and audited close/reopen transitions
+- Invite-only OAuth identities for Google, GitHub, and Microsoft Entra ID, with explicit account storage and linking audit events
+- Session-version invalidation after role changes and account deletion
+- Database-backed rate-limit buckets, production secret validation at startup, and nonce-based CSP on protected routes
+- Durable webhook jobs with leases, exponential retry, attempt history, dead-letter state, event persistence, and administrator retry UI
+- Auditable model identifiers and content-hash skill versions on persisted AI messages
 
 Remaining in Milestone 1:
 
-- Final OAuth provider/account-linking policy and invitation workflow
-- Shared/distributed authentication rate limiting
-- Security-event audit records and session invalidation after role or account changes
+- Complete invitation delivery and acceptance-link UX (OAuth email allowlisting is enforced)
+- Apply shared rate limiting to authentication and TOTP entry points, not only high-cost APIs
+- Expand security audit coverage to sign-in failures, sign-out, TOTP changes, and explicit account disablement
+
+In progress for Milestones 4 and 5:
+
+- Extend the durable job runner beyond webhooks to email, recurring generation, backups, cleanup, and long-running model work
+- Run workers independently from request lifetimes; inline webhook execution currently provides low-latency processing while durable retry state remains recoverable
 
 ## Architectural Boundaries
 

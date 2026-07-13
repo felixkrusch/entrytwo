@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-interface RateLimitEntry {
-  count: number
-  resetTime: number
-}
-
-const store = new Map<string, RateLimitEntry>()
+import { prisma } from '@/lib/prisma'
 
 const DEFAULT_LIMIT = 60
 const AUTH_LIMIT = 120
 
-export function rateLimit(request: NextRequest): NextResponse | null {
+export async function rateLimit(request: NextRequest, options?: { keyPrefix?: string; limit?: number; windowMs?: number }): Promise<NextResponse | null> {
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] ?? 
              request.headers.get('x-real-ip') ?? 
              'unknown'
@@ -19,26 +13,22 @@ export function rateLimit(request: NextRequest): NextResponse | null {
                   request.cookies.has('authjs.session_token') ||
                   request.cookies.has('__Secure-authjs.session-token')
   
-  const limit = hasAuth ? AUTH_LIMIT : DEFAULT_LIMIT
-  const windowMs = 60000
+  const limit = options?.limit ?? (hasAuth ? AUTH_LIMIT : DEFAULT_LIMIT)
+  const windowMs = options?.windowMs ?? 60000
 
-  const now = Date.now()
-  if (store.size > 10_000) {
-    for (const [key, value] of store) if (value.resetTime <= now) store.delete(key)
-  }
-  const entry = store.get(ip)
-
-  if (entry && entry.resetTime > now) {
-    entry.count++
-    if (entry.count > limit) {
-      return NextResponse.json(
-        { error: 'Too many requests' },
-        { status: 429 }
-      )
-    }
-  } else {
-    store.set(ip, { count: 1, resetTime: now + windowMs })
-  }
+  const now = new Date()
+  const key = `${options?.keyPrefix || request.nextUrl.pathname}:${ip}`
+  const rows = await prisma.$queryRaw<Array<{ count: number; resetAt: Date }>>`
+    INSERT INTO "RateLimitBucket" ("key", "count", "resetAt", "updatedAt")
+    VALUES (${key}, 1, ${new Date(now.getTime() + windowMs)}, NOW())
+    ON CONFLICT ("key") DO UPDATE SET
+      "count" = CASE WHEN "RateLimitBucket"."resetAt" <= NOW() THEN 1 ELSE "RateLimitBucket"."count" + 1 END,
+      "resetAt" = CASE WHEN "RateLimitBucket"."resetAt" <= NOW() THEN ${new Date(now.getTime() + windowMs)} ELSE "RateLimitBucket"."resetAt" END,
+      "updatedAt" = NOW()
+    RETURNING "count", "resetAt"
+  `
+  const entry = rows[0]
+  if (entry.count > limit) return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: { 'Retry-After': String(Math.max(1, Math.ceil((entry.resetAt.getTime() - now.getTime()) / 1000))) } })
 
   return null
 }

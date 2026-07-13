@@ -35,7 +35,7 @@ async function saveRequestBody(request: Request, target: string, maxBytes: numbe
 }
 
 export async function POST(request: NextRequest) {
-  const limited = rateLimit(request)
+  const limited = await rateLimit(request)
   if (limited) return limited
   const session = await auth()
   if (session?.user?.role !== 'ADMIN') return Response.json({ error: 'Admin access required' }, { status: 403 })

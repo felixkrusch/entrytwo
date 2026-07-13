@@ -2,6 +2,7 @@ import { Prisma, type EventType } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { getCompanyProfile } from '@/lib/companyProfile'
 import { calculateFxBalance } from './fxBalance'
+import { assertAccountingPeriodOpen } from './periods'
 
 export type AtomicJournalLine = {
   accountId: string
@@ -77,6 +78,7 @@ export async function commitJournalInTransaction(tx: Prisma.TransactionClient, i
   const date = new Date(input.date)
   if (Number.isNaN(date.getTime())) throw new Error('Invalid journal date')
   date.setUTCHours(0, 0, 0, 0)
+  await assertAccountingPeriodOpen(tx, date)
   const branchName = input.branch || 'main'
   const idempotencyKey = input.idempotencyKey?.trim() || null
 

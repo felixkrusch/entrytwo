@@ -6,6 +6,7 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
+    "worker": "node scripts/job-worker.mjs",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest"

@@ -4,25 +4,13 @@ import { prisma } from '@/lib/prisma'
 import { decrypt } from '@/lib/encryption'
 import { generateRecoveryCodes, hashRecoveryCode, verifyTotp } from '@/lib/totp'
 import { createTotpSessionProof, TOTP_SESSION_COOKIE } from '@/lib/totpSession'
-
-const attempts = new Map<string, { count: number; resetAt: number }>()
-
-function checkRateLimit(key: string) {
-  const now = Date.now()
-  const current = attempts.get(key)
-  if (!current || current.resetAt <= now) {
-    attempts.set(key, { count: 1, resetAt: now + 10 * 60_000 })
-    return true
-  }
-  current.count += 1
-  return current.count <= 10
-}
+import { rateLimit } from '@/lib/rate-limit'
 
 export async function POST(request: NextRequest) {
   const session = await requireUser()
   if (!session?.totpSessionId) return NextResponse.json({ error: 'Primary authentication required' }, { status: 401 })
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown'
-  if (!checkRateLimit(`${session.user.id}:${ip}`)) return NextResponse.json({ error: 'Too many verification attempts' }, { status: 429 })
+  const limited = await rateLimit(request, { keyPrefix: `totp:${session.user.id}`, limit: 10, windowMs: 10 * 60_000 })
+  if (limited) return limited
 
   const body = await request.json().catch(() => ({}))
   const token = typeof body.token === 'string' ? body.token.trim() : ''
@@ -48,7 +36,10 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  if (!usedRecoveryCodeId && verifiedStep === null) return NextResponse.json({ error: 'Invalid or expired verification code' }, { status: 400 })
+  if (!usedRecoveryCodeId && verifiedStep === null) {
+    await prisma.event.create({ data: { eventType: 'MANUAL_ADJUSTMENT', entityType: 'User', entityId: session.user.id, createdBy: session.user.id, payload: { action: 'TOTP_VERIFICATION_FAILED' } } })
+    return NextResponse.json({ error: 'Invalid or expired verification code' }, { status: 400 })
+  }
 
   let recoveryCodes: string[] | undefined
   if (!user.totpEnabled) {
@@ -79,7 +70,7 @@ export async function POST(request: NextRequest) {
     if (advanced.count !== 1) return NextResponse.json({ error: 'Verification code has already been used' }, { status: 400 })
   }
 
-  attempts.delete(`${session.user.id}:${ip}`)
+  await prisma.event.create({ data: { eventType: 'MANUAL_ADJUSTMENT', entityType: 'User', entityId: session.user.id, createdBy: session.user.id, payload: { action: user.totpEnabled ? (usedRecoveryCodeId ? 'TOTP_RECOVERY_USED' : 'TOTP_VERIFIED') : 'TOTP_ENABLED' } } })
   const proof = createTotpSessionProof(session.user.id, session.totpSessionId)
   const response = NextResponse.json({ ok: true, recoveryCodes })
   response.cookies.set(TOTP_SESSION_COOKIE, proof.value, {

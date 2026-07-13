@@ -42,6 +42,26 @@ enum Role {
   VIEWER
 }
 
+enum AccountingPeriodStatus {
+  OPEN
+  CLOSED
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  RETRY
+  SUCCEEDED
+  DEAD_LETTER
+}
+
+enum WebhookProcessingStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
 enum ExpenseClaimWorkflowStatus {
   DRAFT
   SUBMITTED
@@ -99,6 +119,63 @@ model User {
   totpLastUsedStep      BigInt?
   totpRecoveryCodes     TotpRecoveryCode[]
   settings              Json? // User preferences including 2FA settings
+  sessionVersion        Int                         @default(0)
+  oauthAccounts         OAuthAccount[]
+  invitationsCreated    UserInvitation[]            @relation("InvitationCreator")
+  periodsClosed         AccountingPeriod[]          @relation("PeriodCloser")
+}
+
+model OAuthAccount {
+  id                String  @id @default(uuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refreshToken      String? @map("refresh_token")
+  accessToken       String? @map("access_token")
+  expiresAt         Int?    @map("expires_at")
+  tokenType         String? @map("token_type")
+  scope             String?
+  idToken           String? @map("id_token")
+  sessionState      String? @map("session_state")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model UserInvitation {
+  id          String    @id @default(uuid())
+  email       String
+  role        Role      @default(VIEWER)
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  createdById String
+
+  createdBy User @relation("InvitationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([email, expiresAt])
+}
+
+model AccountingPeriod {
+  id           String                 @id @default(uuid())
+  name         String
+  startDate    DateTime
+  endDate      DateTime
+  status       AccountingPeriodStatus @default(OPEN)
+  closedAt     DateTime?
+  closedById   String?
+  reopenReason String?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  closedBy User? @relation("PeriodCloser", fields: [closedById], references: [id], onDelete: Restrict)
+
+  @@unique([startDate, endDate])
+  @@index([status, startDate, endDate])
 }
 
 model Account {
@@ -296,6 +373,66 @@ model Event {
   parent         Event?    @relation("EventParent", fields: [parentEventId], references: [id])
   children       Event[]   @relation("EventParent")
   user           User?     @relation(fields: [createdBy], references: [id])
+}
+
+model DurableJob {
+  id             String       @id @default(uuid())
+  type           String
+  idempotencyKey String       @unique
+  payload        Json
+  status         JobStatus    @default(PENDING)
+  attempts       Int          @default(0)
+  maxAttempts    Int          @default(5)
+  availableAt    DateTime     @default(now())
+  lockedAt       DateTime?
+  lockedBy       String?
+  lastError      String?
+  completedAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  attemptHistory JobAttempt[]
+
+  @@index([status, availableAt])
+  @@index([lockedAt])
+}
+
+model JobAttempt {
+  id         String     @id @default(uuid())
+  jobId      String
+  attempt    Int
+  startedAt  DateTime   @default(now())
+  finishedAt DateTime?
+  error      String?
+  workerId   String
+  job        DurableJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, startedAt])
+}
+
+model WebhookEvent {
+  id          String                  @id @default(uuid())
+  provider    String
+  externalId  String
+  eventType   String
+  payload     Json
+  status      WebhookProcessingStatus @default(PENDING)
+  attempts    Int                     @default(0)
+  lastError   String?
+  processedAt DateTime?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  @@unique([provider, externalId])
+  @@index([status, createdAt])
+}
+
+model RateLimitBucket {
+  key       String   @id
+  count     Int
+  resetAt   DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([resetAt])
 }
 
 model Snapshot {
