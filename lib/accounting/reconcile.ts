@@ -100,6 +100,7 @@ export async function reconcileAccount(opts: ReconcileOptions): Promise<Reconcil
             model: 'reconcile',
             reasoning: 'Unmatched feed transaction cleared automatically at high confidence',
           },
+          idempotencyKey: `reconciliation:${ft.id}`,
         })
         createdEntryIds.push(entry.id)
       }

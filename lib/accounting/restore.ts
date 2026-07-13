@@ -4,35 +4,26 @@
 // See docs/Git-Model-*.md
 
 import { prisma } from '@/lib/prisma'
-import { getBranch, setBranchHead } from './branch'
+import { Prisma } from '@prisma/client'
 
-export async function restoreBranchToEvent(branchName: string, targetEventId: string): Promise<{ rollbackEventId: string }> {
-  const branch = await getBranch(branchName)
-  if (!branch) throw new Error('Branch not found')
+export async function restoreBranchToEvent(branchName: string, targetEventId: string, createdBy?: string | null): Promise<{ rollbackEventId: string }> {
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_advisory_xact_lock(hashtext(${`accounting-branch:${branchName}`})) IS NULL AS locked`
+    const branch = await tx.accountingBranch.findUnique({ where: { name: branchName } })
+    if (!branch) throw new Error('Branch not found')
+    const targetEvent = await tx.event.findUnique({ where: { id: targetEventId }, select: { id: true } })
+    if (!targetEvent) throw new Error('Target event not found')
 
-  const targetEvent = await prisma.event.findUnique({ where: { id: targetEventId } })
-  if (!targetEvent) throw new Error('Target event not found')
-
-  // Create a rollback audit event whose parent points at the target.
-  // This makes all *subsequent* bad events no longer in the ancestor chain of the new head.
-  const rollbackEvent = await prisma.event.create({
-    data: {
-      eventType: 'ROLLBACK',
-      entityType: 'AccountingBranch',
-      entityId: branch.id,
-      parentEventId: targetEventId,   // <--- critical: ancestry now follows the target, not the previous head
-      payload: {
-        branch: branchName,
-        fromHead: branch.headEventId,
-        toEventId: targetEventId,
-        reason: 'user or AI requested restore',
+    const rollbackEvent = await tx.event.create({
+      data: {
+        eventType: 'ROLLBACK', entityType: 'AccountingBranch', entityId: branch.id,
+        parentEventId: targetEventId,
+        payload: { branch: branchName, fromHead: branch.headEventId, toEventId: targetEventId, reason: 'user or AI requested restore' },
+        createdBy: createdBy || null,
       },
-      createdBy: null,
-    },
-  })
-
-  // Move the branch head to the rollback event (which itself parents to the target).
-  await setBranchHead(branchName, rollbackEvent.id)
-
-  return { rollbackEventId: rollbackEvent.id }
+    })
+    const advanced = await tx.accountingBranch.updateMany({ where: { id: branch.id, headEventId: branch.headEventId }, data: { headEventId: rollbackEvent.id } })
+    if (advanced.count !== 1) throw new Error('Accounting branch head changed during restore')
+    return { rollbackEventId: rollbackEvent.id }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, maxWait: 10_000, timeout: 30_000 })
 }

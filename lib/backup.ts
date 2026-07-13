@@ -6,7 +6,7 @@ import { createInterface } from 'readline'
 import { prisma } from '@/lib/prisma'
 import { encryptionKeyFingerprint } from '@/lib/encryption'
 
-export const BACKUP_VERSION = 3
+export const BACKUP_VERSION = 4
 export const BACKUP_EXTENSION = '.etbackup'
 export const BACKUP_CONTENT_TYPE = 'application/gzip'
 export const BACKUP_PAGE_SIZE = 1000
@@ -28,6 +28,11 @@ type TableDefinition = {
 // and Git-model pointer remains valid on a fresh installation.
 export const BACKUP_TABLES: TableDefinition[] = [
   { file: 'users', delegate: 'user', orderBy: { id: 'asc' }, dateFields: ['createdAt', 'updatedAt'] },
+  { file: 'totp-recovery-codes', delegate: 'totpRecoveryCode', orderBy: { id: 'asc' }, dateFields: ['createdAt'] },
+  { file: 'file-assets', delegate: 'fileAsset', orderBy: { id: 'asc' }, dateFields: ['createdAt'] },
+  { file: 'chat-threads', delegate: 'chatThread', orderBy: { id: 'asc' }, dateFields: ['createdAt', 'updatedAt', 'expiresAt', 'archivedAt'] },
+  { file: 'chat-messages', delegate: 'chatMessage', orderBy: { id: 'asc' }, dateFields: ['createdAt'] },
+  { file: 'chat-message-attachments', delegate: 'chatMessageAttachment', orderBy: [{ messageId: 'asc' }, { fileAssetId: 'asc' }] },
   { file: 'accounts', delegate: 'account', orderBy: { id: 'asc' }, dateFields: ['createdAt', 'updatedAt'] },
   { file: 'contacts', delegate: 'contact', orderBy: { id: 'asc' }, dateFields: ['vatValidatedAt', 'createdAt', 'updatedAt'] },
   { file: 'tax-rates', delegate: 'taxRate', orderBy: { id: 'asc' }, dateFields: ['effectiveFrom', 'effectiveTo', 'createdAt', 'updatedAt'] },
@@ -38,6 +43,13 @@ export const BACKUP_TABLES: TableDefinition[] = [
   { file: 'invoice-lines', delegate: 'invoiceLine', orderBy: { id: 'asc' } },
   { file: 'recurring-invoices', delegate: 'recurringInvoice', orderBy: { id: 'asc' }, dateFields: ['startDate', 'endDate', 'nextDueDate', 'lastGeneratedAt', 'createdAt', 'updatedAt'] },
   { file: 'recurring-journal-entries', delegate: 'recurringJournalEntry', orderBy: { id: 'asc' }, dateFields: ['startDate', 'nextDueDate', 'lastGeneratedAt', 'endDate', 'createdAt', 'updatedAt'] },
+  { file: 'expense-claims', delegate: 'expenseClaim', orderBy: { id: 'asc' }, dateFields: ['submittedAt', 'approvedAt', 'postedAt', 'createdAt', 'updatedAt'] },
+  { file: 'expense-claim-lines', delegate: 'expenseClaimLine', orderBy: { id: 'asc' }, dateFields: ['expenseDate', 'fxDate', 'createdAt', 'updatedAt'] },
+  { file: 'expense-claim-receipts', delegate: 'expenseClaimReceipt', orderBy: { id: 'asc' }, dateFields: ['createdAt'] },
+  { file: 'expense-claim-line-receipts', delegate: 'expenseClaimLineReceipt', orderBy: [{ claimLineId: 'asc' }, { claimReceiptId: 'asc' }] },
+  { file: 'expense-claim-approvals', delegate: 'expenseClaimApproval', orderBy: { id: 'asc' }, dateFields: ['createdAt'] },
+  { file: 'expense-claim-activities', delegate: 'expenseClaimActivity', orderBy: { id: 'asc' }, dateFields: ['createdAt'] },
+  { file: 'expense-claim-reimbursements', delegate: 'expenseClaimReimbursement', orderBy: { id: 'asc' }, dateFields: ['paidAt', 'createdAt'] },
   { file: 'templates', delegate: 'template', orderBy: { id: 'asc' }, dateFields: ['createdAt', 'updatedAt'] },
   { file: 'settings', delegate: 'setting', orderBy: { id: 'asc' }, dateFields: ['createdAt', 'updatedAt'] },
   { file: 'bank-connections', delegate: 'bankConnection', orderBy: { id: 'asc' }, dateFields: ['lastSyncAt', 'createdAt', 'updatedAt'] },
@@ -49,9 +61,12 @@ export const BACKUP_TABLES: TableDefinition[] = [
 ]
 
 const DELETE_ORDER = [
+  'expenseClaimLineReceipt', 'expenseClaimApproval', 'expenseClaimActivity', 'expenseClaimReimbursement',
+  'expenseClaimReceipt', 'expenseClaimLine', 'expenseClaim', 'totpRecoveryCode',
+  'chatMessageAttachment', 'chatMessage', 'chatThread',
   'invoiceLine', 'feedTransaction', 'bankConnection', 'recurringInvoice', 'journalAttachment', 'journalLine',
   'invoice', 'recurringJournalEntry', 'template', 'setting', 'agentMemory',
-  'accountingBranch', 'snapshot', 'journalEntry', 'event', 'taxRate', 'contact', 'account', 'user',
+  'accountingBranch', 'snapshot', 'journalEntry', 'event', 'fileAsset', 'taxRate', 'contact', 'account', 'user',
 ]
 
 export type BackupManifest = {
@@ -81,41 +96,24 @@ async function sha256File(path: string): Promise<string> {
 
 export async function buildBackupDirectory(root: string, client: unknown = prisma): Promise<BackupManifest> {
   const dataDir = join(root, 'data')
-  const receiptsOut = join(root, 'receipts')
+  const receiptsOut = join(root, 'files')
   await mkdir(dataDir, { recursive: true })
   await mkdir(receiptsOut, { recursive: true })
 
   const tables: BackupManifest['database']['tables'] = []
-  const referencedReceipts = new Set<string>()
   for (const table of BACKUP_TABLES) {
     const output = join(dataDir, `${table.file}.ndjson`)
     await writeFile(output, '')
-    let cursor: string | undefined
     let rows = 0
     while (true) {
       const page = await delegate(client, table.delegate).findMany({
         orderBy: table.orderBy,
         take: BACKUP_PAGE_SIZE,
-        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        skip: rows,
       })
       if (page.length === 0) break
       await appendFile(output, page.map(record => JSON.stringify(record)).join('\n') + '\n')
-      if (table.delegate === 'journalEntry') {
-        for (const record of page) {
-          if (typeof record.sourcePdfPath === 'string' && record.sourcePdfPath.startsWith('/uploads/receipts/')) {
-            referencedReceipts.add(record.sourcePdfPath.slice('/uploads/receipts/'.length))
-          }
-        }
-      }
-      if (table.delegate === 'journalAttachment') {
-        for (const record of page) {
-          if (typeof record.path === 'string' && record.path.startsWith('/uploads/receipts/')) {
-            referencedReceipts.add(record.path.slice('/uploads/receipts/'.length))
-          }
-        }
-      }
       rows += page.length
-      cursor = String(page[page.length - 1].id)
       if (page.length < BACKUP_PAGE_SIZE) break
     }
     const info = await stat(output)
@@ -123,7 +121,7 @@ export async function buildBackupDirectory(root: string, client: unknown = prism
   }
 
   const receipts: BackupManifest['receipts'] = []
-  const receiptSource = join(process.cwd(), 'public', 'uploads', 'receipts')
+  const receiptSource = join(process.cwd(), '.data', 'files')
   const names = await readdir(receiptSource).catch(() => [])
   for (const name of names.sort()) {
     if (name.startsWith('.') || basename(name) !== name) continue
@@ -132,11 +130,12 @@ export async function buildBackupDirectory(root: string, client: unknown = prism
     if (!info?.isFile()) continue
     const target = join(receiptsOut, name)
     await copyFile(source, target)
-    receipts.push({ path: `receipts/${name}`, bytes: info.size, mtime: info.mtime.toISOString(), sha256: await sha256File(target) })
+    receipts.push({ path: `files/${name}`, bytes: info.size, mtime: info.mtime.toISOString(), sha256: await sha256File(target) })
   }
 
   const copiedReceiptNames = new Set(receipts.map(receipt => basename(receipt.path)))
-  const missingReceipts = Array.from(referencedReceipts).filter(name => !copiedReceiptNames.has(name))
+  const fileAssets = await delegate(client, 'fileAsset').findMany({ orderBy: { id: 'asc' } })
+  const missingReceipts = fileAssets.map(asset => String(asset.storageKey)).filter(name => !copiedReceiptNames.has(name))
   if (missingReceipts.length) {
     throw new Error(`Cannot create a complete backup: ${missingReceipts.length} referenced receipt file(s) are missing (${missingReceipts.slice(0, 5).join(', ')})`)
   }
@@ -176,7 +175,7 @@ export async function validateBackupDirectory(root: string): Promise<BackupManif
   if (expectedTables.size) throw new Error(`Backup is missing tables: ${Array.from(expectedTables).join(', ')}`)
 
   for (const receipt of manifest.receipts) {
-    if (!/^receipts\/[a-zA-Z0-9_.-]+$/.test(receipt.path) || receipt.path.includes('..')) throw new Error(`Unsafe receipt path: ${receipt.path}`)
+    if (!/^files\/[a-zA-Z0-9_.-]+$/.test(receipt.path) || receipt.path.includes('..')) throw new Error(`Unsafe file path: ${receipt.path}`)
     const path = join(root, receipt.path)
     const info = await stat(path)
     if (!info.isFile() || info.size !== receipt.bytes || await sha256File(path) !== receipt.sha256) {
@@ -186,18 +185,10 @@ export async function validateBackupDirectory(root: string): Promise<BackupManif
 
 
   const receiptNames = new Set(manifest.receipts.map(receipt => basename(receipt.path)))
-  for await (const records of readNdjsonChunks(join(root, 'data', 'journal-entries.ndjson'))) {
+  for await (const records of readNdjsonChunks(join(root, 'data', 'file-assets.ndjson'))) {
     for (const record of records) {
-      if (typeof record.sourcePdfPath !== 'string' || !record.sourcePdfPath.startsWith('/uploads/receipts/')) continue
-      const name = record.sourcePdfPath.slice('/uploads/receipts/'.length)
-      if (!receiptNames.has(name)) throw new Error(`Backup is missing referenced receipt: ${name}`)
-    }
-  }
-  for await (const records of readNdjsonChunks(join(root, 'data', 'journal-attachments.ndjson'))) {
-    for (const record of records) {
-      if (typeof record.path !== 'string' || !record.path.startsWith('/uploads/receipts/')) continue
-      const name = record.path.slice('/uploads/receipts/'.length)
-      if (!receiptNames.has(name)) throw new Error(`Backup is missing referenced attachment: ${name}`)
+      const name = String(record.storageKey || '')
+      if (!receiptNames.has(name)) throw new Error(`Backup is missing referenced file: ${name}`)
     }
   }
   return manifest
@@ -226,9 +217,9 @@ function restoreTypes(record: Record<string, unknown>, dateFields: string[] = []
 }
 
 export async function restoreBackupDirectory(root: string, manifest: BackupManifest): Promise<Record<string, number>> {
-  const receiptRoot = join(process.cwd(), 'public', 'uploads')
-  const receiptTarget = join(receiptRoot, 'receipts')
-  const stagedReceipts = join(receiptRoot, `.receipts-restore-${Date.now()}`)
+  const receiptRoot = join(process.cwd(), '.data')
+  const receiptTarget = join(receiptRoot, 'files')
+  const stagedReceipts = join(receiptRoot, `.files-restore-${Date.now()}`)
   await mkdir(stagedReceipts, { recursive: true })
   for (const receipt of manifest.receipts) {
     const name = basename(receipt.path)
@@ -237,7 +228,7 @@ export async function restoreBackupDirectory(root: string, manifest: BackupManif
 
   const counts: Record<string, number> = {}
   await mkdir(receiptRoot, { recursive: true })
-  const previous = join(receiptRoot, `.receipts-previous-${Date.now()}`)
+  const previous = join(receiptRoot, `.files-previous-${Date.now()}`)
   const hadExisting = await stat(receiptTarget).then(() => true).catch(() => false)
   let receiptsSwapped = false
 

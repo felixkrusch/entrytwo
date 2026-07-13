@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import Stripe from 'stripe'
+import { requireUser } from '@/lib/authz'
 
 function getStripe() {
   if (!process.env.STRIPE_SECRET_KEY) {
@@ -12,6 +13,7 @@ function getStripe() {
 }
 
 export async function POST(request: Request) {
+  if (!await requireUser(['ADMIN', 'ACCOUNTANT'])) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   try {
     const { invoiceId } = await request.json()
 

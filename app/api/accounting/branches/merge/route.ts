@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import { mergeBranch } from '@/lib/accounting/merge'
 import { ensureMainBranch } from '@/lib/accounting/branch'
+import { requireUser } from '@/lib/authz'
 
 export async function POST(request: Request) {
+  if (!await requireUser(['ADMIN', 'ACCOUNTANT'])) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   try {
     await ensureMainBranch()
     const body = await request.json()

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { recordCommitOnBranch } from '@/lib/accounting/commit'
+import { requireUser } from '@/lib/authz'
+import { commitJournalInTransaction } from '@/lib/accounting/atomicCommit'
+import { getCompanyProfile } from '@/lib/companyProfile'
 
 function advanceDate(date: Date, frequency: string, interval: number): Date {
   const d = new Date(date)
@@ -17,6 +19,8 @@ export async function POST(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await requireUser(['ADMIN', 'ACCOUNTANT'])
+  if (!session) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   const { id } = await params
 
   try {
@@ -100,12 +104,14 @@ export async function POST(
     if (!arAccount || !revenueAccount || !taxPayableAccount) {
       return NextResponse.json({ error: 'Required accounts not found' }, { status: 500 })
     }
+    const baseCurrency = (await getCompanyProfile()).baseCurrency.toUpperCase()
 
     // Create Invoice + Journal (identical double-entry as normal creation)
     const invoice = await prisma.$transaction(async (tx) => {
       const invNum = await (async function generate() {
         const year = now.getFullYear()
         const prefix = `INV-${year}-`
+        await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_advisory_xact_lock(hashtext(${`invoice-number:${year}`})) IS NULL AS locked`
         const latest = await tx.invoice.findFirst({
           where: { invoiceNumber: { startsWith: prefix } },
           orderBy: { invoiceNumber: 'desc' },
@@ -171,16 +177,20 @@ export async function POST(
         })
       }
 
-      // Business date (midnight UTC of the invoice issue day)
-      const businessDate = new Date(created.issueDate)
-      businessDate.setUTCHours(0, 0, 0, 0)
-
-      const je = await tx.journalEntry.create({
-        data: {
-          date: businessDate,
-          description: `Invoice ${created.invoiceNumber} (recurring)`,
-          lines: { create: journalLines },
-        },
+      const je = await commitJournalInTransaction(tx, {
+        date: created.issueDate,
+        description: `Invoice ${created.invoiceNumber} (recurring)`,
+        branch: 'main',
+        baseCurrency,
+        createdBy: session.user.id,
+        idempotencyKey: `recurring-invoice:${rec.id}:${rec.nextDueDate.toISOString()}`,
+        eventPayload: { invoiceId: created.id, invoiceNumber: created.invoiceNumber, recurringId: rec.id },
+        lines: journalLines.map(line => ({
+          ...line,
+          fxRateToBase: currency === baseCurrency ? 1 : null,
+          fxSource: currency === baseCurrency ? 'BASE_CURRENCY' : null,
+          fxDate: created.issueDate,
+        })),
       })
 
       await tx.invoice.update({
@@ -196,9 +206,6 @@ export async function POST(
           payload: { invoiceNumber: created.invoiceNumber, recurringId: rec.id, source: 'recurring' },
         },
       })
-
-      // Git Model: ancestry-aware commit on main
-      await recordCommitOnBranch(je.id, 'main')
 
       return created
     })

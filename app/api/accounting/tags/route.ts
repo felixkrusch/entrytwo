@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createTag, listTags } from '@/lib/accounting/tag'
+import { requireUser } from '@/lib/authz'
 
 export async function GET(request: Request) {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   try {
     const url = new URL(request.url)
     const branch = url.searchParams.get('branch') || undefined
@@ -14,6 +16,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  if (!await requireUser(['ADMIN', 'ACCOUNTANT'])) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   try {
     const body = (await request.json()) as { name?: string; branch?: string; eventId?: string; description?: string }
     const { name, branch, eventId, description } = body

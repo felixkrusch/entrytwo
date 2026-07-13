@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireUser } from '@/lib/authz'
 
 function normalizeName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '')
@@ -67,6 +68,7 @@ function calculateMatchScore(
 }
 
 export async function GET(request: Request) {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   try {
     const url = new URL(request.url)
     const name = url.searchParams.get('name')
@@ -100,6 +102,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  if (!await requireUser(['ADMIN', 'ACCOUNTANT'])) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   try {
     const body = await request.json()
     const { name, type } = body

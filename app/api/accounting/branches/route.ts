@@ -1,13 +1,16 @@
 import { NextResponse } from 'next/server'
 import { createBranch, listBranches, ensureMainBranch } from '@/lib/accounting/branch'
+import { requireUser } from '@/lib/authz'
 
 export async function GET() {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   await ensureMainBranch()
   const branches = await listBranches()
   return NextResponse.json(branches)
 }
 
 export async function POST(request: Request) {
+  if (!await requireUser(['ADMIN', 'ACCOUNTANT'])) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   try {
     const body = (await request.json()) as { name?: string; fromEventId?: string; description?: string }
     const { name, fromEventId, description } = body

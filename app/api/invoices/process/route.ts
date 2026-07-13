@@ -21,7 +21,7 @@ export async function POST(request: Request) {
 
     const saved = []
     for (const file of files) {
-      const attachment = await storeAttachment(file)
+      const attachment = await storeAttachment(file, session.user.id)
       saved.push({ ...attachment, name: attachment.originalName, savedPath: attachment.path })
     }
     return NextResponse.json({ success: true, saved })

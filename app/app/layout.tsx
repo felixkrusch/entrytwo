@@ -557,26 +557,6 @@ function ContactsContent() {
     return parts.length > 0 ? parts.join(', ') : null
   }
 
-  const validateVat = async (vatId: string) => {
-    try {
-      const res = await fetch(`/api/contacts/validate-vat?vatId=${encodeURIComponent(vatId)}`)
-      const data = await res.json()
-      if (data.valid === true) {
-        const contact = contacts.find(c => c.taxId === vatId)
-        if (contact) {
-          await fetch(`/api/contacts/validate-vat`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contactId: contact.id, vatValid: true, vatId: data.vatId, address: data.address }),
-          })
-        }
-      }
-      void fetchContacts()
-    } catch {
-      // ignore
-    }
-  }
-
   const deleteContact = async (contactId: string, e?: React.MouseEvent) => {
     e?.stopPropagation()
     if (!confirm('Delete this contact? This cannot be undone if they have related entries.')) return

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { findMatch } from '@/lib/matching'
 import type { FeedTransaction } from '@prisma/client'
+import { requireUser } from '@/lib/authz'
 
 interface FeedTxWithConn extends FeedTransaction {
   connection: { accountId: string; provider: string | null } | null
@@ -12,6 +13,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!await requireUser(['ADMIN'])) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   const { id } = await params
 
   const transaction = await prisma.feedTransaction.findUnique({
@@ -38,6 +40,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!await requireUser(['ADMIN'])) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   const { id } = await params
   try {
     const body = await request.json()

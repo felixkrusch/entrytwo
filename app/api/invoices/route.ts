@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
-import { recordCommitOnBranch } from '@/lib/accounting/commit'
-import { EventType } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import { requireUser } from '@/lib/authz'
+import { getCompanyProfile } from '@/lib/companyProfile'
+import { commitJournalInTransaction } from '@/lib/accounting/atomicCommit'
 
 const InvoiceLineSchema = z.object({
   description: z.string(),
@@ -23,12 +25,13 @@ const InvoiceSchema = z.object({
   lines: z.array(InvoiceLineSchema).min(1),
 })
 
-async function generateInvoiceNumber(): Promise<string> {
+async function generateInvoiceNumber(tx: Prisma.TransactionClient): Promise<string> {
   const year = new Date().getFullYear()
   const prefix = `INV-${year}-`
+  await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_advisory_xact_lock(hashtext(${`invoice-number:${year}`})) IS NULL AS locked`
 
   // Find the highest existing number for this year and increment
-  const latest = await prisma.invoice.findFirst({
+  const latest = await tx.invoice.findFirst({
     where: { invoiceNumber: { startsWith: prefix } },
     orderBy: { invoiceNumber: 'desc' },
     select: { invoiceNumber: true },
@@ -45,6 +48,7 @@ async function generateInvoiceNumber(): Promise<string> {
 }
 
 export async function GET(request: Request) {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   try {
     const url = new URL(request.url)
     const status = url.searchParams.get('status') || ''
@@ -91,6 +95,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const session = await requireUser(['ADMIN', 'ACCOUNTANT'])
+  if (!session) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   try {
     const body = await request.json()
     const parsed = InvoiceSchema.safeParse(body)
@@ -182,12 +188,13 @@ export async function POST(request: Request) {
     if (!arAccount || !revenueAccount || !taxPayableAccount) {
       return NextResponse.json({ error: 'Required accounts (AR / Revenue / Tax Payable) not found.' }, { status: 500 })
     }
+    const baseCurrency = (await getCompanyProfile()).baseCurrency.toUpperCase()
 
     // Create Invoice + JournalEntry atomically
     const invoice = await prisma.$transaction(async (tx) => {
       const createdInvoice = await tx.invoice.create({
         data: {
-          invoiceNumber: await generateInvoiceNumber(),
+          invoiceNumber: await generateInvoiceNumber(tx),
           contactId,
           status,
           currency,
@@ -255,18 +262,20 @@ export async function POST(request: Request) {
         })
       }
 
-      // Business date = issue date at midnight UTC (calendar day semantics)
-      const businessDate = new Date(finalIssueDate)
-      businessDate.setUTCHours(0, 0, 0, 0)
-
-      const journalEntry = await tx.journalEntry.create({
-        data: {
-          date: businessDate,
-          description: `Invoice ${createdInvoice.invoiceNumber}`,
-          lines: {
-            create: journalLineData,
-          },
-        },
+      const journalEntry = await commitJournalInTransaction(tx, {
+        date: finalIssueDate,
+        description: `Invoice ${createdInvoice.invoiceNumber}`,
+        branch: 'main',
+        baseCurrency,
+        createdBy: session.user.id,
+        idempotencyKey: `invoice-posting:${createdInvoice.id}`,
+        eventPayload: { invoiceId: createdInvoice.id, invoiceNumber: createdInvoice.invoiceNumber },
+        lines: journalLineData.map(line => ({
+          ...line,
+          fxRateToBase: currency === baseCurrency ? 1 : null,
+          fxSource: currency === baseCurrency ? 'BASE_CURRENCY' : null,
+          fxDate: finalIssueDate,
+        })),
       })
 
       // Link the journal entry back to the invoice for traceability
@@ -276,12 +285,9 @@ export async function POST(request: Request) {
         include: { contact: true, lines: { include: { taxRate: true } } },
       })
 
-      // Git Model: record using ancestry (default main). We set parent inside recordCommitOnBranch.
-      await recordCommitOnBranch(journalEntry.id, 'main')
-
       await tx.event.create({
         data: {
-          eventType: EventType.INVOICE_CREATED,
+          eventType: 'INVOICE_CREATED',
           entityType: 'Invoice',
           entityId: updatedInvoice.id,
           payload: {

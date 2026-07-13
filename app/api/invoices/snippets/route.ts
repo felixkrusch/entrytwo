@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireUser } from '@/lib/authz'
 
 const DEFAULT_SNIPPETS = [
   { id: '1', name: 'Consulting', description: 'Professional consulting services', quantity: 1, unitPrice: 150 },
@@ -10,6 +11,7 @@ const DEFAULT_SNIPPETS = [
 ]
 
 export async function GET(request: Request) {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   try {
     const url = new URL(request.url)
     const kindFilter = url.searchParams.get('kind') || ''
@@ -78,6 +80,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  if (!await requireUser(['ADMIN', 'ACCOUNTANT'])) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   try {
     const body = await request.json()
     const { name, description, quantity = 1, unitPrice = 0, kind = 'line', text } = body || {}

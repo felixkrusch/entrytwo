@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import QRCode from 'qrcode'
+import { requireUser } from '@/lib/authz'
 
 // EPC QR Code (European Payments Council / SEPA Credit Transfer)
 // Spec: https://www.europeanpaymentscouncil.eu/document-library/guidance-documents/quick-response-code-guidelines-enable-data-capture-mobile
@@ -10,6 +11,7 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   const { id } = await params
   const invoice = await prisma.invoice.findUnique({
     where: { id },

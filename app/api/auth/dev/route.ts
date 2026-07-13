@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { encode } from 'next-auth/jwt'
+import { randomUUID } from 'crypto'
 
 // Simple dev-only sign-in - creates session and sets cookie
 export async function POST(request: Request) {
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
         role: user.role,
         picture: null,
         sub: user.id,
+        totpSessionId: randomUUID(),
       },
       secret: process.env.AUTH_SECRET || 'development-secret',
       salt: cookieName,

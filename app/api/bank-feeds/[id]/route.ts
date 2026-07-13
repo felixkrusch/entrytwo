@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireUser } from '@/lib/authz'
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!await requireUser(['ADMIN'])) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   const { id } = await params
   try {
     const connection = await prisma.bankConnection.findUnique({
@@ -19,26 +21,5 @@ export async function GET(
     return NextResponse.json(connection)
   } catch {
     return NextResponse.json({ error: 'Failed to fetch connection' }, { status: 500 })
-  }
-}
-
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params
-  try {
-    const body = await request.json()
-    const { syncEnabled } = body
-
-    const connection = await prisma.bankConnection.update({
-      where: { id },
-      data: { syncEnabled },
-      include: { account: true },
-    })
-
-    return NextResponse.json(connection)
-  } catch {
-    return NextResponse.json({ error: 'Failed to update connection' }, { status: 500 })
   }
 }

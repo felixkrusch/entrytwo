@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import { generateReconciliationReport } from '@/lib/accounting/reconciliation-report'
 import { reconcileAccount } from '@/lib/accounting/reconcile'
+import { requireUser } from '@/lib/authz'
 
 export async function POST(request: Request) {
+  if (!await requireUser(['ADMIN', 'ACCOUNTANT'])) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   try {
     const body = (await request.json()) as { accountCode?: string; from?: string; to?: string }
     const { accountCode = '1100', from, to } = body

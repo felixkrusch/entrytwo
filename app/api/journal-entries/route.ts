@@ -1,19 +1,17 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
-import { recordCommitOnBranch } from '@/lib/accounting/commit'
 import { getVisibleJournalEntryIds, getVisibleJournalEntryIdsAtPoint } from '@/lib/accounting/ancestry'
-import { nextEntryNumber } from '@/lib/accounting/entryNumber'
 import { isAuthoritativeBankFeed, normalizeToProvisional } from '@/lib/fxSources'
 import { parseAttachmentInput } from '@/lib/attachments'
 import { requireUser } from '@/lib/authz'
 import { calculateFxBalance } from '@/lib/accounting/fxBalance'
 import { getCompanyProfile } from '@/lib/companyProfile'
+import { commitJournalAtomic } from '@/lib/accounting/atomicCommit'
 
 const createEntrySchema = z.object({
   date: z.string().refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid date format' }),
   description: z.string().optional(),
-  sourcePdfPath: z.string().optional(),
   attachments: z.array(z.object({
     path: z.string(),
     originalName: z.string(),
@@ -133,7 +131,7 @@ export async function GET(request: Request) {
               contact: { select: { id: true, name: true, type: true } }
             }
           },
-          attachments: { orderBy: { createdAt: 'asc' } },
+          attachments: { orderBy: { createdAt: 'asc' }, include: { fileAsset: true } },
         }
       })
     ])
@@ -158,8 +156,18 @@ export async function GET(request: Request) {
       createdBy: e.createdBy,
       createdByUser: e.createdBy ? creatorMap.get(e.createdBy) || null : null,
       updatedAt: e.updatedAt,
-      sourcePdfPath: e.sourcePdfPath,
-      attachments: e.attachments,
+      sourcePdfPath: e.attachments[0] ? `/api/files/${e.attachments[0].fileAssetId}` : null,
+      attachments: e.attachments.map(attachment => ({
+        id: attachment.id,
+        fileAssetId: attachment.fileAssetId,
+        path: `/api/files/${attachment.fileAssetId}`,
+        originalName: attachment.fileAsset.originalName,
+        mimeType: attachment.fileAsset.mimeType,
+        size: attachment.fileAsset.size,
+        sha256: attachment.fileAsset.sha256,
+        source: attachment.source,
+        createdAt: attachment.createdAt,
+      })),
       reversalOfEntryNumber:
         typeof e.description === 'string' && e.description.startsWith('Reversal of')
           ? (e.description.match(/JE-\d{4}-\d{4}/)?.[0] || null)
@@ -218,11 +226,8 @@ export async function POST(request: Request) {
       )
     }
 
-    const { date, description, sourcePdfPath, lines } = parsed.data
+    const { date, description, lines } = parsed.data
     const attachments = parseAttachmentInput(parsed.data.attachments)
-    if (sourcePdfPath && !attachments.some(attachment => attachment.path === sourcePdfPath)) {
-      attachments.unshift({ path: sourcePdfPath, originalName: sourcePdfPath.split('/').pop() || 'attachment', mimeType: 'application/octet-stream', size: 0, sha256: 'legacy-unverified' })
-    }
 
     const baseCurrency = (await getCompanyProfile()).baseCurrency.toUpperCase()
 
@@ -250,104 +255,16 @@ export async function POST(request: Request) {
       )
     }
 
-    const entryNumber = await nextEntryNumber(new Date(date))
-
-    const createdBy = session?.user?.id || null
-
-    // Business date: normalize the provided date to midnight UTC (calendar day only).
-    // The real posting/creation time is captured in createdAt and used for stable ordering.
-    const businessDate = new Date(date)
-    businessDate.setUTCHours(0, 0, 0, 0)
-
-    const result = await prisma.$transaction(async (tx) => {
-      const created = await tx.journalEntry.create({
-        data: {
-          date: businessDate,
-          description,
-          entryNumber,
-          createdBy,
-          sourcePdfPath: attachments[0]?.path || sourcePdfPath || null,
-          attachments: attachments.length ? {
-            create: attachments.map(attachment => ({ ...attachment, source: 'journal-create', createdBy })),
-          } : undefined,
-          lines: {
-            create: lines.map(line => ({
-              accountId: line.accountId,
-              debit: line.debit,
-              credit: line.credit,
-              description: line.description,
-              taxRateId: line.taxRateId || null,
-              taxIsInput: typeof line.taxIsInput === 'boolean' ? line.taxIsInput : null,
-              cleared: false,
-              currency: line.currency || baseCurrency,
-              fxRateToBase: line.fxRateToBase != null ? line.fxRateToBase : null,
-              fxSource: line.fxSource || null,
-              fxDate: line.fxDate ? new Date(line.fxDate) : null,
-              contactId: line.contactId || null,
-            }))
-          },
-        },
-        include: {
-          lines: {
-            include: {
-              account: { select: { code: true, name: true } },
-              taxRate: { select: { id: true, jurisdiction: true, name: true, rate: true, taxType: true } },
-              contact: { select: { id: true, name: true, type: true } }
-            }
-          },
-          attachments: true,
-        }
-      })
-
-      // Git Model: determine branch (default main), get current head for ancestry parent
-      const branchForCommit = (body.branch || 'main') as string
-      const br = await tx.accountingBranch.findUnique({ where: { name: branchForCommit } })
-      const parentForNewEvent = br?.headEventId || null
-
-      const createdEvent = await tx.event.create({
-        data: {
-          eventType: 'JOURNAL_ENTRY_CREATED',
-          entityType: 'JournalEntry',
-          entityId: created.id,
-          parentEventId: parentForNewEvent,
-          payload: {
-            description: created.description,
-            date: created.date,
-            lines: created.lines.map(l => ({
-              account: l.account.code,
-              debit: Number(l.debit),
-              credit: Number(l.credit),
-              currency: l.currency,
-              contact: l.contact?.name,
-              fxRateToBase: l.fxRateToBase != null ? Number(l.fxRateToBase) : null,
-              fxSource: l.fxSource,
-              fxDate: l.fxDate ? l.fxDate.toISOString().slice(0, 10) : null,
-            })),
-            attachments: created.attachments.map(attachment => ({ id: attachment.id, path: attachment.path, sha256: attachment.sha256 })),
-          },
-        }
-      })
-
-      // Mark the journal entry as introduced by this event (for ancestry visibility)
-      await tx.journalEntry.update({
-        where: { id: created.id },
-        data: { introducedByEventId: createdEvent.id }
-      })
-
-      return { createdEntry: created, commitEventId: createdEvent.id, branchForCommit }
+    const createdEntry = await commitJournalAtomic({
+      date,
+      description,
+      branch: typeof body.branch === 'string' ? body.branch : 'main',
+      baseCurrency,
+      createdBy: session.user.id,
+      idempotencyKey: request.headers.get('idempotency-key') || undefined,
+      attachments: attachments.map(attachment => ({ ...attachment, source: 'journal-create' })),
+      lines,
     })
-
-    const r = result as { createdEntry: { id: string }; commitEventId: string; branchForCommit?: string }
-    const createdEntry = r.createdEntry
-    const commitEventId = r.commitEventId
-    const branchForCommit = r.branchForCommit || 'main'
-
-    // Advance branch head using the new commit event (sets parent on the event and advances head)
-    if (commitEventId) {
-      await recordCommitOnBranch(createdEntry.id, branchForCommit, commitEventId)
-    } else {
-      await recordCommitOnBranch(createdEntry.id, branchForCommit)
-    }
 
     return NextResponse.json(createdEntry, { status: 201 })
   } catch (error: unknown) {

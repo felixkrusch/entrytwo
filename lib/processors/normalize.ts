@@ -1,7 +1,6 @@
 import { prisma } from '@/lib/prisma'
-import { decryptCredentials } from '@/lib/encryption'
-import { recordCommitOnBranch } from '@/lib/accounting/commit'
 import type { Prisma } from '@prisma/client'
+import { commitJournalAtomic } from '@/lib/accounting/atomicCommit'
 
 /**
  * Normalized processor transaction (used by both Stripe and PayPal paths).
@@ -74,9 +73,6 @@ export async function createProcessorJournalEntry(
   }
 ) {
   const branch = opts.branch || 'main'
-  const br = await prisma.accountingBranch.findUnique({ where: { name: branch } })
-  const parentHead = br?.headEventId || null
-
   const settlement = await prisma.account.findFirst({
     where: { OR: [{ code: opts.settlementAccountCode }, { name: { contains: opts.settlementAccountCode, mode: 'insensitive' } }] },
   })
@@ -171,52 +167,20 @@ export async function createProcessorJournalEntry(
   const businessDate = new Date(tx.date)
   businessDate.setUTCHours(0, 0, 0, 0)
 
-  const entry = await prisma.journalEntry.create({
-    data: {
-      date: businessDate,
-      description: tx.description || `Processor ${tx.type}`,
-      lines: {
-        create: lines.map((l) => ({
-          accountId: l.accountId,
-          debit: l.debit || 0,
-          credit: l.credit || 0,
-          description: l.description,
-          currency: l.currency,
-          fxRateToBase: l.fxRateToBase ?? null,
-          fxSource: l.fxSource || `BANK_FEED:stripe:${tx.externalId}`,
-          fxDate: l.fxDate ?? null,
-          cleared: false,
-        })),
-      },
-    },
-    include: { lines: true },
+  return commitJournalAtomic({
+    date: businessDate,
+    description: tx.description || `Processor ${tx.type}`,
+    branch,
+    idempotencyKey: `processor:${opts.connectionId}:${tx.externalId}`,
+    eventPayload: { source: 'processor', connectionId: opts.connectionId, externalId: tx.externalId, processorType: tx.type },
+    lines: lines.map(line => ({
+      ...line,
+      debit: line.debit || 0,
+      credit: line.credit || 0,
+      fxRateToBase: line.fxRateToBase ?? tx.exchangeRateToBase ?? null,
+      fxSource: line.fxSource || tx.fxSource || `BANK_FEED:processor:${tx.externalId}`,
+      fxDate: line.fxDate ?? (tx.fxDate ? new Date(tx.fxDate) : tx.date),
+      cleared: false,
+    })),
   })
-
-  const ev = await prisma.event.create({
-    data: {
-      eventType: 'JOURNAL_ENTRY_CREATED',
-      entityType: 'JournalEntry',
-      entityId: entry.id,
-      parentEventId: parentHead,
-      payload: {
-        source: 'processor',
-        description: entry.description,
-        lines: entry.lines.map((l) => ({
-          accountId: l.accountId,
-          debit: Number(l.debit),
-          credit: Number(l.credit),
-          currency: l.currency,
-        })),
-      },
-    },
-  })
-
-  await prisma.journalEntry.update({
-    where: { id: entry.id },
-    data: { introducedByEventId: ev.id },
-  })
-
-  await recordCommitOnBranch(entry.id, branch, ev.id)
-
-  return entry
 }

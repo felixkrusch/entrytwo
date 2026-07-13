@@ -1,12 +1,17 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { requireUser } from '@/lib/authz'
 
 export async function GET() {
-  try {
-    const adminCount = await prisma.user.count({ where: { role: 'ADMIN' } })
-    return NextResponse.json({ isAdmin: adminCount > 0 })
-  } catch {
-    // If we can't determine, be conservative and hide admin UI
-    return NextResponse.json({ isAdmin: false })
-  }
+  const session = await requireUser()
+  if (!session) return NextResponse.json({ authenticated: false, isAdmin: false }, { status: 401 })
+  return NextResponse.json({
+    authenticated: true,
+    isAdmin: session.user.role === 'ADMIN',
+    user: {
+      id: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+      role: session.user.role,
+    },
+  })
 }

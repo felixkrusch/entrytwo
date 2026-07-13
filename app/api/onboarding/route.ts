@@ -45,11 +45,6 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const adminCount = await prisma.user.count({ where: { role: 'ADMIN' } })
-    if (adminCount > 0) {
-      return NextResponse.json({ error: 'Bootstrap already complete' }, { status: 400 })
-    }
-
     const body = await request.json()
     const parsed = onboardingSchema.safeParse(body)
     
@@ -59,63 +54,40 @@ export async function POST(request: Request) {
 
     const { companyName, baseCurrency, defaultTaxJurisdiction, accounts, email, name } = parsed.data
 
-    const user = await prisma.user.create({
-      data: { email, name, role: 'ADMIN' },
-    })
+    const user = await prisma.$transaction(async tx => {
+      await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_advisory_xact_lock(hashtext('entrytwo-bootstrap')) IS NULL AS locked`
+      const adminCount = await tx.user.count({ where: { role: 'ADMIN' } })
+      if (adminCount > 0) throw new Error('BOOTSTRAP_COMPLETE')
 
-    await prisma.setting.upsert({
-      where: { key: 'companyName' },
-      create: { key: 'companyName', value: companyName },
-      update: { value: companyName },
-    })
-
-    await prisma.setting.upsert({
-      where: { key: 'baseCurrency' },
-      create: { key: 'baseCurrency', value: baseCurrency },
-      update: { value: baseCurrency },
-    })
-
-    if (defaultTaxJurisdiction) {
-      await prisma.setting.upsert({
-        where: { key: 'defaultTaxJurisdiction' },
-        create: { key: 'defaultTaxJurisdiction', value: defaultTaxJurisdiction },
-        update: { value: defaultTaxJurisdiction },
-      })
-    }
-
-    if (accounts && accounts.length > 0) {
-      for (const acc of accounts) {
-        await prisma.account.upsert({
-          where: { code: acc.code },
-          create: {
-            code: acc.code,
-            name: acc.name,
-            type: acc.type,
-          },
-          update: {
-            name: acc.name,
-            type: acc.type,
-          },
+      const createdUser = await tx.user.create({ data: { email, name, role: 'ADMIN' } })
+      await tx.setting.upsert({ where: { key: 'companyName' }, create: { key: 'companyName', value: companyName }, update: { value: companyName } })
+      await tx.setting.upsert({ where: { key: 'baseCurrency' }, create: { key: 'baseCurrency', value: baseCurrency }, update: { value: baseCurrency } })
+      if (defaultTaxJurisdiction) {
+        await tx.setting.upsert({
+          where: { key: 'defaultTaxJurisdiction' },
+          create: { key: 'defaultTaxJurisdiction', value: defaultTaxJurisdiction },
+          update: { value: defaultTaxJurisdiction },
         })
       }
-    }
-
-    await prisma.event.create({
-      data: {
-        eventType: 'SYSTEM',
-        entityType: 'Onboarding',
-        entityId: user.id,
-        payload: {
-          action: 'ONBOARDING_COMPLETE',
-          companyName,
-          baseCurrency,
-          accountCount: accounts?.length || 0,
+      for (const account of accounts || []) {
+        await tx.account.upsert({
+          where: { code: account.code },
+          create: { code: account.code, name: account.name, type: account.type },
+          update: { name: account.name, type: account.type },
+        })
+      }
+      await tx.event.create({
+        data: {
+          eventType: 'SYSTEM', entityType: 'Onboarding', entityId: createdUser.id,
+          payload: { action: 'ONBOARDING_COMPLETE', companyName, baseCurrency, accountCount: accounts?.length || 0 },
         },
-      },
+      })
+      return createdUser
     })
 
     return NextResponse.json({ success: true, userId: user.id })
   } catch (error) {
+    if (error instanceof Error && error.message === 'BOOTSTRAP_COMPLETE') return NextResponse.json({ error: 'Bootstrap already complete' }, { status: 409 })
     console.error('Onboarding error:', error)
     return NextResponse.json({ error: 'Onboarding failed' }, { status: 500 })
   }

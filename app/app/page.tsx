@@ -96,6 +96,28 @@ export default function ChatPage() {
     return null
   })
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const proposalIdempotencyKeys = useRef(new WeakMap<Message, string>())
+
+  useEffect(() => {
+    if (!threadId) return
+    let cancelled = false
+    fetch(`/api/chat/threads/${encodeURIComponent(threadId)}`)
+      .then(async response => {
+        if (response.status === 404) {
+          localStorage.removeItem('chatThreadId')
+          if (!cancelled) setThreadId(null)
+          return null
+        }
+        if (!response.ok) throw new Error('Could not restore chat history')
+        return response.json()
+      })
+      .then(data => {
+        if (cancelled || !data?.messages?.length) return
+        setMessages(data.messages.map((message: { role: 'user' | 'assistant'; content: string }) => ({ role: message.role, content: message.content })))
+      })
+      .catch(() => undefined)
+    return () => { cancelled = true }
+  }, [threadId])
 
   // Filenames of files attached in this chat turn (display only, shown above LLM indicator).
   // Actual files + paths are stashed in (window as any).__pendingAttachments for send.
@@ -304,6 +326,7 @@ export default function ChatPage() {
 
       // Build FormData if we have attachments (including staged), otherwise plain JSON
       let res: Response
+      const idempotencyKey = crypto.randomUUID()
       const hasAnyFiles = combinedForSend.length > 0;
       if (hasAnyFiles) {
         const fd = new FormData()
@@ -318,11 +341,11 @@ export default function ChatPage() {
           fd.append(`savedPath_${idx}`, p.savedPath)
         })
 
-        res = await fetch('/api/chat', { method: 'POST', body: fd })
+        res = await fetch('/api/chat', { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: fd })
       } else {
         res = await fetch('/api/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
           body: JSON.stringify({
             message: userMessageText,
             threadId: threadId || undefined,
@@ -617,6 +640,11 @@ export default function ChatPage() {
     // The server will still re-validate everything.
     const proposed = msg.proposedAction
     if (!proposed) return
+    let proposalIdempotencyKey = proposalIdempotencyKeys.current.get(msg)
+    if (!proposalIdempotencyKey) {
+      proposalIdempotencyKey = `chat-approval:${crypto.randomUUID()}`
+      proposalIdempotencyKeys.current.set(msg, proposalIdempotencyKey)
+    }
 
     try {
       const sp = new URLSearchParams(window.location.search)
@@ -625,7 +653,7 @@ export default function ChatPage() {
 
         const res = await fetch('/api/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': proposalIdempotencyKey },
           body: JSON.stringify({
             // For approvals we send the decision via approvedAction.
             // We still pass threadId so the server can associate it with the ongoing conversation if needed.

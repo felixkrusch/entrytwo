@@ -81,7 +81,7 @@ model User {
   id                    String                      @id @default(uuid())
   email                 String                      @unique
   name                  String?
-  role                  Role                        @default(ADMIN)
+  role                  Role                        @default(VIEWER)
   createdAt             DateTime                    @default(now())
   updatedAt             DateTime                    @updatedAt
   events                Event[]
@@ -92,8 +92,12 @@ model User {
   claimActivities       ExpenseClaimActivity[]
   claimApprovals        ExpenseClaimApproval[]
   claimReimbursements   ExpenseClaimReimbursement[]
+  fileAssets            FileAsset[]
+  chatThreads           ChatThread[]
   totpSecret            String? // Encrypted TOTP secret for 2FA
   totpEnabled           Boolean                     @default(false) // Whether TOTP is enabled
+  totpLastUsedStep      BigInt?
+  totpRecoveryCodes     TotpRecoveryCode[]
   settings              Json? // User preferences including 2FA settings
 }
 
@@ -142,7 +146,6 @@ model JournalEntry {
   date                DateTime
   description         String?
   entryNumber         String?                     @unique // human reference, e.g. "JE-2026-0001"
-  sourcePdfPath       String? // original uploaded PDF/image receipt path (under /uploads/receipts)
   createdAt           DateTime                    @default(now())
   updatedAt           DateTime                    @updatedAt
   createdBy           String?
@@ -159,20 +162,80 @@ model JournalEntry {
 model JournalAttachment {
   id             String   @id @default(uuid())
   journalEntryId String
-  path           String
-  originalName   String
-  mimeType       String
-  size           Int
-  sha256         String
+  fileAssetId    String
   source         String   @default("manual")
   createdAt      DateTime @default(now())
   createdBy      String?
 
   journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  fileAsset    FileAsset    @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
 
-  @@unique([journalEntryId, path])
+  @@unique([journalEntryId, fileAssetId])
   @@index([journalEntryId])
-  @@index([path])
+  @@index([fileAssetId])
+}
+
+model FileAsset {
+  id           String   @id @default(uuid())
+  storageKey   String   @unique
+  storage      String   @default("local")
+  originalName String
+  mimeType     String
+  size         Int
+  sha256       String
+  createdById  String
+  createdAt    DateTime @default(now())
+
+  createdBy     User                    @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  journals      JournalAttachment[]
+  claimReceipts ExpenseClaimReceipt[]
+  chatMessages  ChatMessageAttachment[]
+
+  @@index([sha256])
+  @@index([createdById, createdAt])
+}
+
+model ChatThread {
+  id         String    @id @default(uuid())
+  userId     String
+  title      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  expiresAt  DateTime?
+  archivedAt DateTime?
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([userId, updatedAt])
+  @@index([expiresAt])
+}
+
+model ChatMessage {
+  id             String   @id @default(uuid())
+  threadId       String
+  role           String
+  content        String
+  action         String?
+  metadata       Json?
+  idempotencyKey String?  @unique
+  createdAt      DateTime @default(now())
+
+  thread      ChatThread              @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  attachments ChatMessageAttachment[]
+
+  @@index([threadId, createdAt, id])
+}
+
+model ChatMessageAttachment {
+  messageId   String
+  fileAssetId String
+
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  fileAsset FileAsset   @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+
+  @@id([messageId, fileAssetId])
+  @@index([fileAssetId])
 }
 
 model JournalLine {
@@ -219,19 +282,20 @@ model TaxRate {
 }
 
 model Event {
-  id            String    @id @default(uuid())
-  eventType     EventType
-  entityType    String
-  entityId      String
-  payload       Json
-  metadata      Json?
-  createdAt     DateTime  @default(now())
-  createdBy     String?
+  id             String    @id @default(uuid())
+  idempotencyKey String?   @unique
+  eventType      EventType
+  entityType     String
+  entityId       String
+  payload        Json
+  metadata       Json?
+  createdAt      DateTime  @default(now())
+  createdBy      String?
   // Git ancestry: parent points to previous head for linear history + restore jumps
-  parentEventId String?
-  parent        Event?    @relation("EventParent", fields: [parentEventId], references: [id])
-  children      Event[]   @relation("EventParent")
-  user          User?     @relation(fields: [createdBy], references: [id])
+  parentEventId  String?
+  parent         Event?    @relation("EventParent", fields: [parentEventId], references: [id])
+  children       Event[]   @relation("EventParent")
+  user           User?     @relation(fields: [createdBy], references: [id])
 }
 
 model Snapshot {
@@ -373,11 +437,11 @@ model InvoiceLine {
 model BankConnection {
   id          String    @id @default(uuid())
   accountId   String // Links to Chart of Accounts
-  provider    String // 'stripe', 'paypal', 'plaid', 'salt-edge', 'csv'
+  provider    String // 'stripe', 'paypal', or 'csv'
   externalId  String // Provider account/identifier
   credentials String? // Encrypted tokens/secrets (JSON blob encrypted)
   lastSyncAt  DateTime?
-  syncEnabled Boolean   @default(true)
+  syncEnabled Boolean   @default(true) // legacy compatibility; no scheduled synchronization
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -506,11 +570,7 @@ model ExpenseClaimLine {
 model ExpenseClaimReceipt {
   id               String   @id @default(uuid())
   claimId          String
-  storageKey       String   @unique
-  originalName     String
-  mimeType         String
-  size             Int
-  sha256           String
+  fileAssetId      String
   source           String   @default("manual")
   uploadedByUserId String
   extractionStatus String   @default("PENDING")
@@ -519,11 +579,12 @@ model ExpenseClaimReceipt {
   createdAt        DateTime @default(now())
 
   claim      ExpenseClaim              @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  fileAsset  FileAsset                 @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
   uploadedBy User                      @relation(fields: [uploadedByUserId], references: [id], onDelete: Restrict)
   lines      ExpenseClaimLineReceipt[]
 
-  @@unique([claimId, sha256])
-  @@index([sha256])
+  @@unique([claimId, fileAssetId])
+  @@index([fileAssetId])
 }
 
 model ExpenseClaimLineReceipt {
@@ -583,4 +644,16 @@ model ExpenseClaimReimbursement {
   createdBy    User         @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
 
   @@index([claimId, paidAt])
+}
+
+model TotpRecoveryCode {
+  id        String   @id @default(uuid())
+  userId    String
+  hash      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, hash])
+  @@index([userId])
 }

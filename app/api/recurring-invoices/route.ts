@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 import { z } from 'zod'
+import { requireUser } from '@/lib/authz'
 
 const RecurringSchema = z.object({
   name: z.string().min(1),
@@ -28,6 +29,7 @@ const RecurringSchema = z.object({
 
 
 export async function GET() {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   try {
     const list = await prisma.recurringInvoice.findMany({
       orderBy: { nextDueDate: 'asc' },
@@ -40,6 +42,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!await requireUser(['ADMIN', 'ACCOUNTANT'])) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   try {
     const body = await request.json()
     const parsed = RecurringSchema.safeParse(body)

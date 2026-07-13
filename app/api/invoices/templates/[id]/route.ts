@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireUser } from '@/lib/authz'
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   const { id } = await params
   const t = await prisma.template.findUnique({ where: { id } })
   if (!t || !t.isInvoiceTemplate) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -20,6 +22,7 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!await requireUser(['ADMIN', 'ACCOUNTANT'])) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   const { id } = await params
   const body = await request.json()
   const t = await prisma.template.findUnique({ where: { id } })
@@ -46,6 +49,7 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!await requireUser(['ADMIN', 'ACCOUNTANT'])) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   const { id } = await params
   await prisma.template.delete({ where: { id } }).catch(() => {})
   return NextResponse.json({ success: true })

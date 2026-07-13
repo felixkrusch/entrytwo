@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { generateInvoicePDF } from '@/lib/pdf/invoice'
 import nodemailer from 'nodemailer'
+import { requireUser } from '@/lib/authz'
 
 function getTransporter() {
   const host = process.env.SMTP_HOST
@@ -25,6 +26,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!await requireUser(['ADMIN', 'ACCOUNTANT'])) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   const { id } = await params
   try {
     const { to, subject, body } = await request.json().catch(() => ({} as { to?: string; subject?: string; body?: string }))

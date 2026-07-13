@@ -117,15 +117,7 @@ ANTHROPIC_API_KEY=""
 4. Register the application
 5. Copy the Client ID and Client Secret to your `.env` file
 
-### Plaid (Bank Feeds - US/Canada)
-
-1. Sign up at [Plaid Dashboard](https://dashboard.plaid.com/)
-2. Create a new app in the **Team Settings**
-3. Get your **Client ID** and **Secret**
-4. Set **Webhook URL**: `https://yourdomain.com/api/webhooks/plaid`
-5. Add `PLAID_CLIENT_ID` and `PLAID_SECRET` to your `.env` file (for future implementation)
-
-### Stripe (Bank Feeds - Payments)
+### Stripe (Payment Processor Feed)
 
 1. Go to [Stripe Dashboard](https://dashboard.stripe.com/)
 2. Go to **Developers** → **Webhooks**
@@ -133,7 +125,16 @@ ANTHROPIC_API_KEY=""
 4. Set endpoint URL: `https://yourdomain.com/api/webhooks/stripe`
 5. Select events: `payment_intent.succeeded`, `charge.refunded`, `charge.dispute.created`
 6. Copy the **Webhook secret** to `STRIPE_WEBHOOK_SECRET` in `.env`
-7. For API sync, use your **Secret key** (`sk_live_...` or `sk_test_...`) stored in bank connection credentials
+7. Set your **Secret key** (`sk_live_...` or `sk_test_...`) as `STRIPE_SECRET_KEY` in `.env`
+
+### PayPal (Payment Processor Feed)
+
+1. Create a REST application in the PayPal Developer Dashboard.
+2. Set `PAYPAL_CLIENT_ID` and `PAYPAL_SECRET` in `.env`.
+3. Create a webhook pointing to `https://yourdomain.com/api/webhooks/paypal`.
+4. Set the resulting webhook ID as `PAYPAL_WEBHOOK_ID`.
+
+Stripe and PayPal are the only supported live processor feeds. Other bank and card data is imported by uploading statements or transaction tables through chat.
 
 ---
 
@@ -264,7 +265,7 @@ npm start
 
 **Authentication Status:**
 - ✅ Phase 3: Auth.js Magic Link via Email (SMTP or dev fallback)
-- ✅ Phase 3: TOTP 2FA endpoints (setup + verify)
+- ✅ Phase 3: RFC 6238 TOTP 2FA, mandatory administrator setup, and one-time recovery codes
 - ✅ Phase 3: OAuth login (Google, GitHub - requires env vars)
 
 ---

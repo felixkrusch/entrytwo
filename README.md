@@ -65,7 +65,7 @@ On a fresh database, create the first **ADMIN** user (bootstrap flow).
 
 **Phase 3 in progress:**
 - [ ] Magic Link authentication (Auth.js)
-- [ ] TOTP 2FA for ADMIN accounts
+- [x] RFC 6238 TOTP 2FA with mandatory administrator setup and one-time recovery codes
 - [ ] OAuth login (Google, Microsoft)
 - [ ] Data export/import for backup/migration
 - [ ] Licensing/activation system

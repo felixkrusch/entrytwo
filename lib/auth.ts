@@ -4,6 +4,7 @@ import CredentialsProvider from 'next-auth/providers/credentials'
 import GoogleProvider from 'next-auth/providers/google'
 import GitHubProvider from 'next-auth/providers/github'
 import { PrismaAdapter } from '@auth/prisma-adapter'
+import { randomUUID } from 'crypto'
 import { prisma } from './prisma'
 
 declare module 'next-auth' {
@@ -14,7 +15,17 @@ declare module 'next-auth' {
       email?: string | null
       image?: string | null
       role?: 'ADMIN' | 'ACCOUNTANT' | 'VIEWER'
+      totpEnabled?: boolean
     }
+    totpSessionId?: string
+  }
+}
+
+declare module 'next-auth/jwt' {
+  interface JWT {
+    id?: string
+    role?: 'ADMIN' | 'ACCOUNTANT' | 'VIEWER'
+    totpSessionId?: string
   }
 }
 
@@ -86,8 +97,13 @@ const devProvider = CredentialsProvider({
 const allowDevCredentials = process.env.NODE_ENV !== 'production' && emailProviders.length === 0 && oauthProviders.length === 0
 const allProviders = [...emailProviders, ...oauthProviders, ...(allowDevCredentials ? [devProvider] : [])]
 
+if (process.env.NODE_ENV === 'production' && !process.env.AUTH_SECRET) {
+  throw new Error('AUTH_SECRET is required in production')
+}
+
 const authConfig = NextAuth({
-  adapter: process.env.SMTP_HOST ? PrismaAdapter(prisma) : undefined,
+  adapter: PrismaAdapter(prisma),
+  session: { strategy: 'jwt' },
   providers: allProviders,
   secret: process.env.AUTH_SECRET || (process.env.NODE_ENV !== 'production' ? 'development-secret' : undefined),
   pages: {
@@ -104,21 +120,25 @@ const authConfig = NextAuth({
         session.user.id = userId
         const dbUser = await prisma.user.findUnique({
           where: { id: userId },
-          select: { role: true },
+          select: { role: true, totpEnabled: true },
         })
         session.user.role = dbUser?.role || 'VIEWER'
+        session.user.totpEnabled = dbUser?.totpEnabled || false
       }
+      session.totpSessionId = token?.totpSessionId
       return session
     },
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id as string
-        token.role = 'role' in user ? user.role : undefined
+        const role = 'role' in user ? user.role : undefined
+        token.role = role === 'ADMIN' || role === 'ACCOUNTANT' || role === 'VIEWER' ? role : undefined
       }
+      if (!token.totpSessionId) token.totpSessionId = randomUUID()
       return token
     },
   },
-  trustHost: true,
+  trustHost: process.env.NODE_ENV !== 'production' || process.env.AUTH_TRUST_HOST === 'true',
 })
 
 export const { handlers, signIn, signOut, auth } = authConfig

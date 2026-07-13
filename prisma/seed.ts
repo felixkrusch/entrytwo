@@ -11,7 +11,10 @@ async function main() {
   console.log("Seeding database...");
 
   await prisma.$executeRawUnsafe(`TRUNCATE TABLE
-    "JournalAttachment", "InvoiceLine", "FeedTransaction", "BankConnection",
+    "ExpenseClaimLineReceipt", "ExpenseClaimApproval", "ExpenseClaimActivity", "ExpenseClaimReimbursement",
+    "ExpenseClaimReceipt", "ExpenseClaimLine", "ExpenseClaim", "TotpRecoveryCode",
+    "ChatMessageAttachment", "ChatMessage", "ChatThread",
+    "JournalAttachment", "FileAsset", "InvoiceLine", "FeedTransaction", "BankConnection",
     "RecurringInvoice", "JournalLine", "Invoice", "RecurringJournalEntry",
     "Template", "Setting", "AgentMemory", "AccountingBranch", "Snapshot",
     "JournalEntry", "Event", "TaxRate", "Contact", "Account", "User"

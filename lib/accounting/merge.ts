@@ -13,11 +13,12 @@
 // (the target head is never advanced), protecting `main` from landing out of balance.
 
 import { prisma } from '@/lib/prisma'
-import { getBranch, setBranchHead } from './branch'
+import { getBranch } from './branch'
 import { getCompanyProfile } from '@/lib/companyProfile'
 import { buildBalanceSheet } from '@/lib/reports'
 import { getVisibleJournalEntryIds } from './ancestry'
-import { nextEntryNumber } from './entryNumber'
+import { commitJournalInTransaction } from './atomicCommit'
+import { Prisma } from '@prisma/client'
 
 export interface MergeResult {
   mergedEventIds: string[]
@@ -57,97 +58,56 @@ export async function mergeBranch(sourceName: string, targetName: string = 'main
     orderBy: { date: 'asc' },
   })
 
-  let currentHead = target.headEventId || null
   const mergedEventIds: string[] = []
+  await prisma.$transaction(async tx => {
+    await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_advisory_xact_lock(hashtext(${`accounting-branch:${targetName}`})) IS NULL AS locked`
+    const lockedTarget = await tx.accountingBranch.findUnique({ where: { name: targetName } })
+    if (!lockedTarget || lockedTarget.headEventId !== target.headEventId) throw new Error('Target branch changed during merge preparation')
 
-  for (const entry of entriesToMerge) {
-    const entryNumber = await nextEntryNumber(entry.date)
-
-    const created = await prisma.journalEntry.create({
-      data: {
+    for (const entry of entriesToMerge) {
+      const created = await commitJournalInTransaction(tx, {
         date: entry.date,
         description: entry.description ? `Merge: ${entry.description}` : 'Merged entry',
-        entryNumber,
-        createdBy: null,
-        lines: {
-          create: entry.lines.map((l) => ({
-            accountId: l.accountId,
-            debit: Number(l.debit),
-            credit: Number(l.credit),
-            description: l.description,
-            taxRateId: l.taxRateId || null,
-            taxIsInput: typeof l.taxIsInput === 'boolean' ? l.taxIsInput : null,
-            currency: l.currency || 'EUR',
-            fxRateToBase: l.fxRateToBase != null ? Number(l.fxRateToBase) : null,
-            fxSource: l.fxSource || null,
-            fxDate: l.fxDate || null,
-            contactId: l.contactId || null,
-            cleared: false,
-          })),
-        },
-      },
-    })
+        branch: targetName,
+        baseCurrency,
+        idempotencyKey: `merge:${source.headEventId}:${targetName}:${entry.id}`,
+        eventPayload: { mergedFrom: sourceName, originalJournalEntryId: entry.id },
+        lines: entry.lines.map(line => ({
+          accountId: line.accountId,
+          debit: Number(line.debit),
+          credit: Number(line.credit),
+          description: line.description,
+          taxRateId: line.taxRateId,
+          taxIsInput: line.taxIsInput,
+          currency: line.currency,
+          fxRateToBase: line.fxRateToBase == null ? null : Number(line.fxRateToBase),
+          fxSource: line.fxSource,
+          fxDate: line.fxDate,
+          contactId: line.contactId,
+        })),
+      })
+      if (created.introducedByEventId) mergedEventIds.push(created.introducedByEventId)
+    }
 
-    const event = await prisma.event.create({
+    const currentTarget = await tx.accountingBranch.findUniqueOrThrow({ where: { name: targetName } })
+    const markerKey = `merge-marker:${source.headEventId}:${targetName}:${target.headEventId || 'root'}`
+    const existingMarker = await tx.event.findUnique({ where: { idempotencyKey: markerKey } })
+    const mergeEvent = existingMarker || await tx.event.create({
       data: {
-        eventType: 'JOURNAL_ENTRY_CREATED',
-        entityType: 'JournalEntry',
-        entityId: created.id,
-        parentEventId: currentHead,
-        payload: {
-          description: created.description,
-          date: created.date,
-          mergedFrom: sourceName,
-          lines: entry.lines.map((l) => ({
-            account: l.accountId,
-            debit: Number(l.debit),
-            credit: Number(l.credit),
-            currency: l.currency,
-          })),
-        },
+        eventType: 'MERGE', entityType: 'AccountingBranch', entityId: currentTarget.id,
+        idempotencyKey: markerKey, parentEventId: currentTarget.headEventId,
+        payload: { source: sourceName, target: targetName, sourceHead: source.headEventId, targetHeadBefore: target.headEventId },
         createdBy: null,
       },
     })
-
-    // Mark the merged entry as introduced by this import event (ancestry visibility).
-    await prisma.journalEntry.update({
-      where: { id: created.id },
-      data: { introducedByEventId: event.id },
-    })
-
-    currentHead = event.id
-    mergedEventIds.push(event.id)
-  }
-
-  // Final merge marker event (so the history shows where the merge landed).
-  const mergeEvent = await prisma.event.create({
-    data: {
-      eventType: 'MERGE',
-      entityType: 'AccountingBranch',
-      entityId: target.id,
-      parentEventId: currentHead,
-      payload: {
-        source: sourceName,
-        target: targetName,
-        sourceHead: source.headEventId,
-        targetHeadBefore: target.headEventId,
-      },
-      createdBy: null,
-    },
-  })
-  mergedEventIds.push(mergeEvent.id)
-
-  // SAFETY GATE 2: advance the target head, then re-run the balance check.
-  // If the merge somehow left the target out of balance, revert the head and block.
-  await setBranchHead(targetName, mergeEvent.id)
+    const advanced = await tx.accountingBranch.updateMany({ where: { id: currentTarget.id, headEventId: currentTarget.headEventId }, data: { headEventId: mergeEvent.id } })
+    if (advanced.count !== 1) throw new Error('Target branch changed while finalizing merge')
+    mergedEventIds.push(mergeEvent.id)
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, maxWait: 10_000, timeout: 60_000 })
 
   const postBs = await buildBalanceSheet({ branch: targetName, baseCurrency })
   if (!postBs.balanced) {
-    await setBranchHead(targetName, target.headEventId || null)
-    const reason = `Merge of "${sourceName}" into "${targetName}" produced an out-of-balance state (Assets ${postBs.assets.total} ≠ Liabilities + Equity ${postBs.totalEquityWithRetained}). Merge blocked.`
-    const err = new Error(reason) as Error & { status?: number }
-    err.status = 422
-    throw err
+    throw new Error(`Invariant violation: merge of "${sourceName}" into "${targetName}" is out of balance after atomic commit`)
   }
 
   return { mergedEventIds, balanced: true }

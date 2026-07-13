@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { findMatch, learnMerchant } from '@/lib/matching'
 import type { FeedTransaction } from '@prisma/client'
-import { recordCommitOnBranch } from '@/lib/accounting/commit'
+import { requireUser } from '@/lib/authz'
+import { commitJournalAtomic } from '@/lib/accounting/atomicCommit'
+import { getCompanyProfile } from '@/lib/companyProfile'
 
 interface FeedTxWithConn extends FeedTransaction {
   connection: { accountId: string; provider: string | null } | null
@@ -10,6 +12,8 @@ interface FeedTxWithConn extends FeedTransaction {
 }
 
 export async function POST(request: Request) {
+  const session = await requireUser(['ADMIN'])
+  if (!session) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   try {
     const body = await request.json()
     const { transactionId, action } = body
@@ -40,26 +44,24 @@ export async function POST(request: Request) {
       const match = await findMatch(feedTx)
 
       if (match?.suggestedEntry) {
-        // Normalize to business date (midnight UTC of the given day)
-        const businessDate = new Date(match.suggestedEntry.date)
-        businessDate.setUTCHours(0, 0, 0, 0)
-
-        const entry = await prisma.journalEntry.create({
-          data: {
-            date: businessDate,
-            description: match.suggestedEntry.description,
-            lines: {
-              create: match.suggestedEntry.lines.map(l => ({
-                accountId: l.accountId,
-                debit: l.debit,
-                credit: l.credit,
-                currency: tx.currency,
-                fxRateToBase: tx.fxRateToBase ? Number(tx.fxRateToBase) : undefined,
-                fxSource: `BANK_FEED:${tx.connection?.provider}`,
-                fxDate: new Date(tx.date),
-              })),
-            },
-          },
+        const baseCurrency = (await getCompanyProfile()).baseCurrency.toUpperCase()
+        const entry = await commitJournalAtomic({
+          date: match.suggestedEntry.date,
+          description: match.suggestedEntry.description,
+          branch: typeof body.branch === 'string' ? body.branch : 'main',
+          baseCurrency,
+          createdBy: session.user.id,
+          idempotencyKey: `feed-match:${transactionId}`,
+          eventPayload: { source: 'feed_match', feedTransactionId: transactionId, provider: tx.connection?.provider },
+          lines: match.suggestedEntry.lines.map(line => ({
+            accountId: line.accountId,
+            debit: line.debit,
+            credit: line.credit,
+            currency: tx.currency,
+            fxRateToBase: tx.currency === baseCurrency ? 1 : (tx.fxRateToBase ? Number(tx.fxRateToBase) : null),
+            fxSource: tx.currency === baseCurrency ? 'BASE_CURRENCY' : `BANK_FEED:${tx.connection?.provider}:${tx.externalId}`,
+            fxDate: tx.date,
+          })),
         })
 
         // Learn merchant pattern for higher confidence next time
@@ -72,9 +74,6 @@ export async function POST(request: Request) {
           where: { id: transactionId },
           data: { status: 'posted', journalEntryId: entry.id },
         })
-
-        // Git Model: feed match post follows current head of main (or could take branch from body)
-        await recordCommitOnBranch(entry.id, 'main')
 
         return NextResponse.json({ status: 'posted', entryId: entry.id })
       }

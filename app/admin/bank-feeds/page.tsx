@@ -27,20 +27,14 @@ interface BankConnection {
   provider: string
   externalId: string
   lastSyncAt: string | null
-  syncEnabled: boolean
   account: Account
 }
 
-// Only Stripe and PayPal feeds are implemented for bank feeds.
-// API keys MUST come from .env (never stored in DB for these two).
-// All other providers are disabled / commented because they are not wired
-// for reliable transaction sync + BANK_FEED FX rates + Git model journaling.
+// Stripe and PayPal are the only supported processor feeds.
+// API keys come from .env and are never stored on a connection.
 const PROVIDERS = [
   { id: 'stripe', name: 'Stripe', color: 'bg-purple-950 text-purple-400' },
   { id: 'paypal', name: 'PayPal', color: 'bg-blue-950 text-blue-400' },
-  // Plaid, Salt Edge, CSV etc. are not implemented for feed processing.
-  // { id: 'plaid', name: 'Plaid (US/Canada)', color: 'bg-emerald-950 text-emerald-400' },
-  // { id: 'salt-edge', name: 'Salt Edge (EU)', color: 'bg-amber-950 text-amber-400' },
 ]
 
 export default function BankFeedsPage() {
@@ -92,9 +86,6 @@ export default function BankFeedsPage() {
 
     // For Stripe and PayPal we no longer accept/store per-connection secrets here.
     // The connection record is just a lightweight pointer to "this account gets feed data from Stripe/PayPal".
-    // Actual keys live in .env and are read at runtime by sync/webhook code.
-    const shouldSendEmptyCreds = selectedProvider === 'stripe' || selectedProvider === 'paypal'
-
     await fetch('/api/bank-feeds/connections', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -102,7 +93,6 @@ export default function BankFeedsPage() {
         accountId: selectedAccount,
         provider: selectedProvider,
         externalId: `${selectedProvider}-${selectedAccount}`,
-        credentials: shouldSendEmptyCreds ? undefined : {},
       }),
     })
     setShowConnect(false)
@@ -122,7 +112,7 @@ export default function BankFeedsPage() {
 
       <div className="space-y-4">
         {connections.length === 0 ? (
-          <div className="text-zinc-500">No processor connections configured. Stripe and PayPal live feeds require API keys in .env.</div>
+          <div className="text-zinc-500">No processor connections configured. Stripe and PayPal feeds require API keys in .env.</div>
         ) : (
           connections.map(conn => (
             <div key={conn.id} className="border border-zinc-800 rounded-lg p-4 bg-zinc-950">
@@ -164,8 +154,7 @@ export default function BankFeedsPage() {
         <div className="mt-6 text-xs text-zinc-500">
           Stripe and PayPal bank feeds require API credentials in .env.<br />
           Set <span className="font-mono">STRIPE_SECRET_KEY</span> (and optionally <span className="font-mono">STRIPE_WEBHOOK_SECRET</span>) for Stripe.<br />
-          Set <span className="font-mono">PAYPAL_CLIENT_ID</span> and <span className="font-mono">PAYPAL_SECRET</span> for PayPal.<br />
-          Other providers (Plaid, Salt Edge) are not enabled for feed processing yet.
+          Set <span className="font-mono">PAYPAL_CLIENT_ID</span> and <span className="font-mono">PAYPAL_SECRET</span> for PayPal.
         </div>
       )}
 

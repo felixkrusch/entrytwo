@@ -51,6 +51,7 @@ next-env.d.ts
 
 # User uploads / receipts (PDFs, images, etc. — never commit actual files)
 public/uploads/
+.data/
 *.pdf
 *.jpg
 *.jpeg

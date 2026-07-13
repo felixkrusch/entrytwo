@@ -1,56 +1,63 @@
-// lib/accounting/commit.ts
-// Git Model helper: after creating a journal entry (or other commit), update branch heads using ancestry.
-// See docs/Git-Model-for-Accounting.md
-
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
-import { setBranchHead, ensureMainBranch, getBranch } from './branch'
+import { getCompanyProfile } from '@/lib/companyProfile'
+import { calculateFxBalance } from './fxBalance'
 
 /**
- * Record a commit on a specific branch (default main).
- * - Links the event (via parentEventId) to the *current head* of the branch.
- * - Advances the branch head to the new event.
- * - Optionally sets introducedByEventId on the journal entry.
+ * Finalizes a journal/event pair created by a legacy posting path. New code should
+ * use commitJournalAtomic so creation and finalization share the same transaction.
  */
 export async function recordCommitOnBranch(
   journalEntryId?: string,
-  branchName: string = 'main',
-  eventIdForParenting?: string
+  branchName = 'main',
+  eventIdForParenting?: string,
 ) {
-  await ensureMainBranch()
-  const branch = await getBranch(branchName) || await ensureMainBranch()
-  const currentHead = branch.headEventId || null
+  if (!journalEntryId) throw new Error('journalEntryId is required to finalize an accounting commit')
+  const baseCurrency = (await getCompanyProfile()).baseCurrency.toUpperCase()
 
-  // If we have a specific event id to use as the "commit event" (we created it inside tx), use it.
-  // Otherwise fall back to latest event (legacy path).
-  let commitEventId = eventIdForParenting
-  if (!commitEventId) {
-    const latest = await prisma.event.findFirst({
-      orderBy: { createdAt: 'desc' },
-      select: { id: true },
-    })
-    commitEventId = latest?.id
-  }
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_advisory_xact_lock(hashtext(${`accounting-branch:${branchName}`})) IS NULL AS locked`
+    let branch = await tx.accountingBranch.findUnique({ where: { name: branchName } })
+    if (!branch && branchName === 'main') {
+      branch = await tx.accountingBranch.create({ data: { name: 'main', description: 'Main accounting branch', isMain: true } })
+    }
+    if (!branch) throw new Error(`Accounting branch "${branchName}" not found`)
 
-  if (commitEventId) {
-    // Set parent on the commit event to current head (so ancestry is correct)
-    await prisma.event.update({
-      where: { id: commitEventId },
-      data: { parentEventId: currentHead }
-    }).catch(() => {}) // best effort if already set or race
+    const entry = await tx.journalEntry.findUnique({ where: { id: journalEntryId }, include: { lines: true } })
+    if (!entry) throw new Error('Journal entry not found')
+    const balance = calculateFxBalance(entry.lines.map(line => ({
+      debit: line.debit.toString(),
+      credit: line.credit.toString(),
+      currency: line.currency,
+      fxRateToBase: line.fxRateToBase?.toString(),
+    })), baseCurrency)
+    if (!balance.balanced) throw new Error(`Cannot commit an unbalanced journal entry in ${baseCurrency}`)
 
-    // If we have a journal entry, mark it as introduced by this event
-    if (journalEntryId) {
-      await prisma.journalEntry.update({
-        where: { id: journalEntryId },
-        data: { introducedByEventId: commitEventId }
-      }).catch(() => {})
+    let eventId = eventIdForParenting || entry.introducedByEventId
+    if (!eventId) {
+      const event = await tx.event.create({
+        data: {
+          eventType: 'JOURNAL_ENTRY_CREATED', entityType: 'JournalEntry', entityId: entry.id,
+          parentEventId: branch.headEventId,
+          payload: { description: entry.description, legacyFinalization: true },
+          createdBy: entry.createdBy,
+        },
+      })
+      eventId = event.id
+    } else {
+      const event = await tx.event.findUnique({ where: { id: eventId }, select: { entityType: true, entityId: true } })
+      if (!event || event.entityType !== 'JournalEntry' || event.entityId !== entry.id) throw new Error('Commit event does not belong to the journal entry')
+      if (entry.introducedByEventId === eventId && branch.headEventId === eventId) return { journalEntryId: entry.id, eventId }
+      await tx.event.update({ where: { id: eventId }, data: { parentEventId: branch.headEventId } })
     }
 
-    await setBranchHead(branchName, commitEventId)
-  }
+    await tx.journalEntry.update({ where: { id: entry.id }, data: { introducedByEventId: eventId } })
+    const advanced = await tx.accountingBranch.updateMany({ where: { id: branch.id, headEventId: branch.headEventId }, data: { headEventId: eventId } })
+    if (advanced.count !== 1) throw new Error('Accounting branch head changed during commit')
+    return { journalEntryId: entry.id, eventId }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, maxWait: 10_000, timeout: 30_000 })
 }
 
-/** Back-compat: default to main */
 export async function recordCommitOnMain(journalEntryId?: string) {
   return recordCommitOnBranch(journalEntryId, 'main')
 }

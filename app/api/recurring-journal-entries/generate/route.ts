@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { createAutonomousJournal } from '@/lib/accounting/autonomous'
 import { advanceDate } from '@/lib/accounting/recurring'
+import { requireUser } from '@/lib/authz'
 
 interface RecurringTemplateLine {
   accountId: string
@@ -29,6 +30,7 @@ interface RecurringTemplateData {
 // still a normal posted entry (there is no DRAFT state for journal entries) — the user
 // reviews via the journal list. `autoPost` controls whether generation is attempted at all.
 export async function POST() {
+  if (!await requireUser(['ADMIN', 'ACCOUNTANT'])) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   try {
     const now = new Date()
     const due = await prisma.recurringJournalEntry.findMany({
@@ -72,7 +74,7 @@ export async function POST() {
         })),
         branch: 'main',
         createdBy: rec.createdBy,
-        sourcePdfPath: null,
+        idempotencyKey: `recurring-journal:${rec.id}:${rec.nextDueDate.toISOString()}`,
       })
       created.push(entry.id)
 

@@ -154,7 +154,7 @@ describe('Git Model — full lifecycle integrity', () => {
     }
   })
 
-  it('merge blocks an out-of-balance source branch (422)', async () => {
+  it('blocks an out-of-balance entry before it can reach a branch', async () => {
     if (!dbReady) return expect(true).toBe(true)
     const suffix = 'mb' + Date.now().toString().slice(-6)
     const cash = await ensureAccount('1020' + suffix, 'ASSET')
@@ -163,14 +163,12 @@ describe('Git Model — full lifecycle integrity', () => {
     const badBranch = 'bad-' + suffix
     await createBranch(badBranch)
     // Unbalanced entry: cash +100, revenue +50 (debits != credits)
-    await createEntry(badBranch, [
+    await expect(createEntry(badBranch, [
       { accountId: cash.id, debit: 100, credit: 0 },
       { accountId: rev.id, debit: 0, credit: 50 },
-    ])
+    ])).rejects.toThrow('Cannot commit an unbalanced journal entry')
     const bsBad = await buildBalanceSheet({ branch: badBranch, baseCurrency: 'EUR' })
-    expect(bsBad.balanced).toBe(false)
-
-    await expect(mergeBranch(badBranch, 'main')).rejects.toThrow()
+    expect(bsBad.balanced).toBe(true)
   })
 
   it('tags require human-readable names and are immutable (no delete path)', async () => {

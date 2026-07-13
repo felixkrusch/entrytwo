@@ -1,19 +1,61 @@
-import { describe, expect, it } from 'vitest'
-import { appendToThread, getContextForModel, loadOrCreateThread } from '../chatThreadStore'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { prisma } from '@/lib/prisma'
+import { appendToThread, ChatThreadAccessError, getContextForModel, loadOrCreateThread } from '@/lib/chatThreadStore'
 
-describe('chat thread context', () => {
-  it('retains document context across follow-up turns', () => {
-    const { thread } = loadOrCreateThread()
-    appendToThread(thread.id, {
-      role: 'user',
-      content: 'Process this statement\nAttachments available in this turn:\n- visa.pdf (/uploads/receipts/visa.pdf)',
-    })
-    appendToThread(thread.id, { role: 'assistant', content: '{"action":"CREATE_JOURNAL_BATCH"}' })
-    appendToThread(thread.id, { role: 'user', content: 'What was the second transaction?' })
+let ownerId = ''
+let otherId = ''
 
-    const context = getContextForModel(thread)
+beforeAll(async () => {
+  const suffix = `${Date.now()}-${Math.random()}`
+  const [owner, other] = await Promise.all([
+    prisma.user.create({ data: { email: `chat-owner-${suffix}@test.local`, role: 'ACCOUNTANT' } }),
+    prisma.user.create({ data: { email: `chat-other-${suffix}@test.local`, role: 'ACCOUNTANT' } }),
+  ])
+  ownerId = owner.id
+  otherId = other.id
+})
+
+afterAll(async () => {
+  await prisma.user.deleteMany({ where: { id: { in: [ownerId, otherId] } } })
+})
+
+describe('persistent chat thread context', () => {
+  it('retains document context across independently loaded turns', async () => {
+    const { thread } = await loadOrCreateThread(ownerId)
+    await appendToThread({ threadId: thread.id, userId: ownerId, role: 'user', content: 'Process visa.pdf from /api/files/example' })
+    await appendToThread({ threadId: thread.id, userId: ownerId, role: 'assistant', content: '{"action":"CREATE_JOURNAL_BATCH"}' })
+    await appendToThread({ threadId: thread.id, userId: ownerId, role: 'user', content: 'What was the second transaction?' })
+
+    const reloaded = await loadOrCreateThread(ownerId, thread.id)
+    const context = await getContextForModel(reloaded.thread.id, ownerId)
+    expect(reloaded.isNew).toBe(false)
     expect(context).toHaveLength(3)
     expect(context[0].content).toContain('visa.pdf')
     expect(context[1].content).toContain('CREATE_JOURNAL_BATCH')
+  })
+
+  it('denies another user access to a known thread id', async () => {
+    const { thread } = await loadOrCreateThread(ownerId)
+    await expect(loadOrCreateThread(otherId, thread.id)).rejects.toBeInstanceOf(ChatThreadAccessError)
+    await expect(getContextForModel(thread.id, otherId)).rejects.toBeInstanceOf(ChatThreadAccessError)
+    await expect(appendToThread({ threadId: thread.id, userId: otherId, role: 'user', content: 'intrusion' })).rejects.toBeInstanceOf(ChatThreadAccessError)
+  })
+
+  it('returns the original message when an idempotency key is repeated', async () => {
+    const { thread } = await loadOrCreateThread(ownerId)
+    const key = `chat-message:${Date.now()}:${Math.random()}`
+    const first = await appendToThread({ threadId: thread.id, userId: ownerId, role: 'user', content: 'Create it', idempotencyKey: key })
+    const second = await appendToThread({ threadId: thread.id, userId: ownerId, role: 'user', content: 'Create it again', idempotencyKey: key })
+    expect(second.id).toBe(first.id)
+    expect(await prisma.chatMessage.count({ where: { idempotencyKey: key } })).toBe(1)
+  })
+
+  it('returns only the most recent bounded context in chronological order', async () => {
+    const { thread } = await loadOrCreateThread(ownerId)
+    for (let index = 0; index < 6; index++) {
+      await appendToThread({ threadId: thread.id, userId: ownerId, role: index % 2 ? 'assistant' : 'user', content: `turn-${index}` })
+    }
+    const context = await getContextForModel(thread.id, ownerId, 3)
+    expect(context.map(turn => turn.content)).toEqual(['turn-3', 'turn-4', 'turn-5'])
   })
 })

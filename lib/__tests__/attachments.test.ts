@@ -14,10 +14,10 @@ describe('journal attachment validation', () => {
     expect(() => validateAttachment(file, bytes)).toThrow('not an allowed')
   })
 
-  it('accepts only receipt-root paths in journal payloads', () => {
+  it('accepts only opaque private file asset references', () => {
     expect(parseAttachmentInput([{
-      path: '/uploads/receipts/123.pdf', originalName: 'receipt.pdf', mimeType: 'application/pdf', size: 10, sha256: 'abc',
+      id: '123e4567-e89b-42d3-a456-426614174000', path: '/api/files/123e4567-e89b-42d3-a456-426614174000', originalName: 'receipt.pdf', mimeType: 'application/pdf', size: 10, sha256: 'abc',
     }])).toHaveLength(1)
-    expect(() => parseAttachmentInput([{ path: '/etc/passwd' }])).toThrow('invalid path')
+    expect(() => parseAttachmentInput([{ path: '/etc/passwd' }])).toThrow('invalid file asset')
   })
 })

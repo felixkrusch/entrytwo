@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { requireUser } from '@/lib/authz'
 
 const UpdateSchema = z.object({
   name: z.string().optional(),
@@ -17,6 +18,7 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   const { id } = await params
   const r = await prisma.recurringInvoice.findUnique({
     where: { id },
@@ -30,6 +32,7 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!await requireUser(['ADMIN', 'ACCOUNTANT'])) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   const { id } = await params
   const body = await request.json()
   const parsed = UpdateSchema.safeParse(body)
@@ -56,6 +59,7 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!await requireUser(['ADMIN', 'ACCOUNTANT'])) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   const { id } = await params
   await prisma.recurringInvoice.delete({ where: { id } }).catch(() => {})
   return NextResponse.json({ success: true })

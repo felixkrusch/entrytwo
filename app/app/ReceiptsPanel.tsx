@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 
 interface ReceiptItem {
+  fileAssetId: string
   name: string
   url: string
   size: number
@@ -40,10 +41,10 @@ export default function ReceiptsPanel() {
 
   useEffect(() => { load() }, [page])
 
-  const del = async (name: string) => {
+  const del = async (id: string, name: string) => {
     if (!confirm(`Delete ${name}?`)) return
     try {
-      const res = await fetch(`/api/receipts?file=${encodeURIComponent(name)}`, { method: 'DELETE' })
+      const res = await fetch(`/api/receipts?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(await res.text())
       toast.success('Deleted')
       load()
@@ -112,6 +113,7 @@ export default function ReceiptsPanel() {
         type="file"
         accept=".pdf,image/jpeg,image/jpg,image/png,image/webp"
         className="hidden"
+        multiple
         onChange={handleUpload}
       />
 
@@ -141,7 +143,7 @@ export default function ReceiptsPanel() {
                   <td className="px-3 py-2 text-zinc-400 text-xs">{Math.round(it.size / 1024)} KB</td>
                   <td className="px-3 py-2 text-zinc-400 text-xs">{it.mtime ? new Date(it.mtime).toLocaleString() : '—'}</td>
                   <td className="px-3 py-2 text-right">
-                    <button onClick={() => del(it.name)} className="text-[10px] px-2 py-0.5 rounded border border-rose-800 text-rose-400 hover:bg-rose-950">Delete</button>
+                     <button onClick={() => del(it.fileAssetId, it.name)} className="text-[10px] px-2 py-0.5 rounded border border-rose-800 text-rose-400 hover:bg-rose-950">Delete</button>
                   </td>
                 </tr>
               ))}
@@ -175,7 +177,7 @@ export default function ReceiptsPanel() {
       )}
 
       <div className="mt-2 text-[10px] text-zinc-500">
-        Files are stored under <code className="text-zinc-400">/public/uploads/receipts</code> and can be attached to journal entries.
+        Files are private and only served through authenticated, resource-authorized URLs.
       </div>
     </div>
   )

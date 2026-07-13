@@ -541,7 +541,7 @@ export default function NewJournalEntryModal({ isOpen, onClose, onSuccess, initi
 
       const res = await fetch('/api/journal-entries', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
         body: JSON.stringify(payload)
       })
 

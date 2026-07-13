@@ -44,6 +44,6 @@ describe('portable backup manifest', () => {
     manifest.receipts = [{ path: 'receipts/../secret', bytes: 0, mtime: new Date().toISOString(), sha256: '' }]
     await writeFile(join(root, 'manifest.json'), JSON.stringify(manifest))
 
-    await expect(validateBackupDirectory(root)).rejects.toThrow('Unsafe receipt path')
+    await expect(validateBackupDirectory(root)).rejects.toThrow('Unsafe file path')
   })
 })

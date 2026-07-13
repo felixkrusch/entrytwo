@@ -16,17 +16,13 @@ import {
 import { isSafeAutonomous } from '@/lib/chat/intent'
 import { createAutonomousJournal } from '@/lib/accounting/autonomous'
 import { EventType } from '@prisma/client'
-import { readFile } from 'fs/promises'
-import { join } from 'path'
-import { loadOrCreateThread, appendToThread, getContextForModel } from '@/lib/chatThreadStore'
+import { ChatThreadAccessError, loadOrCreateThread, appendToThread, getContextForModel } from '@/lib/chatThreadStore'
 import { loadSkill } from '@/lib/skills'
 import { isAuthoritativeBankFeed, normalizeToProvisional } from '@/lib/fxSources'
-import { createHash } from 'crypto'
-import { MAX_ATTACHMENT_BATCH_BYTES, MAX_ATTACHMENTS_PER_UPLOAD, storeAttachment } from '@/lib/attachments'
+import { MAX_ATTACHMENT_BATCH_BYTES, MAX_ATTACHMENTS_PER_UPLOAD, readAttachment, storeAttachment } from '@/lib/attachments'
 import { requireUser } from '@/lib/authz'
 import { rateLimit } from '@/lib/rate-limit'
 import { createExpenseClaim } from '@/lib/expenseClaims'
-import { storeClaimBuffer } from '@/lib/claimFiles'
 
 /**
  * Trillion chat (thread context + Grok skills on demand).
@@ -44,25 +40,25 @@ import { storeClaimBuffer } from '@/lib/claimFiles'
   // We extract it here. Server validation + policy still apply.
 type Extracted = { action: ActionType; params?: Record<string, unknown>; confidence?: number; reasoning?: string }
 
-function mimeTypeForPath(path: string): string {
-  const lower = path.toLowerCase()
-  if (lower.endsWith('.pdf')) return 'application/pdf'
-  if (lower.endsWith('.png')) return 'image/png'
-  if (lower.endsWith('.webp')) return 'image/webp'
-  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg'
-  if (lower.endsWith('.csv')) return 'text/csv'
-  return 'application/octet-stream'
-}
-
-async function readSavedAttachment(savedPath: string): Promise<Buffer> {
-  const publicPrefix = '/uploads/receipts/'
-  if (!savedPath.startsWith(publicPrefix)) return Buffer.alloc(0)
-  const filename = savedPath.slice(publicPrefix.length)
-  if (!filename || filename.includes('/') || filename.includes('\\') || filename.includes('..')) return Buffer.alloc(0)
+async function readSavedAttachment(savedPath: string, userId: string): Promise<{ buffer: Buffer; name: string; mimeType: string; sha256: string } | null> {
+  const assetId = savedPath.match(/^\/api\/files\/([a-f0-9-]+)$/i)?.[1]
+  if (!assetId) return null
   try {
-    return await readFile(join(process.cwd(), 'public', 'uploads', 'receipts', filename))
+    const asset = await prisma.fileAsset.findFirst({
+      where: {
+        id: assetId,
+        OR: [
+          { createdById: userId },
+          { journals: { some: {} } },
+          { claimReceipts: { some: { claim: { claimantUserId: userId } } } },
+        ],
+      },
+      select: { storageKey: true, originalName: true, mimeType: true, sha256: true },
+    })
+    if (!asset) return null
+    return { buffer: await readAttachment(asset.storageKey), name: asset.originalName, mimeType: asset.mimeType, sha256: asset.sha256 }
   } catch {
-    return Buffer.alloc(0)
+    return null
   }
 }
   function tryExtractAction(text: string): Extracted | null {
@@ -168,6 +164,7 @@ export async function POST(req: NextRequest) {
   const session = await requireUser(['ADMIN', 'ACCOUNTANT'])
   if (!session) return Response.json({ error: 'Accountant access required' }, { status: 403 })
   try {
+    const requestId = req.headers.get('idempotency-key') || undefined
     let userMessage = ''
     let chatLocked = false
     let branch = 'main'
@@ -194,9 +191,11 @@ export async function POST(req: NextRequest) {
         const buf = Buffer.from(await f.arrayBuffer())
         const clientSaved = form.get(`savedPath_${i}`) as string | null
         if (clientSaved) {
-          attachedFiles.push({ name: f.name, buffer: buf, savedPath: clientSaved, mimeType: f.type || mimeTypeForPath(clientSaved), size: buf.length, sha256: createHash('sha256').update(buf).digest('hex') })
+          const saved = await readSavedAttachment(clientSaved, session.user.id)
+          if (!saved) return Response.json({ error: 'Attached file is unavailable' }, { status: 404 })
+          attachedFiles.push({ name: saved.name, buffer: saved.buffer, savedPath: clientSaved, mimeType: saved.mimeType, size: saved.buffer.length, sha256: saved.sha256 })
         } else {
-          const stored = await storeAttachment(f)
+          const stored = await storeAttachment(f, session.user.id)
           attachedFiles.push({
             name: stored.originalName,
             buffer: buf,
@@ -214,14 +213,15 @@ export async function POST(req: NextRequest) {
       for (const [key, val] of form.entries()) {
         if (typeof key === 'string' && key.startsWith('savedPath_') && typeof val === 'string') {
           if (!attachedFiles.some(a => a.savedPath === val)) {
-            const buffer = await readSavedAttachment(val)
+            const saved = await readSavedAttachment(val, session.user.id)
+            if (!saved) continue
             attachedFiles.push({
-              name: val.split('/').pop() || 'receipt',
-              buffer,
+              name: saved.name,
+              buffer: saved.buffer,
               savedPath: val,
-              mimeType: mimeTypeForPath(val),
-              size: buffer.length,
-              sha256: createHash('sha256').update(buffer).digest('hex'),
+              mimeType: saved.mimeType,
+              size: saved.buffer.length,
+              sha256: saved.sha256,
             })
           }
         }
@@ -237,7 +237,18 @@ export async function POST(req: NextRequest) {
       // Direct approved proposal (bypass normal chat flow)
       if (jsonBody?.approvedAction && typeof jsonBody.approvedAction === 'object') {
         const approved = jsonBody.approvedAction
-        return await handleApprovedAction(approved, { branch, asOf, createdBy: session.user.id })
+        const { thread } = await loadOrCreateThread(session.user.id, incomingThreadId)
+        const result = await handleApprovedAction(approved, { branch, asOf, createdBy: session.user.id, idempotencyKey: requestId })
+        await appendToThread({
+          threadId: thread.id,
+          userId: session.user.id,
+          role: 'assistant',
+          content: String(result.response || 'Action confirmed.'),
+          action: String(approved.action || ''),
+          metadata: { approved: true, result },
+          idempotencyKey: requestId ? `${requestId}:assistant` : undefined,
+        })
+        return Response.json({ ...result, threadId: thread.id })
       }
     }
 
@@ -345,22 +356,26 @@ export async function POST(req: NextRequest) {
 
     // Server owns the authoritative thread.
     // Client only ever sends the *new* user turn + threadId.
-    const { thread } = loadOrCreateThread(incomingThreadId)
+    const { thread } = await loadOrCreateThread(session.user.id, incomingThreadId)
 
     // Record the new user message on the server thread.
     if (userMessage || attachedFiles.length > 0) {
       const attachmentContext = attachedFiles.length
         ? `\n\nAttachments available in this turn:\n${attachedFiles.map(file => `- ${file.name} (${file.savedPath})`).join('\n')}\nKeep these documents and their extracted facts in context for follow-up questions.`
         : ''
-      appendToThread(thread.id, {
+      await appendToThread({
+        threadId: thread.id,
+        userId: session.user.id,
         role: 'user',
         content: `${userMessage || 'Please inspect the attached document(s).'}` + attachmentContext,
+        idempotencyKey: requestId ? `${requestId}:user` : undefined,
+        fileAssetIds: attachedFiles.map(file => file.savedPath.match(/^\/api\/files\/([a-f0-9-]+)$/i)?.[1]).filter((id): id is string => !!id),
       })
     }
 
     // Build a sane context window for this LLM call.
     // Real systems do NOT send the entire ever-growing history on every request.
-    const contextTurns = getContextForModel(thread, 80)
+    const contextTurns = await getContextForModel(thread.id, session.user.id, 80)
 
     // Prepare messages for the model.
     // - Images: use vision parts (works today).
@@ -449,14 +464,6 @@ export async function POST(req: NextRequest) {
     const extracted = tryExtractAction(assistantText)
 
     if (extracted && extracted.action) {
-      // Persist a compact record of the decision on the thread.
-      appendToThread(thread.id, {
-        role: 'assistant',
-        // Keep the full structured result so later turns retain extracted transactions,
-        // FX rates, fees, account choices, and document provenance.
-        content: assistantText,
-      })
-
       const action = extracted.action as ActionType
       const params: Record<string, unknown> = extracted.params || {}
       const confidence = extracted.confidence ?? 0.8
@@ -467,7 +474,7 @@ export async function POST(req: NextRequest) {
       // We still respect an explicit sourcePdfPath if the model provided one.
       if (action === 'CREATE_JOURNAL') {
         const p = params as { sourcePdfPath?: string | null; attachments?: unknown[]; lines?: any[] }
-        p.attachments = attachedFiles.map(file => ({ path: file.savedPath, originalName: file.name, mimeType: file.mimeType, size: file.size, sha256: file.sha256 }))
+        p.attachments = attachedFiles.map(file => ({ id: file.savedPath.split('/').pop(), path: file.savedPath, originalName: file.name, mimeType: file.mimeType, size: file.size, sha256: file.sha256 }))
         if (!p.sourcePdfPath && attachedFiles.length > 0) {
           const receipt = attachedFiles.find(f => {
             const m = (f.mimeType || '').toLowerCase()
@@ -512,7 +519,7 @@ export async function POST(req: NextRequest) {
 
       if (action === 'CREATE_JOURNAL_BATCH') {
         const p = params as { sourcePdfPath?: string | null; attachments?: unknown[]; entries?: Array<Record<string, unknown>> }
-        p.attachments = attachedFiles.map(file => ({ path: file.savedPath, originalName: file.name, mimeType: file.mimeType, size: file.size, sha256: file.sha256 }))
+        p.attachments = attachedFiles.map(file => ({ id: file.savedPath.split('/').pop(), path: file.savedPath, originalName: file.name, mimeType: file.mimeType, size: file.size, sha256: file.sha256 }))
         if (!p.sourcePdfPath && attachedFiles[0]?.savedPath) p.sourcePdfPath = attachedFiles[0].savedPath
         if (Array.isArray(p.entries)) {
           p.entries = p.entries.map((entry) => ({ ...entry, sourcePdfPath: entry.sourcePdfPath || p.sourcePdfPath, attachments: p.attachments }))
@@ -666,19 +673,46 @@ export async function POST(req: NextRequest) {
         if ((finalPayload.params as any)?.sourcePdfPath) {
           proposalResponse.sourcePdfPath = (finalPayload.params as any).sourcePdfPath
         }
+        await appendToThread({
+          threadId: thread.id,
+          userId: session.user.id,
+          role: 'assistant',
+          content: String(proposalResponse.response),
+          action,
+          metadata: { proposed: true, proposedAction: finalPayload, model: llmConfig.model, provider: llmConfig.provider },
+          idempotencyKey: requestId ? `${requestId}:proposal` : undefined,
+        })
         return Response.json(proposalResponse)
       }
 
       // Execute directly (no proposal, no confidence gate for safe actions)
       try {
-        const execResult = await executeAction(action, finalPayload.params, { branch, asOf, createdBy: session.user.id })
+        const execResult = await executeAction(action, finalPayload.params, { branch, asOf, createdBy: session.user.id, idempotencyKey: requestId })
         const execResponse: any = { ...execResult, threadId: thread.id }
         if ((finalPayload.params as any)?.sourcePdfPath) {
           execResponse.sourcePdfPath = (finalPayload.params as any).sourcePdfPath
         }
+        await appendToThread({
+          threadId: thread.id,
+          userId: session.user.id,
+          role: 'assistant',
+          content: String(execResponse.response || 'Action completed.'),
+          action,
+          metadata: { executed: true, entityId: execResponse.entityId, model: llmConfig.model, provider: llmConfig.provider },
+          idempotencyKey: requestId ? `${requestId}:execution` : undefined,
+        })
         return Response.json(execResponse)
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e)
+        await appendToThread({
+          threadId: thread.id,
+          userId: session.user.id,
+          role: 'assistant',
+          content: `Execution failed: ${msg}.`,
+          action,
+          metadata: { executionFailed: true, error: msg },
+          idempotencyKey: requestId ? `${requestId}:execution-error` : undefined,
+        })
         return Response.json({
           response: `Execution failed: ${msg}.`,
           proposed: true,
@@ -692,13 +726,21 @@ export async function POST(req: NextRequest) {
     }
 
     // Normal text answer. Record it on the server thread.
-    appendToThread(thread.id, { role: 'assistant', content: assistantText || 'Understood.' })
+    await appendToThread({
+      threadId: thread.id,
+      userId: session.user.id,
+      role: 'assistant',
+      content: assistantText || 'Understood.',
+      metadata: { model: llmConfig.model, provider: llmConfig.provider },
+      idempotencyKey: requestId ? `${requestId}:assistant` : undefined,
+    })
 
     return Response.json({
       response: assistantText || 'Understood.',
       threadId: thread.id,
     })
   } catch (e) {
+    if (e instanceof ChatThreadAccessError) return Response.json({ error: 'Chat thread not found' }, { status: 404 })
     console.error('chat error', e)
     return Response.json({ response: 'Chat temporarily unavailable.' })
   }
@@ -714,7 +756,7 @@ function isMasterDataAction(action: ActionType): boolean {
   ].includes(action)
 }
 
-async function executeAction(action: ActionType, params: Record<string, unknown>, ctx: { branch: string; asOf?: string; createdBy?: string }) {
+async function executeAction(action: ActionType, params: Record<string, unknown>, ctx: { branch: string; asOf?: string; createdBy?: string; idempotencyKey?: string }) {
   const branch = ctx.branch || 'main'
 
   if (action === 'CREATE_JOURNAL') {
@@ -722,7 +764,7 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
       description?: string
       date?: string
       sourcePdfPath?: string | null
-      attachments?: Array<{ path: string; originalName: string; mimeType: string; size: number; sha256: string }>
+      attachments?: Array<{ id?: string; path: string; originalName: string; mimeType: string; size: number; sha256: string }>
       confidence?: number
       reasoning?: string
       lines: Array<{
@@ -791,9 +833,9 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
       lines: resolvedLines,
       aiMetadata: { confidence: p.confidence, reasoning: p.reasoning },
       branch,
-      sourcePdfPath: p.sourcePdfPath || null,
-      attachments: p.attachments,
+      attachments: p.attachments?.map(attachment => ({ id: attachment.id || attachment.path.split('/').pop() || '' })),
       createdBy: ctx.createdBy || null,
+      idempotencyKey: ctx.idempotencyKey,
     })
 
     return {
@@ -814,12 +856,12 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
     if (entries.length === 0) throw new Error('Statement batch must contain at least one transaction')
 
     const created: string[] = []
-    for (const entry of entries) {
+    for (const [index, entry] of entries.entries()) {
       const result = await executeAction('CREATE_JOURNAL', {
         ...entry,
         sourcePdfPath: entry.sourcePdfPath || p.sourcePdfPath,
-      }, ctx)
-      if (result.entityId) created.push(result.entityId)
+      }, { ...ctx, idempotencyKey: ctx.idempotencyKey ? `${ctx.idempotencyKey}:${index}` : undefined })
+      if ('entityId' in result && result.entityId) created.push(result.entityId)
     }
     return {
       executed: true,
@@ -988,7 +1030,7 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
       purpose?: string
       reimbursementAccountId?: string | null
       lines?: unknown[]
-      attachments?: Array<{ path: string; originalName: string; mimeType: string; size: number; sha256: string }>
+      attachments?: Array<{ id?: string; path: string; originalName: string; mimeType: string; size: number; sha256: string }>
     }
     if (!p.claimantUserId) throw new Error('Claimant could not be resolved')
     const actor = await prisma.user.findUnique({ where: { id: ctx.createdBy }, select: { role: true } })
@@ -1003,13 +1045,14 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
 
     const createdReceiptIds: string[] = []
     for (const attachment of p.attachments || []) {
-      const buffer = await readSavedAttachment(attachment.path)
-      if (!buffer.length) continue
-      const stored = await storeClaimBuffer(buffer, attachment.originalName, attachment.mimeType)
-      const duplicate = await prisma.expenseClaimReceipt.findFirst({ where: { sha256: stored.sha256, claimId: { not: claim.id } }, select: { id: true } })
+      const fileAssetId = attachment.id || attachment.path.match(/^\/api\/files\/([a-f0-9-]+)$/i)?.[1]
+      if (!fileAssetId) continue
+      const asset = await prisma.fileAsset.findUnique({ where: { id: fileAssetId }, select: { id: true, sha256: true, createdById: true } })
+      if (!asset || asset.createdById !== ctx.createdBy) continue
+      const duplicate = await prisma.expenseClaimReceipt.findFirst({ where: { fileAsset: { sha256: asset.sha256 }, claimId: { not: claim.id } }, select: { id: true } })
       try {
         const receipt = await prisma.expenseClaimReceipt.create({
-          data: { claimId: claim.id, uploadedByUserId: ctx.createdBy, ...stored, source: 'chat', duplicateStatus: duplicate ? 'POSSIBLE_DUPLICATE' : 'CLEAR' },
+          data: { claimId: claim.id, uploadedByUserId: ctx.createdBy, fileAssetId: asset.id, source: 'chat', duplicateStatus: duplicate ? 'POSSIBLE_DUPLICATE' : 'CLEAR' },
         })
         createdReceiptIds.push(receipt.id)
       } catch (error) {
@@ -1042,19 +1085,16 @@ async function executeAction(action: ActionType, params: Record<string, unknown>
   }
 }
 
-async function handleApprovedAction(approved: { action: ActionType; params?: Record<string, unknown> }, ctx: { branch: string; asOf?: string; createdBy?: string }) {
+async function handleApprovedAction(approved: { action: ActionType; params?: Record<string, unknown> }, ctx: { branch: string; asOf?: string; createdBy?: string; idempotencyKey?: string }) {
   try {
-    const result = await executeAction(approved.action, approved.params || {}, ctx)
-    // Note: for approved actions we don't have the thread here.
-    // Client will keep using its stored threadId for subsequent chat turns.
-    return Response.json(result)
+    return await executeAction(approved.action, approved.params || {}, ctx)
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
-    return Response.json({
+    return {
       response: `Confirmation failed: ${msg}`,
       proposed: true,
       action: approved.action,
       params: approved.params,
-    })
+    }
   }
 }

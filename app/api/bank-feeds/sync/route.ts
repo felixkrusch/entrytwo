@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { decryptCredentials } from '@/lib/encryption'
+import { requireUser } from '@/lib/authz'
 import {
   NormalizedProcessorTx,
   upsertFeedTransaction,
@@ -213,6 +214,7 @@ async function syncPayPal(connection: { id: string; credentials: string | null }
 }
 
 export async function POST(request: Request) {
+  if (!await requireUser(['ADMIN'])) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   try {
     const { connectionId } = await request.json()
     const connection = await prisma.bankConnection.findUnique({ where: { id: connectionId } })

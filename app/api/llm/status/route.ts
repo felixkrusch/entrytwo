@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getLlmConfig } from '@/lib/llm'
+import { requireUser } from '@/lib/authz'
 
 // Very simple server-side cache so we don't hammer providers from every browser tab.
 // Hybrid approach: real chat outcomes (primary) + occasional cheap probes (secondary).
@@ -8,6 +9,7 @@ let cachedAt = 0
 const TTL_MS = 90_000 // 90s
 
 export async function GET() {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   try {
     const config = getLlmConfig()
     const hasKey = !!config.apiKey

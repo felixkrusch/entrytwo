@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { blameAccount } from '@/lib/accounting/blame'
+import { requireUser } from '@/lib/authz'
 
 export async function GET(request: Request) {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   try {
     const url = new URL(request.url)
     const accountCode = url.searchParams.get('accountCode') || url.searchParams.get('account') || '1100'

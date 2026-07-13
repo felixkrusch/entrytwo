@@ -3,8 +3,8 @@
 // Creates a new entry with debits/credits swapped and records Git ancestry.
 
 import { prisma } from '@/lib/prisma'
-import { recordCommitOnBranch } from './commit'
 import { EventType } from '@prisma/client'
+import { commitJournalAtomic } from './atomicCommit'
 
 export async function reverseJournalEntry(originalId: string, branch = 'main') {
   const original = await prisma.journalEntry.findUnique({
@@ -27,30 +27,16 @@ export async function reverseJournalEntry(originalId: string, branch = 'main') {
     contactId: l.contactId,
   }))
 
-  // Business date = today at midnight UTC (calendar day semantics).
-  // Real creation time is in createdAt.
-  const businessDate = new Date()
-  businessDate.setUTCHours(0, 0, 0, 0)
-
-  const revEntry = await prisma.journalEntry.create({
-    data: {
-      date: businessDate,
-      description: `Reversal of ${original.description || originalId}`,
-      lines: { create: revLines },
-    },
+  return commitJournalAtomic({
+    date: new Date(),
+    description: `Reversal of ${original.description || originalId}`,
+    branch,
+    eventType: EventType.JOURNAL_ENTRY_REVERSED,
+    idempotencyKey: `journal-reversal:${originalId}:${branch}`,
+    eventPayload: { originalId, originalEntryId: originalId },
+    lines: revLines.map(line => ({
+      ...line,
+      fxRateToBase: line.fxRateToBase == null ? null : Number(line.fxRateToBase),
+    })),
   })
-
-  const ev = await prisma.event.create({
-    data: {
-      eventType: EventType.JOURNAL_ENTRY_REVERSED,
-      entityType: 'JournalEntry',
-      entityId: revEntry.id,
-      payload: { originalId, originalEntryId: originalId },
-      createdBy: null,
-    },
-  })
-
-  await recordCommitOnBranch(revEntry.id, branch, ev.id)
-
-  return revEntry
 }

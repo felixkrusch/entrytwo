@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'crypto'
-import { mkdir, writeFile } from 'fs/promises'
+import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 import { extname, join } from 'path'
+import { prisma } from '@/lib/prisma'
 
 export const MAX_ATTACHMENT_BYTES = Number(process.env.MAX_ATTACHMENT_BYTES || 25 * 1024 * 1024)
 export const MAX_ATTACHMENTS_PER_UPLOAD = Number(process.env.MAX_ATTACHMENTS_PER_UPLOAD || 20)
@@ -15,12 +16,15 @@ export const ALLOWED_ATTACHMENT_TYPES = new Map([
 ])
 
 export type StoredAttachment = {
+  id: string
   path: string
   originalName: string
   mimeType: string
   size: number
   sha256: string
 }
+
+const fileAssetDirectory = join(process.cwd(), '.data', 'files')
 
 function detectedMimeType(buffer: Buffer): string | null {
   if (buffer.subarray(0, 5).toString('ascii') === '%PDF-') return 'application/pdf'
@@ -33,7 +37,6 @@ function detectedMimeType(buffer: Buffer): string | null {
 export function validateAttachment(file: File, buffer: Buffer): { mimeType: string; extension: string } {
   if (!file.size || file.size !== buffer.length) throw new Error(`Attachment ${file.name || 'file'} is empty or incomplete`)
   if (buffer.length > MAX_ATTACHMENT_BYTES) throw new Error(`${file.name} exceeds the ${Math.floor(MAX_ATTACHMENT_BYTES / 1024 / 1024)} MB file limit`)
-
   const claimed = (file.type || '').toLowerCase()
   const extension = extname(file.name || '').toLowerCase()
   const detected = detectedMimeType(buffer)
@@ -45,20 +48,45 @@ export function validateAttachment(file: File, buffer: Buffer): { mimeType: stri
   return { mimeType, extension: expectedExtension }
 }
 
-export async function storeAttachment(file: File): Promise<StoredAttachment> {
+export async function storeAttachment(file: File, createdById: string): Promise<StoredAttachment> {
   const buffer = Buffer.from(await file.arrayBuffer())
   const { mimeType, extension } = validateAttachment(file, buffer)
-  const uploadsDir = join(process.cwd(), 'public', 'uploads', 'receipts')
-  await mkdir(uploadsDir, { recursive: true })
-  const filename = `${randomUUID()}${extension}`
-  await writeFile(join(uploadsDir, filename), buffer, { flag: 'wx' })
-  return {
-    path: `/uploads/receipts/${filename}`,
-    originalName: (file.name || filename).slice(0, 255),
-    mimeType,
-    size: buffer.length,
-    sha256: createHash('sha256').update(buffer).digest('hex'),
+  return storeAttachmentBuffer(buffer, file.name, mimeType, createdById, extension)
+}
+
+export async function storeAttachmentBuffer(buffer: Buffer, originalName: string, mimeType: string, createdById: string, forcedExtension?: string): Promise<StoredAttachment> {
+  if (!buffer.length || buffer.length > MAX_ATTACHMENT_BYTES) throw new Error('Attachment is empty or exceeds the file limit')
+  const extension = forcedExtension || ALLOWED_ATTACHMENT_TYPES.get(mimeType)
+  if (!extension) throw new Error(`${originalName} is not a supported attachment`)
+  await mkdir(fileAssetDirectory, { recursive: true })
+  const storageKey = `${randomUUID()}${extension}`
+  await writeFile(join(fileAssetDirectory, storageKey), buffer, { flag: 'wx' })
+  try {
+    const asset = await prisma.fileAsset.create({
+      data: {
+        storageKey,
+        originalName: (originalName || storageKey).slice(0, 255),
+        mimeType,
+        size: buffer.length,
+        sha256: createHash('sha256').update(buffer).digest('hex'),
+        createdById,
+      },
+    })
+    return { id: asset.id, path: `/api/files/${asset.id}`, originalName: asset.originalName, mimeType, size: asset.size, sha256: asset.sha256 }
+  } catch (error) {
+    await unlink(join(fileAssetDirectory, storageKey)).catch(() => undefined)
+    throw error
   }
+}
+
+export async function readAttachment(storageKey: string) {
+  if (!/^[a-f0-9-]+\.[a-z0-9]+$/i.test(storageKey)) throw new Error('Invalid storage key')
+  return readFile(join(fileAssetDirectory, storageKey))
+}
+
+export async function deleteAttachmentAsset(asset: { id: string; storageKey: string }) {
+  await prisma.fileAsset.delete({ where: { id: asset.id } })
+  await unlink(join(fileAssetDirectory, asset.storageKey)).catch(() => undefined)
 }
 
 export function parseAttachmentInput(value: unknown): StoredAttachment[] {
@@ -66,14 +94,15 @@ export function parseAttachmentInput(value: unknown): StoredAttachment[] {
   return value.map((item, index) => {
     if (!item || typeof item !== 'object') throw new Error(`Attachment ${index + 1} is invalid`)
     const record = item as Record<string, unknown>
-    const path = typeof record.path === 'string' ? record.path : typeof record.savedPath === 'string' ? record.savedPath : ''
-    if (!/^\/uploads\/receipts\/[a-zA-Z0-9_.-]+$/.test(path) || path.includes('..')) throw new Error(`Attachment ${index + 1} has an invalid path`)
+    const id = typeof record.id === 'string' ? record.id : String(record.path || record.savedPath || '').match(/^\/api\/files\/([a-f0-9-]+)$/i)?.[1] || ''
+    if (!/^[a-f0-9-]{36}$/i.test(id)) throw new Error(`Attachment ${index + 1} has an invalid file asset`)
     return {
-      path,
-      originalName: String(record.originalName || record.name || path.split('/').pop() || 'attachment').slice(0, 255),
+      id,
+      path: `/api/files/${id}`,
+      originalName: String(record.originalName || record.name || 'attachment').slice(0, 255),
       mimeType: String(record.mimeType || 'application/octet-stream').slice(0, 100),
       size: Math.max(0, Number(record.size) || 0),
-      sha256: String(record.sha256 || 'legacy-unverified').slice(0, 128),
+      sha256: String(record.sha256 || '').slice(0, 128),
     }
   })
 }

@@ -3,7 +3,7 @@ import { calculateFxBalance } from '@/lib/accounting/fxBalance'
 import { getCompanyProfile } from '@/lib/companyProfile'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
-import { auth } from '@/lib/auth'
+import { requireUser } from '@/lib/authz'
 import { createAutonomousJournal } from '@/lib/accounting/autonomous'
 import { RECURRING_FREQUENCIES } from '@/lib/accounting/recurring'
 
@@ -36,6 +36,7 @@ const createSchema = z.object({
 })
 
 export async function GET() {
+  if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   try {
     const schedules = await prisma.recurringJournalEntry.findMany({
       orderBy: { createdAt: 'desc' },
@@ -48,6 +49,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const session = await requireUser(['ADMIN', 'ACCOUNTANT'])
+  if (!session) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   try {
     const body = await request.json()
     const parsed = createSchema.safeParse(body)
@@ -58,8 +61,7 @@ export async function POST(request: Request) {
     const baseCurrency = (await getCompanyProfile()).baseCurrency.toUpperCase()
     data.lines = data.lines.map(line => ({ ...line, currency: line.currency || baseCurrency }))
 
-    const session = await auth().catch(() => null)
-    const createdBy = session?.user?.id || null
+    const createdBy = session.user.id
 
     const startDate = new Date(data.startDate)
     const endDate = data.endDate ? new Date(data.endDate) : null
@@ -111,7 +113,7 @@ export async function POST(request: Request) {
         })),
         branch,
         createdBy,
-        sourcePdfPath: null,
+        idempotencyKey: `recurring-journal:${schedule.id}:${startDate.toISOString()}`,
       })
       firstEntryId = created.id
       await prisma.recurringJournalEntry.update({

@@ -12,7 +12,10 @@ export const setupTestDb = async () => {
   const databaseName = new URL(process.env.DATABASE_URL || '').pathname.slice(1)
   if (!databaseName.endsWith('_test')) throw new Error(`Refusing to reset non-test database: ${databaseName}`)
   await prisma.$executeRawUnsafe(`TRUNCATE TABLE
-    "JournalAttachment", "InvoiceLine", "FeedTransaction", "BankConnection",
+    "ExpenseClaimLineReceipt", "ExpenseClaimApproval", "ExpenseClaimActivity", "ExpenseClaimReimbursement",
+    "ExpenseClaimReceipt", "ExpenseClaimLine", "ExpenseClaim", "TotpRecoveryCode",
+    "ChatMessageAttachment", "ChatMessage", "ChatThread",
+    "JournalAttachment", "FileAsset", "InvoiceLine", "FeedTransaction", "BankConnection",
     "RecurringInvoice", "JournalLine", "Invoice", "RecurringJournalEntry",
     "Template", "Setting", "AgentMemory", "AccountingBranch", "Snapshot",
     "JournalEntry", "Event", "TaxRate", "Contact", "Account", "User"

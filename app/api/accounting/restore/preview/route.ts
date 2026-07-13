@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getBranch } from '@/lib/accounting/branch'
 import { replayToPoint, type ReconstructedState } from '@/lib/accounting/replay'
+import { requireUser } from '@/lib/authz'
 
 export async function GET(request: Request) {
+  if (!await requireUser(['ADMIN'])) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   try {
     const url = new URL(request.url)
     const branchName = url.searchParams.get('branch') || 'main'

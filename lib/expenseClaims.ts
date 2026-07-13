@@ -2,7 +2,7 @@ import { Prisma, type Role } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { getCompanyProfile } from '@/lib/companyProfile'
-import { ensureMainBranch } from '@/lib/accounting/branch'
+import { commitJournalInTransaction } from '@/lib/accounting/atomicCommit'
 
 export const claimLineInputSchema = z.object({
   id: z.string().uuid().optional(),
@@ -48,7 +48,7 @@ export const claimInclude = {
       receipts: { select: { claimReceiptId: true } },
     },
   },
-  receipts: { orderBy: { createdAt: 'asc' as const } },
+  receipts: { orderBy: { createdAt: 'asc' as const }, include: { fileAsset: true } },
   approvals: {
     orderBy: { createdAt: 'desc' as const },
     include: { approver: { select: { id: true, name: true, email: true } } },
@@ -82,14 +82,6 @@ async function nextClaimNumber(tx: Prisma.TransactionClient) {
   })
   const next = latest ? Number(latest.claimNumber.slice(prefix.length)) + 1 : 1
   return `${prefix}${String(next).padStart(4, '0')}`
-}
-
-async function nextJournalNumber(tx: Prisma.TransactionClient, date: Date) {
-  const year = date.getUTCFullYear()
-  const prefix = `JE-${year}-`
-  const latest = await tx.journalEntry.findFirst({ where: { entryNumber: { startsWith: prefix } }, orderBy: { entryNumber: 'desc' }, select: { entryNumber: true } })
-  const next = latest?.entryNumber ? Number(latest.entryNumber.slice(prefix.length)) + 1 : 1
-  return `${prefix}${String(Number.isFinite(next) ? next : 1).padStart(4, '0')}`
 }
 
 function normalizeDate(value: string) {
@@ -255,7 +247,6 @@ export async function transitionExpenseClaim(id: string, action: 'submit' | 'app
 
 export async function postExpenseClaim(id: string, actor: ClaimActor, branchName = 'main') {
   if (actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') throw new Error('Accountant access required')
-  await ensureMainBranch()
   const claim = await prisma.expenseClaim.findUnique({ where: { id }, include: { lines: { include: { account: true } }, receipts: true, reimbursementAccount: true } })
   if (!claim) throw new Error('Claim not found')
   if (claim.workflowStatus !== 'APPROVED' || claim.approvedRevision !== claim.revision) throw new Error('The current claim revision is not approved')
@@ -264,75 +255,49 @@ export async function postExpenseClaim(id: string, actor: ClaimActor, branchName
   if (!claim.lines.length || Number(claim.totalBaseAmount) <= 0) throw new Error('Claim has no postable lines')
 
   return prisma.$transaction(async tx => {
-    await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_advisory_xact_lock(hashtext('journal-entry-number')) IS NULL AS locked`
-    const entryNumber = await nextJournalNumber(tx, new Date())
+    await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_advisory_xact_lock(hashtext(${`expense-claim-posting:${id}`})) IS NULL AS locked`
     const locked = await tx.expenseClaim.findUniqueOrThrow({ where: { id }, select: { postingStatus: true, revision: true, approvedRevision: true } })
     if (locked.postingStatus === 'POSTED') return tx.expenseClaim.findUniqueOrThrow({ where: { id }, include: claimInclude })
     if (locked.revision !== locked.approvedRevision) throw new Error('Claim changed after approval')
-    const branch = await tx.accountingBranch.findUnique({ where: { name: branchName } })
-    if (!branch) throw new Error('Accounting branch not found')
-    const entry = await tx.journalEntry.create({
-      data: {
-        date: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate())),
-        description: `${claim.claimNumber}: ${claim.title}`,
-        entryNumber,
-        createdBy: actor.id,
-        sourcePdfPath: claim.receipts[0] ? `/api/expense-claims/files/${claim.receipts[0].id}` : null,
-        attachments: claim.receipts.length ? {
-          create: claim.receipts.map(receipt => ({
-            path: `/api/expense-claims/files/${receipt.id}`,
-            originalName: receipt.originalName,
-            mimeType: receipt.mimeType,
-            size: receipt.size,
-            sha256: receipt.sha256,
-            source: 'expense-claim',
-            createdBy: actor.id,
-          })),
-        } : undefined,
-        lines: {
-          create: [
-            ...claim.lines.map(line => ({
-              accountId: line.accountId,
-              debit: line.baseAmount,
-              credit: 0,
-              description: [line.merchant, line.description].filter(Boolean).join(' - '),
-              taxRateId: line.taxRateId,
-              taxIsInput: line.taxIsInput,
-              currency: claim.baseCurrency,
-              fxRateToBase: 1,
-              fxSource: 'CLAIM_APPROVED',
-              fxDate: line.expenseDate,
-              cleared: false,
-            })),
-            {
-              accountId: claim.reimbursementAccount!.id,
-              debit: 0,
-              credit: claim.totalBaseAmount,
-              description: `Payable to claimant for ${claim.claimNumber}`,
-              currency: claim.baseCurrency,
-              fxRateToBase: 1,
-              fxSource: 'CLAIM_APPROVED',
-              fxDate: new Date(),
-              cleared: false,
-            },
-          ],
+    const entry = await commitJournalInTransaction(tx, {
+      date: new Date(),
+      description: `${claim.claimNumber}: ${claim.title}`,
+      branch: branchName,
+      baseCurrency: claim.baseCurrency,
+      createdBy: actor.id,
+      idempotencyKey: `claim-posting:${claim.id}:${claim.revision}`,
+      attachments: claim.receipts.map(receipt => ({
+        id: receipt.fileAssetId,
+        source: 'expense-claim',
+      })),
+      eventPayload: { claimId: claim.id, claimNumber: claim.claimNumber, revision: claim.revision, totalBaseAmount: Number(claim.totalBaseAmount) },
+      lines: [
+        ...claim.lines.map(line => ({
+          accountId: line.accountId,
+          debit: Number(line.baseAmount),
+          credit: 0,
+          description: [line.merchant, line.description].filter(Boolean).join(' - '),
+          taxRateId: line.taxRateId,
+          taxIsInput: line.taxIsInput,
+          currency: claim.baseCurrency,
+          fxRateToBase: 1,
+          fxSource: 'CLAIM_APPROVED',
+          fxDate: line.expenseDate,
+        })),
+        {
+          accountId: claim.reimbursementAccount!.id,
+          debit: 0,
+          credit: Number(claim.totalBaseAmount),
+          description: `Payable to claimant for ${claim.claimNumber}`,
+          currency: claim.baseCurrency,
+          fxRateToBase: 1,
+          fxSource: 'CLAIM_APPROVED',
+          fxDate: new Date(),
         },
-      },
+      ],
     })
-    const event = await tx.event.create({
-      data: {
-        eventType: 'JOURNAL_ENTRY_CREATED',
-        entityType: 'JournalEntry',
-        entityId: entry.id,
-        parentEventId: branch.headEventId,
-        createdBy: actor.id,
-        payload: { claimId: claim.id, claimNumber: claim.claimNumber, revision: claim.revision, totalBaseAmount: Number(claim.totalBaseAmount) },
-      },
-    })
-    await tx.journalEntry.update({ where: { id: entry.id }, data: { introducedByEventId: event.id } })
-    await tx.accountingBranch.update({ where: { name: branchName }, data: { headEventId: event.id } })
     await tx.expenseClaim.update({ where: { id }, data: { postingStatus: 'POSTED', postedAt: new Date(), postedByUserId: actor.id, postedJournalEntryId: entry.id } })
-    await tx.expenseClaimActivity.create({ data: { claimId: id, actorUserId: actor.id, revision: claim.revision, action: 'POSTED', payload: { journalEntryId: entry.id, eventId: event.id, branch: branchName } } })
+    await tx.expenseClaimActivity.create({ data: { claimId: id, actorUserId: actor.id, revision: claim.revision, action: 'POSTED', payload: { journalEntryId: entry.id, eventId: entry.introducedByEventId, branch: branchName } } })
     return tx.expenseClaim.findUniqueOrThrow({ where: { id }, include: claimInclude })
   })
 }
