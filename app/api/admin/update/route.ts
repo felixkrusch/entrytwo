@@ -1,10 +1,12 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, NextRequest } from 'next/server'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import { prisma } from '@/lib/prisma'
 import { auth } from '@/lib/auth'
 import { writeFile, mkdir, readFile, unlink } from 'fs/promises'
 import { join } from 'path'
+import { getRequestId } from '@/lib/correlation'
+import { rateLimit } from '@/lib/rate-limit'
 
 const execAsync = promisify(exec)
 
@@ -307,7 +309,15 @@ async function maybeAuditSidecar(manifest: UpdateManifest | null): Promise<void>
   } catch {}
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const requestId = getRequestId(request)
+
+  const limited = await rateLimit(request, { keyPrefix: 'admin-update', limit: 30, windowMs: 60_000 })
+  if (limited) {
+    limited.headers.set('x-request-id', requestId)
+    return limited
+  }
+
   try {
     const currentVersion = runningVersion()
     const appImage = process.env.APP_IMAGE || ''
@@ -339,6 +349,7 @@ export async function GET() {
         changelogUrl,
         appImage,
         updateAvailable,
+        requestId,
         lastChecked: new Date().toISOString(),
       }
       if (s && s.status && s.status !== 'idle') {
@@ -527,10 +538,20 @@ async function runUpdate(): Promise<void> {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const requestId = getRequestId(request)
+
+  const limited = await rateLimit(request, { keyPrefix: 'admin-update', limit: 10, windowMs: 60_000 })
+  if (limited) {
+    limited.headers.set('x-request-id', requestId)
+    return limited
+  }
+
   const session = await auth()
   if (session?.user?.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+    const res = NextResponse.json({ error: 'Admin access required', requestId }, { status: 403 })
+    res.headers.set('x-request-id', requestId)
+    return res
   }
 
   const body = await request.json().catch(() => ({}))

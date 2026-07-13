@@ -120,6 +120,7 @@ model User {
   totpRecoveryCodes     TotpRecoveryCode[]
   settings              Json? // User preferences including 2FA settings
   sessionVersion        Int                         @default(0)
+  disabled              Boolean                     @default(false)
   oauthAccounts         OAuthAccount[]
   invitationsCreated    UserInvitation[]            @relation("InvitationCreator")
   periodsClosed         AccountingPeriod[]          @relation("PeriodCloser")
@@ -547,9 +548,10 @@ model Invoice {
   paymentLink     String? // Stripe checkout or payment link
   stripeInvoiceId String? // If synced to Stripe
   paypalInvoiceId String? // If synced to PayPal
-  journalEntryId  String? // Links to the revenue recognition journal entry created on invoice
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  journalEntryId        String? // Links to the revenue recognition journal entry created on invoice
+  reversedJournalEntryId String? // Links to the reversing journal (credit note / cancellation) if any
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   contact      Contact       @relation(fields: [contactId], references: [id])
   lines        InvoiceLine[]

@@ -1,18 +1,25 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { requireUser } from '@/lib/authz'
+import { getRequestId } from '@/lib/correlation'
 
 const updateUserSchema = z.object({
-  role: z.enum(['ADMIN', 'ACCOUNTANT', 'VIEWER']),
-})
+  role: z.enum(['ADMIN', 'ACCOUNTANT', 'VIEWER']).optional(),
+  disabled: z.boolean().optional(),
+}).refine(v => v.role !== undefined || v.disabled !== undefined, { message: 'role or disabled required' })
 
 export async function PATCH(
-  request: Request,
+  request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const requestId = getRequestId(request)
   const session = await requireUser(['ADMIN'])
-  if (!session) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+  if (!session) {
+    const res = NextResponse.json({ error: 'Admin access required', requestId }, { status: 403 })
+    res.headers.set('x-request-id', requestId)
+    return res
+  }
   try {
     const { id } = await context.params
     const body = await request.json()
@@ -21,22 +28,38 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid data' }, { status: 400 })
     }
 
-    const { role } = parsed.data
-    if (id === session.user.id && role !== 'ADMIN') return NextResponse.json({ error: 'Administrators cannot demote their own account' }, { status: 409 })
+    const { role, disabled } = parsed.data
+    if (id === session.user.id && (role !== undefined && role !== 'ADMIN' || disabled === true)) {
+      return NextResponse.json({ error: 'Administrators cannot demote or disable their own account' }, { status: 409 })
+    }
 
     const user = await prisma.$transaction(async tx => {
       await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_advisory_xact_lock(hashtext('administrator-role-change')) IS NULL AS locked`
-      const current = await tx.user.findUnique({ where: { id }, select: { role: true, email: true } })
+      const current = await tx.user.findUnique({ where: { id }, select: { role: true, email: true, disabled: true } })
       if (!current) throw new Error('USER_NOT_FOUND')
-      if (current.role === 'ADMIN' && role !== 'ADMIN') {
-        const adminCount = await tx.user.count({ where: { role: 'ADMIN' } })
-        if (adminCount <= 1) throw new Error('LAST_ADMIN')
+
+      if (role !== undefined) {
+        if (current.role === 'ADMIN' && role !== 'ADMIN') {
+          const adminCount = await tx.user.count({ where: { role: 'ADMIN' } })
+          if (adminCount <= 1) throw new Error('LAST_ADMIN')
+        }
       }
-       const updated = await tx.user.update({ where: { id }, data: { role, sessionVersion: { increment: 1 } } })
+
+      const data: any = {}
+      if (role !== undefined) { data.role = role; data.sessionVersion = { increment: 1 } }
+      if (disabled !== undefined) { data.disabled = disabled; data.sessionVersion = { increment: 1 } }
+
+      const updated = await tx.user.update({ where: { id }, data })
       await tx.event.create({
         data: {
           eventType: 'MANUAL_ADJUSTMENT', entityType: 'User', entityId: updated.id,
-          payload: { action: 'ROLE_CHANGED', email: updated.email, oldRole: current.role, newRole: role }, createdBy: session.user.id,
+          payload: {
+            action: role !== undefined ? 'ROLE_CHANGED' : 'USER_DISABLED',
+            email: updated.email,
+            ...(role !== undefined ? { oldRole: current.role, newRole: role } : {}),
+            ...(disabled !== undefined ? { disabled } : {}),
+          },
+          createdBy: session.user.id,
         },
       })
       return updated

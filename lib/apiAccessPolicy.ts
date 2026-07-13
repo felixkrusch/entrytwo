@@ -10,9 +10,11 @@ export type ApiAccessPolicy = {
 // Ordered from most specific to least specific. Unlisted API routes are authenticated by default.
 export const API_ACCESS_POLICIES: ApiAccessPolicy[] = [
   { prefix: '/api/auth/', access: 'public', description: 'Auth.js and development authentication entry points' },
+  { prefix: '/api/auth/totp/disable', access: 'authenticated', methods: ['POST'], description: 'User disables their own TOTP (requires primary auth)' },
   { prefix: '/api/health', access: 'public', description: 'Process health check' },
   { prefix: '/api/bootstrap/status', access: 'bootstrap-only', description: 'Initial installation status' },
   { prefix: '/api/onboarding', access: 'bootstrap-only', description: 'First-admin setup, closed after bootstrap' },
+  { prefix: '/api/invitations/validate', access: 'public', description: 'Validate pending invitation token for unauthenticated invitees' },
   { prefix: '/api/webhooks/stripe', access: 'signed-webhook', description: 'Stripe signature verified in handler' },
   { prefix: '/api/webhooks/paypal', access: 'signed-webhook', description: 'PayPal signature verified in handler' },
   { prefix: '/api/jobs/run', access: 'signed-webhook', methods: ['POST'], description: 'Job runner bearer secret verified in handler' },

@@ -1,16 +1,22 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, NextRequest } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/authz'
+import { getRequestId } from '@/lib/correlation'
 
 const transitionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('close') }),
   z.object({ action: z.literal('reopen'), reason: z.string().trim().min(10).max(500) }),
 ])
 
-export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
+export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const requestId = getRequestId(request)
   const session = await requireUser(['ADMIN', 'ACCOUNTANT'])
-  if (!session) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
+  if (!session) {
+    const res = NextResponse.json({ error: 'Accountant access required', requestId }, { status: 403 })
+    res.headers.set('x-request-id', requestId)
+    return res
+  }
   const parsed = transitionSchema.safeParse(await request.json())
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message || 'Invalid transition' }, { status: 400 })
   const { id } = await context.params
@@ -31,5 +37,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     } })
     return updated
   }).catch(error => { if (error instanceof Error && error.message === 'NOT_FOUND') return null; throw error })
-  return period ? NextResponse.json(period) : NextResponse.json({ error: 'Period not found' }, { status: 404 })
+  const res = period ? NextResponse.json(period) : NextResponse.json({ error: 'Period not found' }, { status: 404 })
+  res.headers.set('x-request-id', requestId)
+  return res
 }

@@ -90,6 +90,11 @@ export default function AdminOverview() {
           <div className="text-xs text-zinc-500">Inspect Stripe and PayPal failures and retry durable jobs.</div>
         </Link>
 
+        <Link href="/admin/periods" className="block border border-zinc-800 rounded-lg p-5 hover:border-zinc-700 transition-colors bg-zinc-950">
+          <div className="font-medium mb-1">Accounting Periods</div>
+          <div className="text-xs text-zinc-500">Close / reopen fiscal periods. Posting into closed periods is blocked.</div>
+        </Link>
+
         <Link
           href="/admin/update"
           className="block border border-zinc-800 rounded-lg p-5 hover:border-zinc-700 transition-colors bg-zinc-950 relative"

@@ -19,6 +19,15 @@ export default function SignInPage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
+    // If an invitation token is present, redirect to the dedicated invite page
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('token') || params.get('invitation')
+    if (token) {
+      const inviteUrl = `/auth/invite?token=${encodeURIComponent(token)}`
+      window.location.replace(inviteUrl)
+      return
+    }
+
     fetch('/api/bootstrap/status')
       .then(r => r.json())
       .then(d => setNeedsBootstrap(d.needsBootstrap))

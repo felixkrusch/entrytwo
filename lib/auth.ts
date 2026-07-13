@@ -119,7 +119,18 @@ const adapter: Adapter = {
   async createUser(user: AdapterUser) {
     const email = user.email.toLowerCase()
     const invitation = await prisma.userInvitation.findFirst({ where: { email: { equals: email, mode: 'insensitive' }, acceptedAt: null, expiresAt: { gt: new Date() } }, orderBy: { createdAt: 'desc' } })
-    if (!invitation) throw new Error('Access requires an active invitation')
+    if (!invitation) {
+      // Audit sign-in failure for unknown/no-invitation OAuth attempt
+      await prisma.event.create({
+        data: {
+          eventType: 'MANUAL_ADJUSTMENT',
+          entityType: 'User',
+          entityId: '00000000-0000-0000-0000-000000000000', // placeholder; no user yet
+          payload: { action: 'AUTH_SIGN_IN_FAILURE', email, reason: 'NO_ACTIVE_INVITATION' },
+        },
+      })
+      throw new Error('Access requires an active invitation')
+    }
     return prisma.$transaction(async tx => {
       const created = await tx.user.create({ data: { id: user.id, email, name: user.name, role: invitation.role } })
       await tx.userInvitation.update({ where: { id: invitation.id }, data: { acceptedAt: new Date() } })
@@ -169,10 +180,10 @@ const authConfig = NextAuth({
         session.user.id = userId
         const dbUser = await prisma.user.findUnique({
           where: { id: userId },
-         select: { role: true, totpEnabled: true, sessionVersion: true },
+          select: { role: true, totpEnabled: true, sessionVersion: true, disabled: true },
         })
-       if (!dbUser || token?.revoked || token?.sessionVersion !== dbUser.sessionVersion) return { ...session, user: { ...session.user, id: '' } }
-       session.user.role = dbUser.role
+        if (!dbUser || dbUser.disabled || token?.revoked || token?.sessionVersion !== dbUser.sessionVersion) return { ...session, user: { ...session.user, id: '' } }
+        session.user.role = dbUser.role
         session.user.totpEnabled = dbUser?.totpEnabled || false
       }
       session.totpSessionId = token?.totpSessionId

@@ -2,17 +2,22 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { getApiAccessPolicy, isPublicApiPath, isRoleAllowed } from '@/lib/apiAccessPolicy'
 import { TOTP_SESSION_COOKIE, verifyTotpSessionProof } from '@/lib/totpSession'
+import { randomUUID } from 'crypto'
+import { logger } from '@/lib/logger'
 
 export default auth((request) => {
   const pathname = request.nextUrl.pathname
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64')
+  const requestId = request.headers.get('x-request-id') || randomUUID()
   const csp = `default-src 'self'; script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''}; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https:; font-src 'self' data:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests`
   const next = () => {
     const headers = new Headers(request.headers)
     headers.set('x-nonce', nonce)
+    headers.set('x-request-id', requestId)
     headers.set('Content-Security-Policy', csp)
     const response = NextResponse.next({ request: { headers } })
     response.headers.set('Content-Security-Policy', csp)
+    response.headers.set('x-request-id', requestId)
     return response
   }
   if (pathname.startsWith('/api/') && isPublicApiPath(pathname, request.method)) return next()
@@ -59,7 +64,8 @@ export default auth((request) => {
     const role = request.auth.user.role
     if (role && !isRoleAllowed(policy.access, role)) {
       const error = policy.access === 'admin' ? 'Admin access required' : 'Accountant access required'
-      return NextResponse.json({ error }, { status: 403 })
+      logger.warn('api policy denied', { path: pathname, role, policy: policy.access, requestId }, request)
+      return NextResponse.json({ error, requestId }, { status: 403 })
     }
   }
 
@@ -75,6 +81,8 @@ export const config = {
     '/invoices/:path*',
     '/invoicing/:path*',
     '/reports/:path*',
-    '/auth/:path*',
+    '/auth/totp',
+    '/auth/totp/setup',
+    '/auth/invite',
   ],
 }

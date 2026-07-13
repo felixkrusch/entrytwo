@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { generateText, tool, stepCountIs, type ModelMessage, uploadFile } from 'ai'
 import { createXai } from '@ai-sdk/xai'
 import { z } from 'zod'
@@ -23,6 +23,7 @@ import { MAX_ATTACHMENT_BATCH_BYTES, MAX_ATTACHMENTS_PER_UPLOAD, readAttachment,
 import { requireUser } from '@/lib/authz'
 import { rateLimit } from '@/lib/rate-limit'
 import { createExpenseClaim } from '@/lib/expenseClaims'
+import { getRequestId } from '@/lib/correlation'
 
 /**
  * Trillion chat (thread context + Grok skills on demand).
@@ -164,7 +165,7 @@ export async function POST(req: NextRequest) {
   const session = await requireUser(['ADMIN', 'ACCOUNTANT'])
   if (!session) return Response.json({ error: 'Accountant access required' }, { status: 403 })
   try {
-    const requestId = req.headers.get('idempotency-key') || undefined
+    const requestId = getRequestId(req) || req.headers.get('idempotency-key') || undefined
     let userMessage = ''
     let chatLocked = false
     let branch = 'main'

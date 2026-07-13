@@ -7,6 +7,7 @@ interface User {
   email: string
   name: string | null
   role: 'ADMIN' | 'ACCOUNTANT' | 'VIEWER'
+  disabled?: boolean
   createdAt: string
 }
 
@@ -18,6 +19,11 @@ interface Invitation {
   expiresAt: string
   acceptedAt: string | null
   delivery: { status: string; lastError: string | null } | null
+}
+
+interface CreatedInvitation {
+  inviteLink?: string
+  deliveryJobId?: string | null
 }
 
 export default function UsersPage() {
@@ -49,11 +55,16 @@ export default function UsersPage() {
 
   const createUser = async () => {
     if (!newEmail) return
-    await fetch('/api/users', {
+    const res = await fetch('/api/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: newEmail, name: newName || undefined, role: newRole }),
     })
+    const data: CreatedInvitation = await res.json().catch(() => ({}))
+    if (data?.inviteLink) {
+      // Show the direct link (dev or when SMTP not configured)
+      window.prompt('Invitation link (copy now — only shown once):', data.inviteLink)
+    }
     setNewEmail('')
     setNewName('')
     fetchData()
@@ -74,6 +85,15 @@ export default function UsersPage() {
     fetchData()
   }
 
+  const toggleDisabled = async (id: string, nextDisabled: boolean) => {
+    await fetch(`/api/users/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ disabled: nextDisabled }),
+    })
+    fetchData()
+  }
+
   if (loading) {
     return <div className="text-sm text-zinc-500">Loading users...</div>
   }
@@ -88,8 +108,9 @@ export default function UsersPage() {
       <div className="space-y-2 text-sm max-w-3xl">
         {users.map(u => (
           <div key={u.id} className="flex items-center justify-between border border-zinc-800 rounded px-3 py-2">
-            <div>
+            <div className={u.disabled ? 'line-through text-zinc-500' : ''}>
               {u.email} {u.name ? `(${u.name})` : ''} — <span className="text-zinc-400">{u.role}</span>
+              {u.disabled && <span className="ml-2 text-[10px] text-red-400">DISABLED</span>}
             </div>
             <div className="flex items-center gap-2">
               <select
@@ -101,6 +122,12 @@ export default function UsersPage() {
                 <option value="ACCOUNTANT">ACCOUNTANT</option>
                 <option value="VIEWER">VIEWER</option>
               </select>
+              <button
+                onClick={() => toggleDisabled(u.id, !u.disabled)}
+                className="text-xs text-amber-400 hover:text-amber-300"
+              >
+                {u.disabled ? 'Enable' : 'Disable'}
+              </button>
               <button onClick={() => deleteUser(u.id)} className="text-xs text-rose-400 hover:text-rose-300">Delete</button>
             </div>
           </div>
@@ -142,15 +169,30 @@ export default function UsersPage() {
           {invitations.map(invitation => {
             const expired = !invitation.acceptedAt && new Date(invitation.expiresAt) < new Date()
             const status = invitation.acceptedAt ? 'Accepted' : expired ? 'Expired' : 'Pending'
-            return <div key={invitation.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-zinc-800 px-3 py-2">
-              <div><span className="font-medium">{invitation.email}</span> <span className="text-zinc-500">{invitation.role}</span></div>
-              <div className="flex items-center gap-3 text-xs text-zinc-400">
-                <span>{status}</span>
-                <span>Delivery: {invitation.delivery?.status || 'not configured'}</span>
-                <span>Expires {new Date(invitation.expiresAt).toLocaleDateString()}</span>
+            return (
+              <div key={invitation.id} className="rounded border border-zinc-800 px-3 py-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <div><span className="font-medium">{invitation.email}</span> <span className="text-zinc-500">{invitation.role}</span></div>
+                  <div className="flex items-center gap-3 text-xs text-zinc-400">
+                    <span>{status}</span>
+                    <span>Delivery: {invitation.delivery?.status || 'not configured'}</span>
+                    <span>Expires {new Date(invitation.expiresAt).toLocaleDateString()}</span>
+                  </div>
+                </div>
+                {invitation.delivery?.lastError && <div className="mt-1 text-xs text-red-400">{invitation.delivery.lastError}</div>}
+                <button
+                  onClick={async () => {
+                    const r = await fetch(`/api/users/invitations/${invitation.id}/link`, { method: 'POST' })
+                    const d = await r.json().catch(() => ({}))
+                    if (d?.inviteLink) window.prompt('New invitation link:', d.inviteLink)
+                    else fetchData()
+                  }}
+                  className="mt-2 text-[10px] px-2 py-0.5 border border-zinc-700 rounded hover:bg-zinc-900"
+                >
+                  Regenerate link
+                </button>
               </div>
-              {invitation.delivery?.lastError && <div className="w-full text-xs text-red-400">{invitation.delivery.lastError}</div>}
-            </div>
+            )
           })}
           {!invitations.length && <div className="text-zinc-500">No invitations yet.</div>}
         </div>

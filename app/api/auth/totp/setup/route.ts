@@ -1,12 +1,16 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/authz'
 import { prisma } from '@/lib/prisma'
 import { encrypt } from '@/lib/encryption'
 import { generateTotpSecret } from '@/lib/totp'
+import { rateLimit } from '@/lib/rate-limit'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await requireUser()
   if (!session) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+
+  const limited = await rateLimit(request, { keyPrefix: `totp-setup:${session.user.id}`, limit: 5, windowMs: 10 * 60_000 })
+  if (limited) return limited
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },

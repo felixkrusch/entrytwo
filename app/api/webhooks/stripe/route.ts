@@ -4,6 +4,7 @@ import { verifyStripeSignature } from '@/lib/webhook'
 import { upsertFeedTransaction } from '@/lib/processors/normalize'
 import type { NormalizedProcessorTx } from '@/lib/processors/normalize'
 import { enqueueJob } from '@/lib/jobs'
+import { getRequestId } from '@/lib/correlation'
 
 /**
  * Modern Stripe webhook handler.
@@ -11,31 +12,36 @@ import { enqueueJob } from '@/lib/jobs'
  * All processor-derived FX is marked BANK_FEED:stripe:...
  */
 export async function POST(request: Request) {
+  const requestId = getRequestId(request)
   if (!process.env.STRIPE_WEBHOOK_SECRET) {
-    return NextResponse.json({ error: 'Stripe webhook is not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Stripe webhook is not configured', requestId }, { status: 503 })
   }
   const signature = request.headers.get('stripe-signature')
   const body = await request.text()
 
   if (!verifyStripeSignature(body, signature, process.env.STRIPE_WEBHOOK_SECRET)) {
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+    return NextResponse.json({ error: 'Invalid signature', requestId }, { status: 401 })
   }
 
   try {
     const event = JSON.parse(body)
-    if (!event.id || !event.type) return NextResponse.json({ error: 'Invalid event payload' }, { status: 400 })
+    if (!event.id || !event.type) return NextResponse.json({ error: 'Invalid event payload', requestId }, { status: 400 })
     const stored = await prisma.webhookEvent.upsert({
       where: { provider_externalId: { provider: 'stripe', externalId: event.id } },
       create: { provider: 'stripe', externalId: event.id, eventType: event.type, payload: event },
       update: {},
     })
     const job = await enqueueJob('WEBHOOK_STRIPE', `webhook:stripe:${event.id}`, { webhookEventId: stored.id })
-    return NextResponse.json({ received: true, jobId: job.id }, { status: 202 })
+    const res = NextResponse.json({ received: true, jobId: job.id, requestId }, { status: 202 })
+    res.headers.set('x-request-id', requestId)
+    return res
   } catch (e) {
     console.error('Stripe webhook processing error:', e)
   }
 
-  return NextResponse.json({ received: true })
+  const res = NextResponse.json({ received: true, requestId })
+  res.headers.set('x-request-id', requestId)
+  return res
 }
 
 export async function processStripeWebhook(webhookEventId: string) {

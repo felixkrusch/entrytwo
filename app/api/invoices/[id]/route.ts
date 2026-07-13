@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { requireUser } from '@/lib/authz'
+import { getCompanyProfile } from '@/lib/companyProfile'
+import { commitJournalAtomic } from '@/lib/accounting/atomicCommit'
 
 const InvoiceLineSchema = z.object({
   description: z.string(),
@@ -60,7 +62,8 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!await requireUser(['ADMIN', 'ACCOUNTANT'])) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
+  const session = await requireUser(['ADMIN', 'ACCOUNTANT'])
+  if (!session) return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
   const { id } = await params
   const body = await request.json()
   const parsed = InvoiceUpdateSchema.safeParse(body)
@@ -80,6 +83,46 @@ export async function PUT(
       const updateData: Record<string, unknown> = {}
       if (data.status) updateData.status = data.status
       if (data.paidDate !== undefined) updateData.paidDate = data.paidDate ? new Date(data.paidDate) : null
+
+      // Credit-note / correction behavior (M4):
+      // When cancelling a previously posted invoice that has accounting, post a reversing journal
+      // so the books are corrected (revenue/AR/tax are reversed).
+      const existingForCancel = await prisma.invoice.findUnique({
+        where: { id },
+        include: { journalEntry: { include: { lines: true } } },
+      })
+
+      if (data.status === 'CANCELLED' && existingForCancel?.journalEntryId && existingForCancel.journalEntry) {
+        const orig = existingForCancel.journalEntry
+        const baseCurrency = (await getCompanyProfile()).baseCurrency.toUpperCase()
+
+        // Use canonical commit for the reversal (idempotent via key)
+        const reversal = await commitJournalAtomic({
+          date: new Date(),
+          description: `Credit note / reversal for ${existingForCancel.invoiceNumber || id}`,
+          branch: 'main',
+          baseCurrency,
+          createdBy: session.user.id,
+          idempotencyKey: `invoice-reversal:${id}`,
+          eventPayload: { invoiceId: id, action: 'CANCELLED_REVERSAL' },
+          lines: orig.lines.map(l => ({
+            accountId: l.accountId,
+            debit: Number(l.credit),
+            credit: Number(l.debit),
+            description: `Reversal of ${existingForCancel.invoiceNumber || id}`,
+            currency: l.currency || baseCurrency,
+            taxRateId: l.taxRateId,
+            taxIsInput: l.taxIsInput,
+            contactId: l.contactId,
+            fxRateToBase: l.fxRateToBase ? Number(l.fxRateToBase) : null,
+            fxSource: l.fxSource,
+            fxDate: l.fxDate,
+          })),
+        })
+
+        // Link reversal on the invoice for traceability
+        updateData.reversedJournalEntryId = reversal.id
+      }
 
       const invoice = await prisma.invoice.update({
         where: { id },

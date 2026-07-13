@@ -65,7 +65,23 @@ export default function TOTPSetup({ required = false }: { required?: boolean }) 
       {enabled && recoveryCodes.length === 0 && (
         <div className="space-y-3">
           <p className="text-xs text-emerald-400">TOTP is enabled for this account.</p>
-          {required && <a href="/app" className="inline-block rounded bg-white px-3 py-1.5 text-xs font-medium text-black">Continue to entrytwo</a>}
+          <button
+            onClick={async () => {
+              if (!confirm('Disable TOTP? You will need to re-setup it.')) return
+              const res = await fetch('/api/auth/totp/disable', { method: 'POST' })
+              if (res.ok) {
+                setEnabled(false)
+                await update()
+              } else {
+                const d = await res.json().catch(() => ({}))
+                setError(d.error || 'Failed to disable')
+              }
+            }}
+            className="text-xs px-2 py-1 border border-zinc-700 rounded hover:bg-zinc-900"
+          >
+            Disable TOTP
+          </button>
+          {required && <a href="/app" className="inline-block rounded bg-white px-3 py-1.5 text-xs font-medium text-black ml-2">Continue to entrytwo</a>}
         </div>
       )}
 

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { upsertFeedTransaction, type NormalizedProcessorTx } from '@/lib/processors/normalize'
 import { verifyPaypalSignature } from '@/lib/webhook'
+import { getRequestId } from '@/lib/correlation'
 import { enqueueJob } from '@/lib/jobs'
 
 /**
@@ -9,6 +10,7 @@ import { enqueueJob } from '@/lib/jobs'
  * Listens for the important events and records them as FeedTransaction with BANK_FEED:paypal:... markers.
  */
 export async function POST(request: Request) {
+  const requestId = getRequestId(request)
   const body = await request.text()
   const headers = {
     'paypal-cert-url': request.headers.get('paypal-cert-url'),
@@ -17,23 +19,27 @@ export async function POST(request: Request) {
     'paypal-transmission-sig': request.headers.get('paypal-transmission-sig'),
     'paypal-auth-algo': request.headers.get('paypal-auth-algo'),
   }
-  if (!await verifyPaypalSignature(body, headers)) return NextResponse.json({ error: 'Invalid PayPal signature' }, { status: 401 })
+  if (!await verifyPaypalSignature(body, headers)) return NextResponse.json({ error: 'Invalid PayPal signature', requestId }, { status: 401 })
 
   try {
     const event = JSON.parse(body)
-    if (!event.id || !event.event_type) return NextResponse.json({ error: 'Invalid event payload' }, { status: 400 })
+    if (!event.id || !event.event_type) return NextResponse.json({ error: 'Invalid event payload', requestId }, { status: 400 })
     const stored = await prisma.webhookEvent.upsert({
       where: { provider_externalId: { provider: 'paypal', externalId: event.id } },
       create: { provider: 'paypal', externalId: event.id, eventType: event.event_type, payload: event },
       update: {},
     })
     const job = await enqueueJob('WEBHOOK_PAYPAL', `webhook:paypal:${event.id}`, { webhookEventId: stored.id })
-    return NextResponse.json({ received: true, jobId: job.id }, { status: 202 })
+    const res = NextResponse.json({ received: true, jobId: job.id, requestId }, { status: 202 })
+    res.headers.set('x-request-id', requestId)
+    return res
   } catch (e) {
     console.error('PayPal webhook error:', e)
   }
 
-  return NextResponse.json({ received: true })
+  const res = NextResponse.json({ received: true, requestId })
+  res.headers.set('x-request-id', requestId)
+  return res
 }
 
 export async function processPayPalWebhook(webhookEventId: string) {
