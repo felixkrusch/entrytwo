@@ -40,32 +40,43 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Create session token
+    // Always load fresh to get current sessionVersion (auth callbacks require it to match)
+    const fresh = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { id: true, email: true, name: true, role: true, sessionVersion: true },
+    })
+    if (!fresh) {
+      return NextResponse.json({ error: 'Failed' }, { status: 500 })
+    }
+
+    // Create session token (include sessionVersion so the auth callbacks accept it)
     const cookieName = 'authjs.session-token'
     const token = await encode({
       token: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
+        id: fresh.id,
+        email: fresh.email,
+        name: fresh.name,
+        role: fresh.role,
         picture: null,
-        sub: user.id,
+        sub: fresh.id,
         totpSessionId: randomUUID(),
+        sessionVersion: fresh.sessionVersion ?? 0,
       },
       secret: process.env.AUTH_SECRET || 'development-secret',
       salt: cookieName,
     })
 
-    const response = NextResponse.json({ ok: true, requestId })
-    response.cookies.set(cookieName, token, {
+    // Redirect directly to the dashboard with the session cookie set
+    const redirectResponse = NextResponse.redirect(new URL('/app', request.url), 303)
+    redirectResponse.cookies.set(cookieName, token, {
       httpOnly: true,
       secure: false,
       maxAge: 60 * 60 * 24,
       path: '/',
       sameSite: 'lax',
     })
-    response.headers.set('x-request-id', requestId)
-    return response
+    redirectResponse.headers.set('x-request-id', requestId)
+    return redirectResponse
   } catch {
     const res = NextResponse.json({ error: 'Failed', requestId }, { status: 500 })
     res.headers.set('x-request-id', requestId)

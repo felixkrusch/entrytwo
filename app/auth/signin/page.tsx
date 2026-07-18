@@ -45,8 +45,9 @@ export default function SignInPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       })
-      if (res.ok) {
-        window.location.href = CALLBACK_URL
+      if (res.ok || res.redirected) {
+        const target = res.redirected && res.url ? res.url : CALLBACK_URL
+        window.location.href = target
       } else {
         setError('Sign-in failed')
       }
@@ -78,8 +79,9 @@ export default function SignInPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email }),
         })
-        if (res.ok) {
-          window.location.href = CALLBACK_URL
+        if (res.ok || res.redirected) {
+          const target = res.redirected && res.url ? res.url : CALLBACK_URL
+          window.location.href = target
         } else {
           setError('Sign-in failed')
         }

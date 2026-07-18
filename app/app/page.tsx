@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
-import { Send, Paperclip, Mic, Lock, Unlock, FileImage, FileText, Plus, X } from 'lucide-react'
+import { Send, Paperclip, Lock, Unlock, FileImage, FileText, Plus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useNewEntry, NewEntrySuggestion } from './NewEntryContext'
 import { useTranslations } from 'next-intl'
@@ -934,15 +934,6 @@ export default function ChatPage() {
               className="hidden"
               onChange={handleAttachment}
             />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="rounded p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
-              title="Attach one or more files (PDF, image, or CSV)"
-              aria-label="Attach one or more files"
-            >
-              <Paperclip className="h-4 w-4" />
-            </button>
 
           <input
             type="text"
@@ -954,8 +945,14 @@ export default function ChatPage() {
             className="min-w-0 flex-1 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-2.5 text-sm focus:border-zinc-700 focus:outline-none"
           />
 
-          <button className="rounded p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200">
-            <Mic className="h-4 w-4" />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="rounded p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+            title="Attach one or more files (PDF, image, or CSV)"
+            aria-label="Attach one or more files"
+          >
+            <Paperclip className="h-4 w-4" />
           </button>
            <button
               onClick={toggleChatLock}

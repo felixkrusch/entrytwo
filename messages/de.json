@@ -5,7 +5,7 @@
     "chat": {
       "subtitle": "AI Accountant • Phase 0/1",
       "welcome": "Hello! I am Trillion your AI accountant? How can I help you?",
-      "placeholder": "e.g. bought laptop for 1299 • client paid 800 • reverse last entry • cash balance?",
+      "placeholder": "",
       "thinking": "Thinking...",
       "createEntry": "Create journal entry →",
       "reviewReversal": "Review reversal →",
