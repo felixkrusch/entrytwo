@@ -11,6 +11,10 @@ interface Line {
   description?: string | null
   cleared?: boolean
   account: { code: string; name: string }
+  currency?: string | null
+  fxRateToBase?: number | null
+  fxSource?: string | null
+  fxDate?: string | null
 }
 
 interface Entry {
@@ -32,7 +36,8 @@ interface Props {
 
 // Compute the opening balance for an account as of the day BEFORE `from`,
 // so a filtered ledger view doesn't look like it starts from zero.
-async function fetchOpeningBalance(accountCode: string, from: string, branch?: string, asOf?: string): Promise<number> {
+// Now FX-aware: converts foreign lines to base using fxRateToBase.
+async function fetchOpeningBalance(accountCode: string, from: string, baseCurrency: string, branch?: string, asOf?: string): Promise<number> {
   try {
     const params = new URLSearchParams()
     params.set('accountCode', accountCode)
@@ -47,7 +52,13 @@ async function fetchOpeningBalance(accountCode: string, from: string, branch?: s
     for (const e of list) {
       for (const l of e.lines) {
         if (l.account.code !== accountCode) continue
-        bal += Number(l.debit || 0) - Number(l.credit || 0)
+        const cur = (l.currency || baseCurrency).toUpperCase()
+        const rate = l.fxRateToBase != null ? Number(l.fxRateToBase) : 1
+        const d = Number(l.debit || 0)
+        const c = Number(l.credit || 0)
+        const baseD = cur === baseCurrency.toUpperCase() ? d : d * rate
+        const baseC = cur === baseCurrency.toUpperCase() ? c : c * rate
+        bal += baseD - baseC
       }
     }
     return bal
@@ -70,6 +81,32 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
   const [error, setError] = useState<string | null>(null)
   const [runningBalance, setRunningBalance] = useState(0)
   const [openingBalance, setOpeningBalance] = useState(0)
+  const [baseCurrency, setBaseCurrency] = useState('EUR')
+
+  function getBaseAmount(line: Line): number {
+    const d = Number(line.debit || 0)
+    const c = Number(line.credit || 0)
+    const amt = d || c
+    const cur = (line.currency || baseCurrency).toUpperCase()
+    if (cur === baseCurrency.toUpperCase() || line.fxRateToBase == null) {
+      return amt
+    }
+    return amt * Number(line.fxRateToBase)
+  }
+
+  function getBaseDebit(line: Line): number {
+    const d = Number(line.debit || 0)
+    const cur = (line.currency || baseCurrency).toUpperCase()
+    if (cur === baseCurrency.toUpperCase() || line.fxRateToBase == null) return d
+    return d * Number(line.fxRateToBase)
+  }
+
+  function getBaseCredit(line: Line): number {
+    const c = Number(line.credit || 0)
+    const cur = (line.currency || baseCurrency).toUpperCase()
+    if (cur === baseCurrency.toUpperCase() || line.fxRateToBase == null) return c
+    return c * Number(line.fxRateToBase)
+  }
 
   // Sort order control (asc/desc by date)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -89,6 +126,22 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
       }
     } catch {}
   }, [accountCode])
+
+  const fetchBaseCurrency = useCallback(async () => {
+    try {
+      // Prefer settings for baseCurrency (used elsewhere in the app)
+      const res = await fetch('/api/settings')
+      if (res.ok) {
+        const settings: Array<{ key: string; value: any }> = await res.json()
+        const bc = settings.find(s => s.key === 'baseCurrency')?.value?.value || settings.find(s => s.key === 'baseCurrency')?.value
+        if (bc && typeof bc === 'string') {
+          setBaseCurrency(bc.toUpperCase())
+          return
+        }
+      }
+    } catch {}
+    // fallback already set
+  }, [])
 
   const fetchLedger = useCallback(async (p = page) => {
     setLoading(true)
@@ -115,12 +168,19 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
       // Compute running balance for this account across the FULL ordered set.
       // We always compute oldest -> newest so each row carries a cumulative total,
       // regardless of the currently displayed (possibly reversed) order.
+      // FX-aware: convert foreign amounts using fxRateToBase before accumulating.
       const orderedForBalance = [...list].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
       let bal = 0
       for (const e of orderedForBalance) {
         for (const l of e.lines) {
           if (l.account.code !== accountCode) continue
-          bal += Number(l.debit || 0) - Number(l.credit || 0)
+          const cur = (l.currency || baseCurrency).toUpperCase()
+          const rate = l.fxRateToBase != null ? Number(l.fxRateToBase) : 1
+          const d = Number(l.debit || 0)
+          const c = Number(l.credit || 0)
+          const baseD = cur === baseCurrency.toUpperCase() ? d : d * rate
+          const baseC = cur === baseCurrency.toUpperCase() ? c : c * rate
+          bal += baseD - baseC
         }
       }
       setRunningBalance(bal)
@@ -141,11 +201,11 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
       return
     }
     let cancelled = false
-    fetchOpeningBalance(accountCode, from, branch, asOf).then(b => {
+    fetchOpeningBalance(accountCode, from, baseCurrency, branch, asOf).then(b => {
       if (!cancelled) setOpeningBalance(b)
     })
     return () => { cancelled = true }
-  }, [accountCode, from, branch, asOf])
+  }, [accountCode, from, branch, asOf, baseCurrency])
 
   // Sync filters to URL (so chat / bookmarks work) — include Git model params
   const syncUrl = useCallback(() => {
@@ -177,8 +237,9 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
   }, [accountCode])
 
   useEffect(() => {
+    void fetchBaseCurrency()
     void fetchAccountInfo()
-  }, [fetchAccountInfo])
+  }, [fetchBaseCurrency, fetchAccountInfo])
 
   useEffect(() => {
     void fetchLedger(page)
@@ -203,6 +264,7 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
 
   // Build running balances per row in display order (oldest -> newest for cumulative correctness).
   // We render rows in `sortDir` order but compute cumulative from oldest.
+  // FX-aware: use base-currency impact for foreign lines.
   const rowsWithBalance = useMemo(() => {
     const ordered = [...entries].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     let running = openingBalance
@@ -210,12 +272,12 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
     for (const e of ordered) {
       for (const l of e.lines) {
         if (l.account.code !== accountCode) continue
-        running += Number(l.debit || 0) - Number(l.credit || 0)
+        running += getBaseDebit(l) - getBaseCredit(l)
       }
       balanceByEntry.set(e.id, running)
     }
     return balanceByEntry
-  }, [entries, accountCode, openingBalance])
+  }, [entries, accountCode, openingBalance, baseCurrency])
 
   const goToDashboard = () => {
     router.push('/app?view=dashboard')
@@ -349,30 +411,30 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
           <div className="text-xs text-zinc-400 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1">
             <span>
               Running balance for <span className="font-mono text-zinc-200">{accountCode}</span>:{' '}
-              <span className="font-mono text-zinc-200">{format.number(runningBalance, { style: 'currency', currency: 'EUR' })}</span>
+              <span className="font-mono text-zinc-200">{format.number(runningBalance, { style: 'currency', currency: baseCurrency })}</span>
             </span>
             {from && (
               <span className="text-zinc-500">
                 Opening balance (before {from}):{' '}
-                <span className="font-mono text-zinc-300">{format.number(openingBalance, { style: 'currency', currency: 'EUR' })}</span>
+                <span className="font-mono text-zinc-300">{format.number(openingBalance, { style: 'currency', currency: baseCurrency })}</span>
               </span>
             )}
           </div>
 
           <div className="space-y-4">
-            {entries.map(entry => {
-              const debits = entry.lines.reduce((s, l) => s + Number(l.debit || 0), 0)
-              const credits = entry.lines.reduce((s, l) => s + Number(l.credit || 0), 0)
-              let accountDelta = 0
-              const accountLines: typeof entry.lines = []
-              for (const l of entry.lines) {
-                if (l.account.code === accountCode) {
-                  accountDelta += Number(l.debit || 0) - Number(l.credit || 0)
-                  accountLines.push(l)
-                }
-              }
-              const isReversal = !!entry.reversalOfEntryNumber
-              const rowBalance = rowsWithBalance.get(entry.id) ?? 0
+             {entries.map(entry => {
+               const baseDebits = entry.lines.reduce((s, l) => s + getBaseDebit(l), 0)
+               const baseCredits = entry.lines.reduce((s, l) => s + getBaseCredit(l), 0)
+               let accountDelta = 0
+               const accountLines: typeof entry.lines = []
+               for (const l of entry.lines) {
+                 if (l.account.code === accountCode) {
+                   accountDelta += getBaseDebit(l) - getBaseCredit(l)
+                   accountLines.push(l)
+                 }
+               }
+               const isReversal = !!entry.reversalOfEntryNumber
+               const rowBalance = rowsWithBalance.get(entry.id) ?? 0
 
               return (
                 <div
@@ -427,12 +489,12 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
                             {line.description ? ` · ${line.description}` : ''}
                             {isThisAccount && <span className="ml-1 text-[10px] text-emerald-400">(this account)</span>}
                           </span>
-                          <span className="w-28 text-right font-mono text-emerald-400">
-                            {Number(line.debit) > 0 ? format.number(Number(line.debit), { style: 'currency', currency: 'EUR' }) : ''}
-                          </span>
-                          <span className="w-28 text-right font-mono text-rose-400">
-                            {Number(line.credit) > 0 ? format.number(Number(line.credit), { style: 'currency', currency: 'EUR' }) : ''}
-                          </span>
+                           <span className="w-28 text-right font-mono text-emerald-400">
+                             {Number(line.debit) > 0 ? format.number(getBaseDebit(line), { style: 'currency', currency: baseCurrency }) : ''}
+                           </span>
+                           <span className="w-28 text-right font-mono text-rose-400">
+                             {Number(line.credit) > 0 ? format.number(getBaseCredit(line), { style: 'currency', currency: baseCurrency }) : ''}
+                           </span>
                           <span className="w-12 text-center">
                             {isThisAccount && (
                               <input
@@ -449,17 +511,17 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
                     })}
                   </div>
 
-                  <div className="mt-2 pt-2 border-t border-zinc-800 text-xs flex justify-between font-mono text-zinc-400">
-                    <span title="Net effect on this account from the full journal entry">
-                      Effect on {accountCode}: <span className={accountDelta >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{format.number(accountDelta, { style: 'currency', currency: 'EUR' })}</span>
-                    </span>
-                    <span title="Cumulative balance of this account after this entry">
-                      Balance: <span className="text-zinc-200">{format.number(rowBalance, { style: 'currency', currency: 'EUR' })}</span>
-                    </span>
-                    <span title="Totals of the full journal entry (all lines)">
-                      {format.number(debits, { style: 'currency', currency: 'EUR' })} / {format.number(credits, { style: 'currency', currency: 'EUR' })}
-                    </span>
-                  </div>
+                   <div className="mt-2 pt-2 border-t border-zinc-800 text-xs flex justify-between font-mono text-zinc-400">
+                     <span title="Net effect on this account from the full journal entry">
+                       Effect on {accountCode}: <span className={accountDelta >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{format.number(accountDelta, { style: 'currency', currency: baseCurrency })}</span>
+                     </span>
+                     <span title="Cumulative balance of this account after this entry">
+                       Balance: <span className="text-zinc-200">{format.number(rowBalance, { style: 'currency', currency: baseCurrency })}</span>
+                     </span>
+                     <span title="Totals of the full journal entry (all lines, in base currency)">
+                       {format.number(baseDebits, { style: 'currency', currency: baseCurrency })} / {format.number(baseCredits, { style: 'currency', currency: baseCurrency })}
+                     </span>
+                   </div>
                 </div>
               )
             })}

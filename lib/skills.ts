@@ -1,26 +1,33 @@
 import { readFile } from 'fs/promises'
 import { createHash } from 'crypto'
+import { join } from 'path'
 
-// Map logical skill names to filesystem locations under .grok/skills
-const SKILL_PATHS: Record<string, URL[]> = {
+// Map logical skill names to absolute filesystem locations under .grok/skills
+// Use process.cwd() so resolution works from any import site (app/api, lib, etc.)
+const SKILL_BASE = join(process.cwd(), '.grok', 'skills')
+
+const SKILL_PATHS: Record<string, string[]> = {
   core: [
-    new URL('../.grok/skills/actions/core-principles/SKILL.md', import.meta.url),
-    new URL('../.grok/skills/trillion/SKILL.md', import.meta.url),
+    join(SKILL_BASE, 'actions', 'core-principles', 'SKILL.md'),
+    join(SKILL_BASE, 'trillion', 'SKILL.md'),
   ],
   'create-journal': [
-    new URL('../.grok/skills/actions/create-journal/SKILL.md', import.meta.url),
+    join(SKILL_BASE, 'actions', 'create-journal', 'SKILL.md'),
   ],
   'create-contact': [
-    new URL('../.grok/skills/actions/create-contact/SKILL.md', import.meta.url),
+    join(SKILL_BASE, 'actions', 'create-contact', 'SKILL.md'),
   ],
   'update-contact': [
-    new URL('../.grok/skills/actions/create-contact/SKILL.md', import.meta.url),
+    join(SKILL_BASE, 'actions', 'create-contact', 'SKILL.md'),
   ],
   'create-invoice-draft': [
-    new URL('../.grok/skills/actions/create-invoice-draft/SKILL.md', import.meta.url),
+    join(SKILL_BASE, 'actions', 'create-invoice-draft', 'SKILL.md'),
+  ],
+  'create-expense-claim': [
+    join(SKILL_BASE, 'actions', 'create-expense-claim', 'SKILL.md'),
   ],
   'extract-bank-statement': [
-    new URL('../.grok/skills/actions/extract-bank-statement/SKILL.md', import.meta.url),
+    join(SKILL_BASE, 'actions', 'extract-bank-statement', 'SKILL.md'),
   ],
 }
 
