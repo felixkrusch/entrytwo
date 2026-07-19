@@ -1,9 +1,6 @@
 # Self-Hosted, Per-Customer Update Delivery
 
-**Status:** Plan + partial implementation. Commercial model decided. App-side
-updater (admin-gated, full backup, digest-pinned pull, signature verification,
-health-gated rollback) and the CI release pipeline are implemented. Entitlement
-service + dedicated sidecar remain deferred (see §12).
+**Status:** Core delivery pipeline implemented (signed images, cosign keyless, GHCR, updater sidecar, manifest, health-gated rollback). Commercial model and trial-to-licensed transition are now specified in [Licensing-and-Trial.md](./Licensing-and-Trial.md). The separate entitlement service for license key issuance and verification is still to be built.
 **Context:** entrytwo is a **proprietary, closed-source**, self-hosted, double-entry
 accounting app. The commercial model is **perpetual license + annual maintenance/
 support subscription** (see §9). Deployment is *one instance per customer* (or per
@@ -286,10 +283,7 @@ Enforcement lives at the **delivery layer only**, never at the running app:
 
 ## 12. Open decisions (remaining, before implementation)
 
-**Decided:** commercial model = perpetual license + annual maintenance (§9);
-source is **not publicly distributed** and use is governed by a **commercial
-license** — but we make no technical obfuscation claims, since a self-hosted
-operator can always inspect the running image (§1).
+**Decided:** commercial model = pay-to-own perpetual license after a 30-day trial, followed by optional annual maintenance for updates and support. See [Licensing-and-Trial.md](./Licensing-and-Trial.md) for the full trial + licensing + entitlement rules. The post-licensing behavior (never disable the running app, maintenance only gates new versions) remains as described in this document (§9).
 
 Still open (technical):
 - **Updater vehicle:** ✅ Implemented as a **dedicated sidecar** (`updater/`,

@@ -41,6 +41,7 @@ On a fresh database, create the first **ADMIN** user (bootstrap flow).
 - [docs/SETUP.md](./docs/SETUP.md) – Setup, environment, seeding, first admin, Docker, troubleshooting
 - [docs/Git-Model-for-Accounting.md](./docs/Git-Model-for-Accounting.md) — **Foundational philosophy** (read this first).
 - [docs/Self-Hosted-Update-Delivery.md](./docs/Self-Hosted-Update-Delivery.md) — Signed self-hosted release and update architecture.
+- [docs/Licensing-and-Trial.md](./docs/Licensing-and-Trial.md) — 30-day trial, pay-to-own licensing, license key format, entitlement verification, and how the trial transitions into the perpetual + maintenance model.
 
 ---
 
