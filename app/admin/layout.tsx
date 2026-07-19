@@ -29,6 +29,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [licenseLoading, setLicenseLoading] = useState(true)
   const [showLicenseModal, setShowLicenseModal] = useState(false)
 
+  // "Verify once, trust forever"
+  // /api/license/status only reflects the stored license.acceptedKey.
+  // No call to the external verify service happens here or anywhere except activation.
   const loadLicense = async () => {
     setLicenseLoading(true)
     try {

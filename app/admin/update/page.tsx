@@ -102,6 +102,11 @@ export default function UpdatePage() {
     }
   }, [])
 
+  // License state (licensed / inTrial) comes from /api/admin/update,
+  // which in turn uses getLicenseStatus(). This only reads the stored
+  // "license.acceptedKey". Per "verify once, trust forever", no re-verification
+  // against the external service happens here or on the update page.
+
   if (loading && !status) {
     return <div className="text-sm text-zinc-500">{t('loading')}</div>
   }

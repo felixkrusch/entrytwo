@@ -106,6 +106,9 @@ export default function TopBar({ showSettings = false, onOpenLicenseModal }: Top
     }
   }, [])
 
+  // "Verify once, trust forever":
+  // The license state here comes exclusively from /api/license/status,
+  // which only reads the stored license.acceptedKey. No re-verification happens.
   const showTrialButton = license && license.inTrial && !license.isLicensed
 
   return (

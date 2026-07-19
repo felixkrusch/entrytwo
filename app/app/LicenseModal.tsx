@@ -2,6 +2,15 @@
 
 import { useState } from 'react'
 
+/**
+ * LicenseModal
+ *
+ * Reusable modal for entering a license key.
+ *
+ * This is the user-facing entry point that leads to the single activation call
+ * (`/api/license/activate`), which is the only place the app ever contacts the
+ * external verify service. After success, "verify once, trust forever" applies.
+ */
 interface LicenseModalProps {
   isOpen: boolean
   onClose: () => void

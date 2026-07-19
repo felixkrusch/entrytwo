@@ -2,6 +2,16 @@
 
 import { useState } from 'react'
 
+/**
+ * LicenseGate
+ *
+ * Shown only after the 30-day trial when no valid key has been accepted yet.
+ *
+ * Activation here is the SINGLE point where the external verify service is called.
+ * Per the "verify once, trust forever" policy (see lib/license.ts and docs),
+ * after successful activation the key is stored and the instance is permanently
+ * licensed. No further verification calls are made anywhere in the app.
+ */
 interface LicenseGateProps {
   onActivated: () => void
 }

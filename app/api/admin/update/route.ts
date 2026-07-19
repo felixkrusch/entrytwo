@@ -330,7 +330,7 @@ export async function GET(request: NextRequest) {
     let changelogUrl = ''
     let updateAvailable = false
 
-    // License gate: after trial without a key, updates are disabled (manifest is still shown for info)
+    // "verify once, trust forever" — only checks stored flag, no re-verify
     const lic = await getLicenseStatus().catch(() => null)
     const canUpdate = !lic || lic.isLicensed || lic.inTrial
 

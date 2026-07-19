@@ -118,7 +118,12 @@ function AppContent({ children }: { children: ReactNode }) {
     if (needsBootstrap) router.replace('/auth/signin')
   }, [needsBootstrap, router])
 
-  // Load license status (trial + whether a valid key was already accepted)
+  // Load license status.
+  //
+  // "Verify once, trust forever" policy:
+  // /api/license/status never calls the external verify service.
+  // It only reflects whether a key was successfully accepted once and stored.
+  // See lib/license.ts, /api/license/activate, and Licensing-and-Trial.md.
   const loadLicense = async () => {
     setLicenseLoading(true)
     try {

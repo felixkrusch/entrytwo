@@ -211,10 +211,21 @@ purchased instance.
 
 ### Entitlement-aware delivery (how the model is enforced)
 
-Enforcement lives at the **delivery layer only**, never at the running app:
+Enforcement lives at the **delivery layer only**, never at the running app.
+
+**Important:** The self-hosted app follows a "verify once, trust forever" policy
+(see [Licensing-and-Trial.md](./Licensing-and-Trial.md)):
+- The external verify service is called **only once**, at the moment a customer
+  pastes a license key (activation).
+- After successful activation, the key is stored locally and the instance is
+  permanently licensed. No further calls to the verify service are made for
+  status, UI, or update checks.
+- Update gating in the app only checks the stored licensed flag (never re-verifies).
+
+The update delivery layer still respects entitlement:
 
 1. On update check, the instance presents its **license token** to our
-   entitlement service.
+   entitlement service (future / optional).
 2. We return the latest digest the token is entitled to (tier + maintenance
    status). Lapsed maintenance → manifest returns the customer's current/supported
    version, so they don't see newer ones.
