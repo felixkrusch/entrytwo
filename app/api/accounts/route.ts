@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { requireUser } from '@/lib/authz'
 import { logger } from '@/lib/logger'
+import { getCompanyProfile } from '@/lib/companyProfile'
 
 const ALLOWED_TYPES = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'] as const
 
@@ -55,12 +56,15 @@ export async function GET(request: Request) {
       ? { journalEntryId: { in: visibleEntryIds } }
       : {}  // show all lines for this account when no ancestry restriction applies yet
 
+    const profile = await getCompanyProfile()
+    const baseCurrency = (profile.baseCurrency || 'EUR').toUpperCase()
+
     const accounts = await prisma.account.findMany({
       orderBy: { code: 'asc' },
       include: {
         journalLines: {
           where: lineWhere,
-          select: { debit: true, credit: true, account: { select: { type: true } } }
+          select: { debit: true, credit: true, currency: true, fxRateToBase: true }
         }
       }
     })
@@ -70,8 +74,16 @@ export async function GET(request: Request) {
       for (const l of acc.journalLines) {
         const d = Number(l.debit)
         const c = Number(l.credit)
-        if (['ASSET', 'EXPENSE'].includes(acc.type)) bal += d - c
-        else bal += c - d
+        const cur = (l.currency || baseCurrency).toUpperCase()
+        let rate = 1
+        if (cur !== baseCurrency) {
+          const r = Number(l.fxRateToBase)
+          if (isFinite(r) && r > 0) rate = r
+        }
+        const baseD = d * rate
+        const baseC = c * rate
+        if (['ASSET', 'EXPENSE'].includes(acc.type)) bal += baseD - baseC
+        else bal += baseC - baseD
       }
       const visibleCount = acc.journalLines.length
       const { journalLines: _journalLines, ...rest } = acc

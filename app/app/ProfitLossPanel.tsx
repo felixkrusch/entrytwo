@@ -202,10 +202,10 @@ export default function ProfitLossPanel({ currentFilterCode, branch = 'main', as
                  title="Click to filter journal to this account"
                >
                  <span>{item.code} {item.name}</span>
-                 <span className="font-mono text-blue-400">
-                   {format.number(item.amount, { style: 'currency', currency: baseCurrency })}
-                   {item.currency && item.currency !== 'EUR' ? ` (${item.currency}${item.nativeAmount != null ? ` ~${item.nativeAmount.toFixed(2)}` : ''}${item.feedSourced ? ' • feed' : ''})` : ''}
-                 </span>
+                  <span className="font-mono text-blue-400">
+                    {format.number(item.amount, { style: 'currency', currency: baseCurrency })}
+                    {item.currency && item.currency !== baseCurrency ? ` (${item.currency}${item.nativeAmount != null ? ` ~${item.nativeAmount.toFixed(2)}` : ''}${item.feedSourced ? ' • feed' : ''})` : ''}
+                  </span>
                </div>
              ))
            ) : (
@@ -228,10 +228,10 @@ export default function ProfitLossPanel({ currentFilterCode, branch = 'main', as
                  title="Click to filter journal to this account"
                >
                  <span>{item.code} {item.name}</span>
-                 <span className="font-mono text-rose-400">
-                   {format.number(item.amount, { style: 'currency', currency: baseCurrency })}
-                   {item.currency && item.currency !== 'EUR' ? ` (${item.currency}${item.nativeAmount != null ? ` ~${item.nativeAmount.toFixed(2)}` : ''})` : ''}
-                 </span>
+                  <span className="font-mono text-rose-400">
+                    {format.number(item.amount, { style: 'currency', currency: baseCurrency })}
+                    {item.currency && item.currency !== baseCurrency ? ` (${item.currency}${item.nativeAmount != null ? ` ~${item.nativeAmount.toFixed(2)}` : ''})` : ''}
+                  </span>
                </div>
              ))
            ) : (

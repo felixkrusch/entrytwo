@@ -413,7 +413,7 @@ function BalanceSheetRow({ a, t, format, openLedger, baseCurrency, prior, compar
         ) : (
           <span className="text-zinc-100">{format(a.balance)}</span>
         )}
-        {a.currency && a.currency !== baseCurrency ? (
+        {a.currency && a.currency !== baseCurrency && Math.abs(a.nativeBalance) > 0.005 ? (
           <span className="text-[10px] text-zinc-500">{a.currency} ~{a.nativeBalance.toFixed(2)}</span>
         ) : null}
       </span>
@@ -575,7 +575,7 @@ function PLView({
               ) : (
                 <span className={color}>{format(i.amount)}</span>
               )}
-              {i.currency && i.currency !== data.baseCurrency ? (
+              {i.currency && i.currency !== data.baseCurrency && Math.abs(i.nativeAmount) > 0.005 ? (
                 <span className="text-[10px] text-zinc-500">{i.currency} ~{i.nativeAmount.toFixed(2)}</span>
               ) : null}
             </span>

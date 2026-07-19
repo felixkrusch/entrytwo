@@ -149,6 +149,8 @@ async function computeAccountBalances(scope: Scope, baseCurrency: string): Promi
     include: { journalLines: { where: scope.lineWhere } },
   })
 
+  const baseU = baseCurrency.toUpperCase()
+
   return accounts.map((account) => {
     let baseBal = 0
     let nativeBal = 0
@@ -166,17 +168,30 @@ async function computeAccountBalances(scope: Scope, baseCurrency: string): Promi
       nativeBal += baseDelta(account.type, d, c)
     })
 
-    const displayCurrency =
-      Array.from(currencies).find((c) => c !== baseCurrency.toUpperCase()) ||
-      Array.from(currencies)[0] ||
-      baseCurrency
+    // Only surface a foreign "native" currency for:
+    // - P/L (revenue/expense) items, where you may want to see original foreign spend/revenue, and
+    // - ASSET accounts (for the "by currency" composition of what you hold).
+    // Liabilities and Equity are always shown in base currency (even if some lines were foreign).
+    // We suppress the foreign display if the net native amount in foreign currency is ~0
+    // (e.g. a foreign line and its full reversal on the account).
+    const isPl = account.type === 'REVENUE' || account.type === 'EXPENSE'
+    const allowForeignNative = isPl || account.type === 'ASSET'
+    let displayCurrency = baseCurrency
+    let shownNative = parseFloat(baseBal.toFixed(2))
+    if (allowForeignNative) {
+      const foreignSeen = Array.from(currencies).find((c) => c !== baseU)
+      if (foreignSeen && Math.abs(nativeBal) > 0.005) {
+        displayCurrency = foreignSeen
+        shownNative = parseFloat(nativeBal.toFixed(2))
+      }
+    }
 
     return {
       code: account.code,
       name: account.name,
       type: account.type as AccountType,
       balance: parseFloat(baseBal.toFixed(2)),
-      nativeBalance: parseFloat(nativeBal.toFixed(2)),
+      nativeBalance: shownNative,
       currency: displayCurrency,
       baseCurrency,
       group: classifyGroup(account.type, account.code),
@@ -276,10 +291,13 @@ async function computePLInner(scope: Scope, baseCurrency: string): Promise<PLInn
 
     const cleanBase = parseFloat(baseBalance.toFixed(2))
     const cleanNative = parseFloat(nativeBalance.toFixed(2))
-    const displayCurrency =
-      Array.from(currencies).find((c) => c !== baseCurrency.toUpperCase()) ||
-      Array.from(currencies)[0] ||
-      baseCurrency
+    const baseU = baseCurrency.toUpperCase()
+    const foreign = Array.from(currencies).find((c) => c !== baseU)
+    // Only advertise a foreign native amount for P/L items if there is a meaningful remaining native balance.
+    // Fully reversed foreign activity should not produce "USD ~0.00" noise.
+    const useForeign = !!(foreign && Math.abs(cleanNative) > 0.005)
+    const displayCurrency = useForeign ? foreign : baseCurrency
+    const shownNative = useForeign ? cleanNative : cleanBase
     const hasFeed = account.journalLines.some((l) =>
       ((l as { fxSource?: string }).fxSource || '').toUpperCase().startsWith('BANK_FEED'),
     )
@@ -289,7 +307,7 @@ async function computePLInner(scope: Scope, baseCurrency: string): Promise<PLInn
         code: account.code,
         name: account.name,
         amount: cleanBase,
-        nativeAmount: cleanNative,
+        nativeAmount: shownNative,
         currency: displayCurrency,
         baseCurrency,
         feedSourced: hasFeed,
