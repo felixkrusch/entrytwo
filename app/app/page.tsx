@@ -414,24 +414,38 @@ export default function ChatPage() {
         }
       }
 
-      // Compute a quick nav target for autonomous creates (used for both the button and auto-switch)
-      // Supports two-pass (has action) and legacy high-confidence path (entryId + createdAutonomously, no action)
+      // Compute a quick nav target for autonomous creates (used for both the button and auto-switch).
+      // STRICTLY prefer the explicit action type (d.action). Only fall back to response text
+      // when there is no clear action. This prevents "vendor invoice" text from routing a
+      // CREATE_JOURNAL result to the invoices view.
       let navigate: { label: string; href: string } | undefined
       if (d?.createdAutonomously) {
-        const act = (d.action || '').toString().toUpperCase()
-        const resp = String(d.response || '').toLowerCase()
-        if (act === 'CREATE_CONTACT' || /contact/i.test(resp)) {
+        const act = String(d.action || '').toUpperCase().trim()
+        const hasEntryId = !!(d.entryId || (d as any).entityId)
+
+        if (act === 'CREATE_CONTACT') {
           navigate = { label: 'View contacts', href: '/app?view=contacts' }
-        } else if (act === 'CREATE_EXPENSE_CLAIM_DRAFT' || /claim/i.test(resp)) {
+        } else if (act === 'CREATE_EXPENSE_CLAIM_DRAFT') {
           navigate = { label: 'Review claim', href: '/app?view=claims' }
-        } else if (act === 'CREATE_INVOICE_DRAFT' || act === 'GENERATE_RECURRING_DRAFT' || /invoice/i.test(resp)) {
+        } else if (act === 'CREATE_INVOICE_DRAFT' || act === 'GENERATE_RECURRING_DRAFT') {
           navigate = { label: 'View invoices', href: '/app?view=invoicing' }
-        } else if (act.includes('REVERSE') || /revers(ed|al)/i.test(resp)) {
+        } else if (act.includes('REVERSE')) {
           navigate = { label: 'View entries', href: '/app?view=dashboard' }
-        } else if (act === 'CREATE_JOURNAL' || d.entryId || /journal|entry|autonomously/i.test(resp)) {
+        } else if (act === 'CREATE_JOURNAL' || act === 'CREATE_JOURNAL_BATCH' || act === 'MATCH_FEED_TRANSACTION' || hasEntryId) {
+          // Explicit journal creation (including when user uploads a vendor invoice PDF to create a journal entry)
           navigate = { label: 'View entries', href: '/app?view=dashboard' }
-        } else if (act === 'MATCH_FEED_TRANSACTION' || /feed|match.*post|posted/i.test(resp)) {
-          navigate = { label: 'View entries', href: '/app?view=dashboard' }
+        } else if (!act) {
+          // Weak fallback only when no action type is present
+          const resp = String(d.response || '').toLowerCase()
+          if (/contact/i.test(resp)) {
+            navigate = { label: 'View contacts', href: '/app?view=contacts' }
+          } else if (/claim/i.test(resp)) {
+            navigate = { label: 'Review claim', href: '/app?view=claims' }
+          } else if (/invoice draft|created invoice|generate.*invoice/i.test(resp)) {
+            navigate = { label: 'View invoices', href: '/app?view=invoicing' }
+          } else if (/journal|entry|posted|autonomously/i.test(resp)) {
+            navigate = { label: 'View entries', href: '/app?view=dashboard' }
+          }
         }
       }
 
@@ -773,10 +787,10 @@ export default function ChatPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div
-        ref={scrollContainerRef}
-        className="flex-1 overflow-auto p-6 pb-4 flex flex-col"
-      >
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 overflow-auto overflow-x-hidden p-6 pb-4 flex flex-col"
+        >
         {/* Messages fill the space above */}
         <div className="flex-1 space-y-6">
           {messages.map((msg, i) => {
@@ -787,7 +801,7 @@ export default function ChatPage() {
 
             return (
               <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : ''}`}>
-                <div className={`max-w-[82%] rounded-2xl px-5 py-3 text-sm whitespace-pre-wrap ${
+                <div className={`max-w-[82%] min-w-0 rounded-2xl px-5 py-3 text-sm whitespace-pre-wrap break-words overflow-hidden ${
                   msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-zinc-800'
                 }`}>
                   {msg.content}
@@ -822,19 +836,21 @@ export default function ChatPage() {
                     </button>
                   )}
 
-                  {/* Autonomous proposal confirmation surface */}
-                  {(msg).proposedAction && (
-                    <div className="mt-3 p-2 border border-amber-700 bg-amber-950/30 rounded text-xs">
-                      <div className="mb-1 text-amber-400">Action requires confirmation:</div>
-                      <div className="font-mono text-[10px] mb-2">{JSON.stringify((msg).proposedAction)}</div>
-                      <button
-                        onClick={() => handleApproveProposal(msg)}
-                        className="px-3 py-1 bg-amber-600 text-black rounded-full text-xs hover:bg-amber-500"
-                      >
-                        Confirm & Execute
-                      </button>
-                    </div>
-                  )}
+                   {/* Autonomous proposal confirmation surface (yellow border box) */}
+                   {(msg).proposedAction && (
+                     <div className="mt-3 p-2 border border-amber-700 bg-amber-950/30 rounded text-xs max-w-full overflow-hidden">
+                       <div className="mb-1 text-amber-400">Action requires confirmation:</div>
+                       <div className="font-mono text-[10px] mb-2 break-all whitespace-pre-wrap">
+                         {JSON.stringify((msg).proposedAction)}
+                       </div>
+                       <button
+                         onClick={() => handleApproveProposal(msg)}
+                         className="px-3 py-1 bg-amber-600 text-black rounded-full text-xs hover:bg-amber-500"
+                       >
+                         Confirm & Execute
+                       </button>
+                     </div>
+                   )}
 
                   {/* Phase 1: merchant + real feed rate usage */}
                   {msg.suggestion && (

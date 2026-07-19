@@ -126,7 +126,7 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
     if (invoice.contact.taxId) doc.text(`${german ? 'USt-IdNr.' : 'Tax ID'} ${invoice.contact.taxId}`, 310, customerY, { width: 241 })
 
     const addressBottom = Math.max(sellerY, customerY)
-    let y = Math.max(292, addressBottom + 42)
+    let y = Math.max(240, addressBottom + 30)
     doc.font(bold).fontSize(15).fillColor(ink).text(
       german
         ? `${money.format(Number(invoice.total))} fällig am ${date.format(invoice.dueDate)}`
@@ -135,7 +135,7 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
       y,
       { width: contentWidth },
     )
-    y += 54
+    y += 40
     const drawTableHeader = () => {
       doc.font(regular).fontSize(7.5).fillColor(ink)
       doc.text(german ? 'Beschreibung' : 'Description', left, y, { width: 290 })
@@ -148,9 +148,17 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
     }
     drawTableHeader()
 
+    // Deterministic page breaking for the line items table.
+    // We only add a new page when the next row won't fit on the current page.
+    const PAGE_BOTTOM = 745
+
     invoice.lines.forEach((line, index) => {
-      if (y > 650) { doc.addPage(); y = 50; drawTableHeader() }
       const rowHeight = Math.max(34, doc.heightOfString(line.description, { width: 290 }) + 20)
+      if (y + rowHeight > PAGE_BOTTOM) {
+        doc.addPage()
+        y = 50
+        drawTableHeader()
+      }
       doc.font(regular).fontSize(9.5).fillColor(ink).text(line.description, left, y + 8, { width: 290 })
       doc.text(String(Number(line.quantity)), 329, y + 8, { width: 55, align: 'right' })
       doc.text(money.format(Number(line.unitPrice)), 393, y + 8, { width: 90, align: 'right' })
@@ -174,8 +182,15 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
     totalRow(german ? 'Summe' : 'Total', money.format(Number(invoice.total)))
     totalRow(german ? 'Fälliger Betrag' : 'Amount due', money.format(Number(invoice.total)), true)
 
-    let paymentY = Math.max(y + 10, 560)
-    if (paymentY > 690) { doc.addPage(); paymentY = 55 }
+    // After the items table, check if the summary + payment block fits on the current page.
+    // If not, start a clean new page for the footer section.
+    const summaryHeight = 70 + (iban || routing || accountNumber ? (qrUrl ? 125 : 100) : 0) + (invoice.notes ? 45 : 0)
+    if (y + summaryHeight > PAGE_BOTTOM) {
+      doc.addPage()
+      y = 50
+    }
+
+    let paymentY = y + 18
     if (iban || routing || accountNumber) {
       doc.roundedRect(left, paymentY, contentWidth, qrUrl ? 105 : 82, 7).fill(panel)
       if (qrUrl) doc.image(qrUrl, left + 14, paymentY + 14, { width: 76, height: 76 })
@@ -193,7 +208,6 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
       doc.font(regular).fontSize(8).fillColor(muted).text(invoice.notes, left, paymentY + 15, { width: contentWidth })
     }
 
-    doc.font(regular).fontSize(7).fillColor('#a1a1aa').text(`Thank you for your business · ${companyName} · ${invoice.invoiceNumber}`, left, 800, { width: contentWidth, align: 'center' })
     doc.end()
   })
 }
