@@ -7,13 +7,44 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 
 interface TopBarProps {
   showSettings?: boolean
+  onOpenLicenseModal?: () => void
 }
 
-export default function TopBar({ showSettings = false }: TopBarProps) {
+interface LicenseStatus {
+  daysRemaining: number
+  inTrial: boolean
+  isLicensed: boolean
+}
+
+export default function TopBar({ showSettings = false, onOpenLicenseModal }: TopBarProps) {
   const [isAdmin, setIsAdmin] = useState(false)
+  const [license, setLicense] = useState<LicenseStatus | null>(null)
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const router = useRouter()
+
+  // Fetch trial / license status (used for the visible trial button)
+  const loadLicense = () => {
+    fetch('/api/license/status')
+      .then(r => r.ok ? r.json() : null)
+      .then((d) => {
+        if (!d) return
+        setLicense({
+          daysRemaining: d.daysRemaining ?? 0,
+          inTrial: !!d.inTrial,
+          isLicensed: !!d.isLicensed,
+        })
+      })
+      .catch(() => {})
+  }
+
+  useEffect(() => {
+    loadLicense()
+
+    const handler = () => loadLicense()
+    window.addEventListener('license-updated', handler)
+    return () => window.removeEventListener('license-updated', handler)
+  }, [])
 
   const navItems = [
     { name: 'Finances', view: 'dashboard', icon: CreditCard },
@@ -75,11 +106,27 @@ export default function TopBar({ showSettings = false }: TopBarProps) {
     }
   }, [])
 
+  const showTrialButton = license && license.inTrial && !license.isLicensed
+
   return (
     <div className="h-11 border-b border-zinc-800 bg-zinc-950 flex items-center px-4 justify-between shrink-0">
-      <Link href="/app" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-        <img src="/entrytwo-logo.svg" alt="entrytwo" className="h-5 w-auto" />
-      </Link>
+      <div className="flex items-center gap-2">
+        <Link href="/app" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+          <img src="/entrytwo-logo.svg" alt="entrytwo" className="h-5 w-auto" />
+        </Link>
+
+        {showTrialButton && (
+          <a
+            href="https://entrytwo.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-4 text-[10px] px-1 rounded bg-amber-900/30 text-amber-400 border border-amber-800 hover:bg-amber-900/50 transition-colors"
+            title="Get a license for entrytwo"
+          >
+            Trial: {license!.daysRemaining} days left
+          </a>
+        )}
+      </div>
 
       <div className="flex items-center gap-2">
         <nav className="flex items-center gap-1">
@@ -158,6 +205,17 @@ export default function TopBar({ showSettings = false }: TopBarProps) {
                 <Link href="/app?view=history" className="flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-900 text-zinc-300" onClick={() => setShowAdminMenu(false)}>
                   <History className="w-4 h-4" /> Commit History
                 </Link>
+
+                {/* Manual license entry (always available) */}
+                {onOpenLicenseModal && (
+                  <button
+                    onClick={() => onOpenLicenseModal()}
+                    className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800 ml-2"
+                    title="Enter or change license key"
+                  >
+                    License
+                  </button>
+                )}
               </div>
             )}
           </div>

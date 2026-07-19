@@ -17,6 +17,8 @@ type UpdateStatus = {
   error?: string
   message?: string
   backupPath?: string
+  licensed?: boolean
+  inTrial?: boolean
 }
 
 export default function UpdatePage() {
@@ -92,7 +94,12 @@ export default function UpdatePage() {
 
   useEffect(() => {
     void checkForUpdates()
-    return () => stopPolling()
+    const onLicense = () => void checkForUpdates()
+    window.addEventListener('license-updated', onLicense)
+    return () => {
+      stopPolling()
+      window.removeEventListener('license-updated', onLicense)
+    }
   }, [])
 
   if (loading && !status) {
@@ -115,6 +122,9 @@ export default function UpdatePage() {
               <div>
                 <div className="text-zinc-400 text-xs">Current Version</div>
                 <div className="font-mono text-sm">{status.currentVersion}</div>
+                <div className="text-[10px] text-zinc-500 mt-0.5">
+                  {status.licensed ? 'Licensed' : status.inTrial ? 'Trial' : 'Unlicensed (updates disabled)'}
+                </div>
               </div>
               {status.updateAvailable && (
                 <div className="text-right">
@@ -204,6 +214,12 @@ export default function UpdatePage() {
                 >
                   {updating ? 'Updating...' : t('updateNow')}
                 </button>
+              )}
+
+              {(!status.licensed && !status.inTrial) && (
+                <div className="text-xs text-amber-400 ml-2 self-center">
+                  License required for updates
+                </div>
               )}
             </div>
           </div>

@@ -8,6 +8,7 @@ import { join } from 'path'
 import { getRequestId } from '@/lib/correlation'
 import { rateLimit } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
+import { getLicenseStatus } from '@/lib/license'
 
 const execAsync = promisify(exec)
 
@@ -329,13 +330,17 @@ export async function GET(request: NextRequest) {
     let changelogUrl = ''
     let updateAvailable = false
 
+    // License gate: after trial without a key, updates are disabled (manifest is still shown for info)
+    const lic = await getLicenseStatus().catch(() => null)
+    const canUpdate = !lic || lic.isLicensed || lic.inTrial
+
     const manifest = await fetchManifest().catch(() => null)
     if (manifest) {
       latestVersion = manifest.version || ''
       targetDigest = manifest.digest || ''
       channel = manifest.channel || ''
       changelogUrl = manifest.changelogUrl || ''
-      if (latestVersion && currentVersion && latestVersion !== currentVersion) {
+      if (latestVersion && currentVersion && latestVersion !== currentVersion && canUpdate) {
         updateAvailable = true
       }
     }
@@ -352,6 +357,8 @@ export async function GET(request: NextRequest) {
         updateAvailable,
         requestId,
         lastChecked: new Date().toISOString(),
+        licensed: lic ? lic.isLicensed : false,
+        inTrial: lic ? lic.inTrial : true,
       }
       if (s && s.status && s.status !== 'idle') {
         if (s.status === 'success' && manifest) await maybeAuditSidecar(manifest)
@@ -384,6 +391,8 @@ export async function GET(request: NextRequest) {
         lastChecked: new Date().toISOString(),
         status: 'updating',
         progress: updateState.progress,
+        licensed: lic ? lic.isLicensed : false,
+        inTrial: lic ? lic.inTrial : true,
       })
     }
 
@@ -403,6 +412,8 @@ export async function GET(request: NextRequest) {
       error: updateState.error,
       message: updateState.message,
       backupPath: updateState.backupPath,
+      licensed: lic ? lic.isLicensed : false,
+      inTrial: lic ? lic.inTrial : true,
     })
   } catch (error) {
     return NextResponse.json(
@@ -551,6 +562,14 @@ export async function POST(request: NextRequest) {
   const session = await auth()
   if (session?.user?.role !== 'ADMIN') {
     const res = NextResponse.json({ error: 'Admin access required', requestId }, { status: 403 })
+    res.headers.set('x-request-id', requestId)
+    return res
+  }
+
+  // License gate: block updates after trial without a valid key
+  const lic = await getLicenseStatus().catch(() => null)
+  if (lic && !lic.isLicensed && !lic.inTrial) {
+    const res = NextResponse.json({ error: 'License required to apply updates', requestId }, { status: 403 })
     res.headers.set('x-request-id', requestId)
     return res
   }

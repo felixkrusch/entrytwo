@@ -2,9 +2,11 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Suspense } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import TopBar from '@/app/app/TopBar'
 import { NewEntryProvider } from '@/app/app/NewEntryContext'
+import LicenseGate from '@/app/app/LicenseGate'
+import LicenseModal from '@/app/app/LicenseModal'
 
 const navItems = [
   { href: '/admin', label: 'Overview' },
@@ -23,10 +25,51 @@ const navItems = [
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
 
+  const [licenseStatus, setLicenseStatus] = useState<any>(null)
+  const [licenseLoading, setLicenseLoading] = useState(true)
+  const [showLicenseModal, setShowLicenseModal] = useState(false)
+
+  const loadLicense = async () => {
+    setLicenseLoading(true)
+    try {
+      const res = await fetch('/api/license/status')
+      if (res.ok) {
+        const data = await res.json()
+        setLicenseStatus(data)
+      } else {
+        setLicenseStatus(null)
+      }
+    } catch {
+      setLicenseStatus(null)
+    } finally {
+      setLicenseLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadLicense()
+  }, [])
+
+  const handleLicenseActivated = () => {
+    void loadLicense()
+    setShowLicenseModal(false)
+    window.dispatchEvent(new CustomEvent('license-updated'))
+  }
+
+  const openLicenseModal = () => setShowLicenseModal(true)
+
+  const isLicensed = !!licenseStatus?.isLicensed
+  const inTrial = !!licenseStatus?.inTrial
+  const showPaywall = !licenseLoading && !isLicensed && !inTrial
+
+  if (showPaywall) {
+    return <LicenseGate onActivated={handleLicenseActivated} />
+  }
+
   return (
     <div className="h-screen flex flex-col bg-zinc-950 text-zinc-200">
       <Suspense fallback={<div className="h-11 border-b border-zinc-800 bg-zinc-950" />}>
-        <TopBar showSettings={true} />
+        <TopBar showSettings={true} onOpenLicenseModal={openLicenseModal} />
       </Suspense>
 
       <div className="flex flex-1 min-h-0">
@@ -69,6 +112,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         </div>
       </div>
+
+      {/* License modal (available from admin area too) */}
+      <LicenseModal
+        isOpen={showLicenseModal}
+        onClose={() => setShowLicenseModal(false)}
+        onActivated={handleLicenseActivated}
+      />
     </div>
   )
 }

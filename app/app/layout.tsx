@@ -24,6 +24,8 @@ import toast from 'react-hot-toast'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { Search } from 'lucide-react'
+import LicenseGate from './LicenseGate'
+import LicenseModal from './LicenseModal'
 
 interface Account {
   id: string
@@ -41,6 +43,9 @@ function AppContent({ children }: { children: ReactNode }) {
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
   const [showRecurring, setShowRecurring] = useState(false)
   const [needsBootstrap, setNeedsBootstrap] = useState<boolean | null>(null)
+  const [licenseStatus, setLicenseStatus] = useState<any>(null)
+  const [licenseLoading, setLicenseLoading] = useState(true)
+  const [showLicenseModal, setShowLicenseModal] = useState(false)
 
   useEffect(() => {
     if (pathname === '/reports') router.replace('/app?view=reports')
@@ -113,6 +118,28 @@ function AppContent({ children }: { children: ReactNode }) {
     if (needsBootstrap) router.replace('/auth/signin')
   }, [needsBootstrap, router])
 
+  // Load license status (trial + whether a valid key was already accepted)
+  const loadLicense = async () => {
+    setLicenseLoading(true)
+    try {
+      const res = await fetch('/api/license/status')
+      if (res.ok) {
+        const data = await res.json()
+        setLicenseStatus(data)
+      } else {
+        setLicenseStatus(null)
+      }
+    } catch {
+      setLicenseStatus(null)
+    } finally {
+      setLicenseLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadLicense()
+  }, [])
+
   const handleModalSuccess = () => {
     const wasFromChat = !!suggestion
     const isReversal = !!suggestion?.reversingOriginalId
@@ -149,16 +176,41 @@ function AppContent({ children }: { children: ReactNode }) {
     )
   }
 
+  // Block the entire app UI if trial is over and no valid license key is present
+  const isLicensed = !!licenseStatus?.isLicensed
+  const inTrial = !!licenseStatus?.inTrial
+  const showPaywall = !licenseLoading && !isLicensed && !inTrial
+
+  const handleLicenseActivated = () => {
+    void loadLicense()
+    setShowLicenseModal(false)
+    // Notify other components (e.g. TopBar trial button) that license state changed
+    window.dispatchEvent(new CustomEvent('license-updated'))
+  }
+
+  const openLicenseModal = () => setShowLicenseModal(true)
+
+  if (showPaywall) {
+    return <LicenseGate onActivated={handleLicenseActivated} />
+  }
+
   return (
     <div className="flex flex-col h-screen">
       <div className="no-print">
-        <TopBar showSettings={true} />
+        <TopBar showSettings={true} onOpenLicenseModal={openLicenseModal} />
       </div>
 
       <div className="flex flex-1 min-h-0">
         <div className={`no-print w-full md:w-2/5 border-r border-zinc-800 flex-col ${isOpen ? 'hidden md:flex' : 'flex'}`}>
           {children}
         </div>
+
+        {/* License modal (available even during trial) */}
+        <LicenseModal
+          isOpen={showLicenseModal}
+          onClose={() => setShowLicenseModal(false)}
+          onActivated={handleLicenseActivated}
+        />
 
         <div className={`${isOpen ? 'block' : 'hidden md:block'} flex-1 p-4 md:p-6 overflow-auto bg-zinc-900`}>
           <div className="max-w-5xl mx-auto space-y-8">
