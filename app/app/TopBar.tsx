@@ -213,7 +213,15 @@ export default function TopBar({ showSettings = false, onOpenLicenseModal }: Top
                 {onOpenLicenseModal && (
                   <button
                     onClick={() => onOpenLicenseModal()}
-                    className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800 ml-2"
+                    className={
+                      !license
+                        ? "text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800 ml-2"
+                        : license.isLicensed
+                          ? "text-[10px] px-2 py-0.5 rounded border border-emerald-800 bg-emerald-900/30 text-emerald-400 hover:bg-emerald-900/50 ml-2"
+                          : license.inTrial
+                            ? "text-[10px] px-2 py-0.5 rounded border border-amber-800 bg-amber-900/30 text-amber-400 hover:bg-amber-900/50 ml-2"
+                            : "text-[10px] px-2 py-0.5 rounded border border-red-800 bg-red-900/30 text-red-400 hover:bg-red-900/50 ml-2"
+                    }
                     title="Enter or change license key"
                   >
                     License

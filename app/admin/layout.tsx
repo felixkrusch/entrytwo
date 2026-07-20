@@ -101,6 +101,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             })}
           </nav>
 
+          {/* License button in left-hand admin menu - not full width */}
+          <div className="mt-3">
+            <button
+              onClick={openLicenseModal}
+              className={`text-left text-[10px] px-2 py-1 rounded border transition-colors ${
+                isLicensed
+                  ? 'border-emerald-800 bg-emerald-900/30 text-emerald-400 hover:bg-emerald-900/50'
+                  : inTrial
+                    ? 'border-amber-800 bg-amber-900/30 text-amber-400 hover:bg-amber-900/50'
+                    : 'border-red-800 bg-red-900/30 text-red-400 hover:bg-red-900/50'
+              }`}
+              title="Enter or change license key"
+            >
+              License
+            </button>
+          </div>
+
           <div className="mt-auto pt-6 text-[10px] text-zinc-500 px-2">
             Changes are saved immediately and audited.
           </div>
