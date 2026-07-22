@@ -70,6 +70,7 @@ export default function JournalEntriesPanel({
 }: JournalEntriesPanelProps) {
   const { openNewEntry } = useNewEntry()
   const t = useTranslations('app.panels.journal')
+  const tJ = useTranslations('app.views.journal')
   const format = useFormatter()
   const searchParams = useSearchParams()
   const entryRef = searchParams?.get('entryRef') || ''
@@ -291,16 +292,16 @@ export default function JournalEntriesPanel({
       {showPagination && (
         <div className="mb-4 flex flex-wrap items-end gap-3">
           <div>
-            <label className="text-xs text-zinc-400 block mb-1">Search</label>
+            <label className="text-xs text-zinc-400 block mb-1">{tJ('search')}</label>
             <input
               value={search}
               onChange={e => { setSearch(e.target.value); setPage(1) }}
-              placeholder="Description or line text"
+              placeholder={tJ('searchPlaceholder')}
               className="bg-zinc-900 border border-zinc-700 rounded px-3 py-1 text-sm w-56"
             />
           </div>
           <div>
-            <label className="text-xs text-zinc-400 block mb-1">Account</label>
+            <label className="text-xs text-zinc-400 block mb-1">{tJ('account')}</label>
             <input
               value={accountFilter}
               onChange={e => { setAccountFilter(e.target.value); setPage(1) }}
@@ -309,7 +310,7 @@ export default function JournalEntriesPanel({
             />
           </div>
           <div>
-            <label className="text-xs text-zinc-400 block mb-1">From</label>
+            <label className="text-xs text-zinc-400 block mb-1">{tJ('from')}</label>
             <input
               type="date"
               value={from}
@@ -318,7 +319,7 @@ export default function JournalEntriesPanel({
             />
           </div>
           <div>
-            <label className="text-xs text-zinc-400 block mb-1">To</label>
+            <label className="text-xs text-zinc-400 block mb-1">{tJ('to')}</label>
             <input
               type="date"
               value={to}

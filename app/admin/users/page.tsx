@@ -1,5 +1,7 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
+
 import { useEffect, useState } from 'react'
 
 interface User {
@@ -27,6 +29,9 @@ interface CreatedInvitation {
 }
 
 export default function UsersPage() {
+  const tForm = useTranslations('app.usersForm')
+  const t = useTranslations('app.adminPages')
+
   const [users, setUsers] = useState<User[]>([])
   const [invitations, setInvitations] = useState<Invitation[]>([])
   const [loading, setLoading] = useState(true)
@@ -95,14 +100,14 @@ export default function UsersPage() {
   }
 
   if (loading) {
-    return <div className="text-sm text-zinc-500">Loading users...</div>
+    return <div className="text-sm text-zinc-500">{tForm('loading')}</div>
   }
 
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-xl font-semibold">Users</h1>
-        <p className="text-xs text-zinc-500">Manage access and roles. All changes are audited.</p>
+        <h1 className="text-xl font-semibold">{tForm('title')}</h1>
+        <p className="text-xs text-zinc-500">{tForm('subtitle')}</p>
       </div>
 
       <div className="space-y-2 text-sm max-w-3xl">
@@ -110,7 +115,7 @@ export default function UsersPage() {
           <div key={u.id} className="flex items-center justify-between border border-zinc-800 rounded px-3 py-2">
             <div className={u.disabled ? 'line-through text-zinc-500' : ''}>
               {u.email} {u.name ? `(${u.name})` : ''} — <span className="text-zinc-400">{u.role}</span>
-              {u.disabled && <span className="ml-2 text-[10px] text-red-400">DISABLED</span>}
+              {u.disabled && <span className="ml-2 text-[10px] text-red-400">{tForm('disabled')}</span>}
             </div>
             <div className="flex items-center gap-2">
               <select
@@ -128,24 +133,24 @@ export default function UsersPage() {
               >
                 {u.disabled ? 'Enable' : 'Disable'}
               </button>
-              <button onClick={() => deleteUser(u.id)} className="text-xs text-rose-400 hover:text-rose-300">Delete</button>
+              <button onClick={() => deleteUser(u.id)} className="text-xs text-rose-400 hover:text-rose-300">{tForm('delete')}</button>
             </div>
           </div>
         ))}
-        {users.length === 0 && <div className="text-zinc-500">No users yet.</div>}
+        {users.length === 0 && <div className="text-zinc-500">{tForm('empty')}</div>}
       </div>
 
       <div className="mt-6 max-w-xl">
-        <div className="font-medium mb-2">Invite User</div>
+        <div className="font-medium mb-2">{tForm('inviteUser')}</div>
         <div className="flex flex-wrap gap-2">
           <input
-            placeholder="email"
+            placeholder={tForm('emailPh')}
             value={newEmail}
             onChange={e => setNewEmail(e.target.value)}
             className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-sm"
           />
           <input
-            placeholder="name (optional)"
+            placeholder={tForm("namePh")}
             value={newName}
             onChange={e => setNewName(e.target.value)}
             className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-sm"
@@ -159,12 +164,12 @@ export default function UsersPage() {
             <option value="ACCOUNTANT">ACCOUNTANT</option>
             <option value="VIEWER">VIEWER</option>
           </select>
-          <button onClick={createUser} className="px-3 py-1 rounded bg-white text-black text-sm">Invite</button>
+          <button onClick={createUser} className="px-3 py-1 rounded bg-white text-black text-sm">{tForm('invite')}</button>
         </div>
       </div>
 
       <div className="mt-8 max-w-3xl">
-        <div className="font-medium mb-2">Invitations</div>
+        <div className="font-medium mb-2">{tForm('invitations')}</div>
         <div className="space-y-2 text-sm">
           {invitations.map(invitation => {
             const expired = !invitation.acceptedAt && new Date(invitation.expiresAt) < new Date()
@@ -194,7 +199,7 @@ export default function UsersPage() {
               </div>
             )
           })}
-          {!invitations.length && <div className="text-zinc-500">No invitations yet.</div>}
+          {!invitations.length && <div className="text-zinc-500">{tForm('noInvitations')}</div>}
         </div>
       </div>
     </div>

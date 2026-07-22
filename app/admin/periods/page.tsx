@@ -1,5 +1,7 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
+
 import { useEffect, useState } from 'react'
 
 interface Period {
@@ -13,6 +15,8 @@ interface Period {
 }
 
 export default function PeriodsPage() {
+  const t = useTranslations('app.adminPages')
+
   const [periods, setPeriods] = useState<Period[]>([])
   const [loading, setLoading] = useState(true)
   const [name, setName] = useState('')

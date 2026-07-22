@@ -23,6 +23,8 @@ type UpdateStatus = {
 
 export default function UpdatePage() {
   const t = useTranslations('app.panels.admin')
+  const tPages = useTranslations('app.adminPages')
+  const tForm = useTranslations('app.updateForm')
   const [status, setStatus] = useState<UpdateStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
@@ -125,7 +127,7 @@ export default function UpdatePage() {
           <div className="border border-zinc-800 rounded-lg p-4 bg-zinc-950">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <div className="text-zinc-400 text-xs">Current Version</div>
+                <div className="text-zinc-400 text-xs">{tForm('currentVersion')}</div>
                 <div className="font-mono text-sm">{status.currentVersion}</div>
                 <div className="text-[10px] text-zinc-500 mt-0.5">
                   {status.licensed ? 'Licensed' : status.inTrial ? 'Trial' : 'Unlicensed (updates disabled)'}
@@ -144,7 +146,7 @@ export default function UpdatePage() {
 
             {status.targetDigest && (
               <div className="mb-4">
-                <div className="text-zinc-400 text-xs">Target Digest</div>
+                <div className="text-zinc-400 text-xs">{tForm('targetDigest')}</div>
                 <div className="font-mono text-[11px] text-zinc-300 break-all">{status.targetDigest}</div>
               </div>
             )}
@@ -188,7 +190,7 @@ export default function UpdatePage() {
 
             {status.status === 'success' && (
               <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded">
-                <div className="text-emerald-400 font-medium">Update completed successfully!</div>
+                <div className="text-emerald-400 font-medium">{tForm('success')}</div>
                 {status.backupPath && (
                   <div className="text-xs text-zinc-400 mt-1">Backup: {status.backupPath}</div>
                 )}
@@ -197,7 +199,7 @@ export default function UpdatePage() {
 
             {status.status === 'error' && (
               <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded">
-                <div className="text-rose-400 font-medium">Update failed</div>
+                <div className="text-rose-400 font-medium">{tForm('failed')}</div>
                 <div className="text-xs text-zinc-400 mt-1 whitespace-pre-wrap">{status.error}</div>
               </div>
             )}

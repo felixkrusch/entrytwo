@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { Settings, BarChart3, FileText, Users, CreditCard, File, History, ChevronDown, ReceiptText } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 
 interface TopBarProps {
   showSettings?: boolean
@@ -17,13 +18,14 @@ interface LicenseStatus {
 }
 
 export default function TopBar({ showSettings = false, onOpenLicenseModal }: TopBarProps) {
+  const t = useTranslations('app.nav')
+  const tAdmin = useTranslations('app.adminNav')
   const [isAdmin, setIsAdmin] = useState(false)
   const [license, setLicense] = useState<LicenseStatus | null>(null)
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const router = useRouter()
 
-  // Fetch trial / license status (used for the visible trial button)
   const loadLicense = () => {
     fetch('/api/license/status')
       .then(r => r.ok ? r.json() : null)
@@ -40,21 +42,20 @@ export default function TopBar({ showSettings = false, onOpenLicenseModal }: Top
 
   useEffect(() => {
     loadLicense()
-
     const handler = () => loadLicense()
     window.addEventListener('license-updated', handler)
     return () => window.removeEventListener('license-updated', handler)
   }, [])
 
   const navItems = [
-    { name: 'Finances', view: 'dashboard', icon: CreditCard },
-    { name: 'Ledger', view: 'ledger', icon: FileText },
-    { name: 'Invoicing', view: 'invoicing', icon: FileText },
-    { name: 'Journal', view: 'journal', icon: File },
-    { name: 'Contacts', view: 'contacts', icon: Users },
-    { name: 'Reports', view: 'reports', icon: BarChart3 },
-    { name: 'Receipts', view: 'receipts', icon: File },
-    { name: 'Claims', view: 'claims', icon: ReceiptText },
+    { name: t('finances'), view: 'dashboard', icon: CreditCard },
+    { name: t('ledger'), view: 'ledger', icon: FileText },
+    { name: t('invoicing'), view: 'invoicing', icon: FileText },
+    { name: t('journal'), view: 'journal', icon: File },
+    { name: t('contacts'), view: 'contacts', icon: Users },
+    { name: t('reports'), view: 'reports', icon: BarChart3 },
+    { name: t('receipts'), view: 'receipts', icon: File },
+    { name: t('claims'), view: 'claims', icon: ReceiptText },
   ]
 
   useEffect(() => {
@@ -65,17 +66,9 @@ export default function TopBar({ showSettings = false, onOpenLicenseModal }: Top
       .catch(() => setIsAdmin(false))
   }, [showSettings])
 
-  // Derive the current view directly from the router hooks.
-  // This is the single reliable source of truth in the App Router.
   const viewParam = (searchParams.get('view') || '').trim().toLowerCase()
-
-  // We consider ourselves inside the main app shell when pathname starts with /app.
   const isAppRoot = pathname?.startsWith('/app') ?? false
 
-  // Standard, reliable "is active" logic for a tab bar:
-  // - Only show active state inside /app
-  // - No ?view param, or ?view=dashboard → "Finances" (dashboard) is the active tab
-  // - All other views match exactly (lowercased)
   const isActive = (itemView: string) => {
     if (!isAppRoot) return false
     if (itemView === 'dashboard') {
@@ -84,11 +77,9 @@ export default function TopBar({ showSettings = false, onOpenLicenseModal }: Top
     return viewParam === itemView
   }
 
-  // Admin dropdown state
   const [showAdminMenu, setShowAdminMenu] = useState(false)
   const adminMenuRef = useRef<HTMLDivElement>(null)
 
-  // Close admin menu on outside click / escape
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
       if (adminMenuRef.current && !adminMenuRef.current.contains(e.target as Node)) {
@@ -106,9 +97,6 @@ export default function TopBar({ showSettings = false, onOpenLicenseModal }: Top
     }
   }, [])
 
-  // "Verify once, trust forever":
-  // The license state here comes exclusively from /api/license/status,
-  // which only reads the stored license.acceptedKey. No re-verification happens.
   const showTrialButton = license && license.inTrial && !license.isLicensed
 
   return (
@@ -124,9 +112,9 @@ export default function TopBar({ showSettings = false, onOpenLicenseModal }: Top
             target="_blank"
             rel="noopener noreferrer"
             className="ml-4 text-[10px] px-1 rounded bg-amber-900/30 text-amber-400 border border-amber-800 hover:bg-amber-900/50 transition-colors"
-            title="Get a license for entrytwo"
+            title={t('trialTitle')}
           >
-            Trial: {license!.daysRemaining} days left
+            {t('trialDays', { days: license!.daysRemaining })}
           </a>
         )}
       </div>
@@ -157,7 +145,7 @@ export default function TopBar({ showSettings = false, onOpenLicenseModal }: Top
             <button
               onClick={() => setShowAdminMenu(v => !v)}
               className="flex items-center gap-1 p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
-              title="Settings & History"
+              title={t('settings')}
               aria-haspopup="menu"
               aria-expanded={showAdminMenu}
             >
@@ -167,49 +155,46 @@ export default function TopBar({ showSettings = false, onOpenLicenseModal }: Top
 
             {showAdminMenu && (
               <div className="absolute right-0 mt-2 w-56 rounded-md border border-zinc-800 bg-zinc-950 shadow-xl z-50 py-1 text-sm">
-                {/* Admin-only items */}
                 {isAdmin && (
                   <>
                     <Link href="/admin" className="block px-3 py-1.5 hover:bg-zinc-900 text-zinc-200" onClick={() => setShowAdminMenu(false)}>
-                      Admin Overview
+                      {tAdmin('overview')}
                     </Link>
                     <Link href="/admin/company" className="block px-3 py-1.5 hover:bg-zinc-900 text-zinc-300" onClick={() => setShowAdminMenu(false)}>
-                      Company Settings
+                      {tAdmin('company')}
                     </Link>
                     <Link href="/admin/tax" className="block px-3 py-1.5 hover:bg-zinc-900 text-zinc-300" onClick={() => setShowAdminMenu(false)}>
-                      Tax Settings
+                      {tAdmin('tax')}
                     </Link>
                     <Link href="/admin/users" className="block px-3 py-1.5 hover:bg-zinc-900 text-zinc-300" onClick={() => setShowAdminMenu(false)}>
-                      Users
+                      {tAdmin('users')}
                     </Link>
                     <Link href="/admin/ai" className="block px-3 py-1.5 hover:bg-zinc-900 text-zinc-300" onClick={() => setShowAdminMenu(false)}>
-                      AI / LLM Provider
+                      {tAdmin('ai')}
                     </Link>
                     <Link href="/admin/backup" className="block px-3 py-1.5 hover:bg-zinc-900 text-zinc-300" onClick={() => setShowAdminMenu(false)}>
-                      Backup & Export
+                      {tAdmin('backup')}
                     </Link>
                     <Link href="/admin/bank-feeds" className="block px-3 py-1.5 hover:bg-zinc-900 text-zinc-300" onClick={() => setShowAdminMenu(false)}>
-                      Bank Feeds
+                      {tAdmin('bankFeeds')}
                     </Link>
                     <Link href="/admin/automation" className="block px-3 py-1.5 hover:bg-zinc-900 text-zinc-300" onClick={() => setShowAdminMenu(false)}>
-                      Automation
+                      {tAdmin('automation')}
                     </Link>
                     <Link href="/admin/chart-of-accounts" className="block px-3 py-1.5 hover:bg-zinc-900 text-zinc-300" onClick={() => setShowAdminMenu(false)}>
-                      Chart of Accounts
+                      {tAdmin('chartOfAccounts')}
                     </Link>
                     <Link href="/admin/update" className="block px-3 py-1.5 hover:bg-zinc-900 text-zinc-300" onClick={() => setShowAdminMenu(false)}>
-                      Update
+                      {tAdmin('update')}
                     </Link>
                     <div className="my-1 border-t border-zinc-800" />
                   </>
                 )}
 
-                {/* Always available from the settings icon dropdown */}
                 <Link href="/app?view=history" className="flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-900 text-zinc-300" onClick={() => setShowAdminMenu(false)}>
-                  <History className="w-4 h-4" /> Commit History
+                  <History className="w-4 h-4" /> {tAdmin('history')}
                 </Link>
 
-                {/* Manual license entry (always available) */}
                 {onOpenLicenseModal && (
                   <button
                     onClick={() => onOpenLicenseModal()}
@@ -222,9 +207,9 @@ export default function TopBar({ showSettings = false, onOpenLicenseModal }: Top
                             ? "text-[10px] px-2 py-0.5 rounded border border-amber-800 bg-amber-900/30 text-amber-400 hover:bg-amber-900/50 ml-2"
                             : "text-[10px] px-2 py-0.5 rounded border border-red-800 bg-red-900/30 text-red-400 hover:bg-red-900/50 ml-2"
                     }
-                    title="Enter or change license key"
+                    title={tAdmin('licenseTitle')}
                   >
-                    License
+                    {t('license')}
                   </button>
                 )}
               </div>

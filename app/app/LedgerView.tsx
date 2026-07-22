@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useFormatter } from 'next-intl'
+import { useFormatter, useTranslations } from 'next-intl'
 
 interface Line {
   id: string
@@ -68,6 +68,7 @@ async function fetchOpeningBalance(accountCode: string, from: string, baseCurren
 }
 
 export default function LedgerView({ accountCode, branch = 'main', asOf }: Props) {
+  const t = useTranslations('app.views.ledger')
   const router = useRouter()
   const searchParams = useSearchParams()
   const format = useFormatter()
@@ -335,7 +336,7 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
         </button>
         <span className="text-zinc-600">›</span>
         <div className="font-medium text-white">
-          Ledger · {accountCode} {accountName ? `— ${accountName}` : ''}
+          {t('title')} · {accountCode} {accountName ? `— ${accountName}` : ''}
         </div>
 
         {(branch && branch !== 'main') || asOf ? (
@@ -356,16 +357,16 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
       {/* Filters */}
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <div>
-          <label className="text-xs text-zinc-400 block mb-1">Search</label>
+          <label className="text-xs text-zinc-400 block mb-1">{t('search')}</label>
           <input
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1) }}
-            placeholder="Description or line text"
+            placeholder={t('searchPlaceholder')}
             className="bg-zinc-900 border border-zinc-700 rounded px-3 py-1 text-sm w-64"
           />
         </div>
         <div>
-          <label className="text-xs text-zinc-400 block mb-1">From</label>
+          <label className="text-xs text-zinc-400 block mb-1">{t('from')}</label>
           <input
             type="date"
             value={from}
@@ -374,7 +375,7 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
           />
         </div>
         <div>
-          <label className="text-xs text-zinc-400 block mb-1">To</label>
+          <label className="text-xs text-zinc-400 block mb-1">{t('to')}</label>
           <input
             type="date"
             value={to}
@@ -472,7 +473,7 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
                   {/* Double-entry lines with explicit Debit / Credit columns + cleared status */}
                   <div className="space-y-1 text-sm mb-2">
                     <div className="flex justify-between text-[10px] uppercase text-zinc-500 px-1">
-                      <span className="flex-1">Account</span>
+                      <span className="flex-1">{t('account')}</span>
                       <span className="w-28 text-right">Debit</span>
                       <span className="w-28 text-right">Credit</span>
                       <span className="w-12 text-center">✓</span>

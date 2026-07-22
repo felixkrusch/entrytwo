@@ -24,6 +24,7 @@ interface AuditEvent {
 }
 
 export default function AuditLogPanel() {
+  const tHist = useTranslations('app.views.history')
   const t = useTranslations('app.panels.audit')
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -83,22 +84,20 @@ export default function AuditLogPanel() {
       )}
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div>
-          <div className="text-sm font-medium text-zinc-200">Commits</div>
+          <div className="text-sm font-medium text-zinc-200">{tHist('commits')}</div>
           <div className="text-[10px] text-zinc-500">
-            GitHub-style list of every commit. SHA = stable id. Every journal entry + branch/merge/tag/rollback/AI action is a commit.
-            <span className="ml-1 text-emerald-400">main</span> = official protected books. Other branches = safe experiments.
-            Load = view books at commit. Restore = set as head (new rollback created — you can go back before it).
+            {tHist('intro')}
           </div>
         </div>
         <div className="flex items-center gap-2">
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Filter commits…"
+            placeholder={tHist('filterCommits')}
             className="bg-zinc-900 border border-zinc-700 rounded px-2 py-0.5 text-xs w-48"
           />
           <label className="text-[10px] flex items-center gap-1 cursor-pointer">
-            <input type="checkbox" checked={onlyGit} onChange={e => setOnlyGit(e.target.checked)} /> Git ops
+            <input type="checkbox" checked={onlyGit} onChange={e => setOnlyGit(e.target.checked)} />{tHist('gitOps')}
           </label>
           <div className="text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">on {currentBranchForHistory}</div>
         </div>

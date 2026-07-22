@@ -17,6 +17,7 @@ const ContactUpdateSchema = z.object({
   addressLine2: z.string().max(200).optional().nullable(),
   taxId: z.string().optional().nullable(),
   currency: z.string().optional().nullable(),
+  preferredLanguage: z.enum(['en', 'de']).optional().nullable(),
   notes: z.string().optional().nullable(),
   website: z.string().url().optional().nullable(),
 })

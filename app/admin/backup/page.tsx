@@ -1,5 +1,7 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
+
 import { useRef, useState } from 'react'
 import { Archive, CheckCircle2, Database, FileArchive, HardDriveDownload, ReceiptText, ShieldAlert, Upload } from 'lucide-react'
 
@@ -18,6 +20,9 @@ function formatBytes(bytes: number): string {
 }
 
 export default function BackupPage() {
+  const tForm = useTranslations('app.backupForm')
+  const t = useTranslations('app.adminPages')
+
   const fileRef = useRef<HTMLInputElement>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [confirmed, setConfirmed] = useState(false)
@@ -71,7 +76,7 @@ export default function BackupPage() {
           <Archive className="h-4 w-4" />
           Disaster recovery
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">Portable backup and restore</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">{tForm('title')}</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
           Move a complete entrytwo installation between local machines or VPS hosts. One compressed archive contains all accounting records, Git history, users, configuration, feeds, schedules, invoices, and uploaded receipts or statements.
         </p>
@@ -85,7 +90,7 @@ export default function BackupPage() {
                 <HardDriveDownload className="h-4 w-4 text-emerald-400" />
                 Export complete archive
               </h2>
-              <p className="mt-2 text-xs leading-5 text-zinc-500">The download is compressed and streamed directly to disk.</p>
+              <p className="mt-2 text-xs leading-5 text-zinc-500">{tForm('downloadHelp')}</p>
             </div>
             <span className="rounded border border-emerald-900 bg-emerald-950/50 px-2 py-1 font-mono text-[10px] text-emerald-400">.etbackup</span>
           </div>
@@ -93,13 +98,13 @@ export default function BackupPage() {
           <div className="my-6 grid grid-cols-2 gap-3">
             <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
               <Database className="mb-2 h-4 w-4 text-sky-400" />
-              <div className="text-xs font-medium text-zinc-200">Complete database</div>
+              <div className="text-xs font-medium text-zinc-200">{tForm('completeDb')}</div>
               <div className="mt-1 text-[11px] leading-4 text-zinc-500">All tables, original IDs, relationships, branches, events, and settings.</div>
             </div>
             <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
               <ReceiptText className="mb-2 h-4 w-4 text-amber-400" />
-              <div className="text-xs font-medium text-zinc-200">All documents</div>
-              <div className="mt-1 text-[11px] leading-4 text-zinc-500">Receipts, invoices, card statements, and bank statements.</div>
+              <div className="text-xs font-medium text-zinc-200">{tForm('allDocs')}</div>
+              <div className="mt-1 text-[11px] leading-4 text-zinc-500">{tForm('allDocsHelp')}</div>
             </div>
           </div>
 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { COUNTRIES, getRegionsForCountry, getSuggestedCurrency } from '@/lib/countries'
 
 type SettingsValue = { value?: string } | Record<string, unknown>
@@ -21,6 +22,8 @@ interface Address {
 }
 
 export default function CompanySettingsPage() {
+  const tForm = useTranslations('app.companyForm')
+  const t = useTranslations('app.adminNav')
   const [loading, setLoading] = useState(true)
 
   const [companyName, setCompanyName] = useState('')
@@ -188,9 +191,39 @@ export default function CompanySettingsPage() {
     void save('company.registrationNumber', v)
   }
 
-  const saveDefaultLanguage = (v: 'en' | 'de') => {
+  const saveDefaultLanguage = async (v: 'en' | 'de') => {
     setDefaultLanguage(v)
-    void save('company.defaultLanguage', v)
+    await save('company.defaultLanguage', v)
+    // next-intl reads company.defaultLanguage on the server — reload to apply UI language
+    window.location.reload()
+  }
+
+  const resetStandardAccountNames = async () => {
+    const label = defaultLanguage === 'de' ? 'Deutsch' : 'English'
+    if (
+      !confirm(
+        defaultLanguage === 'de'
+          ? `Standard-Kontennamen auf ${label} zurücksetzen? Nur Konten mit noch unveränderten Standardnamen werden umbenannt. Fortfahren?`
+          : `Reset standard chart-of-accounts names to ${label}? Only accounts that still use a standard name will be renamed. Continue?`,
+      )
+    ) {
+      return
+    }
+    const res = await fetch('/api/accounts/reset-standard-names', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ locale: defaultLanguage, onlyUnmodified: true }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      alert(data.error || 'Failed')
+      return
+    }
+    alert(
+      defaultLanguage === 'de'
+        ? `${data.updated ?? 0} Konten umbenannt, ${data.skipped ?? 0} übersprungen.`
+        : `Renamed ${data.updated ?? 0} accounts, skipped ${data.skipped ?? 0}.`,
+    )
   }
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -219,19 +252,19 @@ export default function CompanySettingsPage() {
   const suggestedCur = currentCountry ? getSuggestedCurrency(currentCountry) : ''
 
   if (loading) {
-    return <div className="text-sm text-zinc-500">Loading...</div>
+    return <div className="text-sm text-zinc-500">{t('loading')}</div>
   }
 
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-xl font-semibold">Company Settings</h1>
-        <p className="text-xs text-zinc-500">Location drives suggested currency and tax jurisdiction. Both can be overridden.</p>
+        <h1 className="text-xl font-semibold">{t('companyTitle')}</h1>
+        <p className="text-xs text-zinc-500">{t('companySubtitle')}</p>
       </div>
 
       <div className="space-y-4 max-w-xl">
         <div className="flex items-center gap-3">
-          <label className="w-48 text-zinc-400">Company Name</label>
+          <label className="w-48 text-zinc-400">{tForm('companyName')}</label>
           <input
             value={companyName}
             onChange={e => setCompanyName(e.target.value)}
@@ -241,13 +274,13 @@ export default function CompanySettingsPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <label className="w-48 text-zinc-400">Country</label>
+          <label className="w-48 text-zinc-400">{tForm('country')}</label>
           <select
             value={currentCountry}
             onChange={e => handleCountryChange(e.target.value)}
             className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1"
           >
-            <option value="">Select country…</option>
+            <option value="">{tForm('selectCountry')}</option>
             {COUNTRIES.map(c => (
               <option key={c.code} value={c.code}>{c.name}</option>
             ))}
@@ -256,13 +289,13 @@ export default function CompanySettingsPage() {
 
         {availableRegions.length > 0 && (
           <div className="flex items-center gap-3">
-            <label className="w-48 text-zinc-400">Province / State / Region</label>
+            <label className="w-48 text-zinc-400">{tForm('region')}</label>
             <select
               value={address.region || ''}
               onChange={e => handleRegionChange(e.target.value)}
               className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1"
             >
-              <option value="">Select region…</option>
+              <option value="">{tForm('selectRegion')}</option>
               {availableRegions.map(r => (
                 <option key={r.code} value={r.code}>{r.name}</option>
               ))}
@@ -272,28 +305,28 @@ export default function CompanySettingsPage() {
 
         {/* Full ISO address (like Add Contact) */}
         <div className="flex items-center gap-3">
-          <label className="w-48 text-zinc-400">Street / Address Line 1</label>
+          <label className="w-48 text-zinc-400">{tForm('street')}</label>
           <input
             value={address.street || address.addressStreet || ''}
             onChange={e => updateAddressField('street', e.target.value)}
             onBlur={e => updateAddressField('street', e.target.value)}
             className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1"
-            placeholder="Street and number"
+            placeholder={tForm("streetPh")}
           />
         </div>
         <div className="flex items-center gap-3">
-          <label className="w-48 text-zinc-400">Address Line 2</label>
+          <label className="w-48 text-zinc-400">{tForm('line2')}</label>
           <input
             value={address.line2 || address.addressLine2 || ''}
             onChange={e => updateAddressField('line2', e.target.value)}
             onBlur={e => updateAddressField('line2', e.target.value)}
             className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1"
-            placeholder="Suite, building, etc."
+            placeholder={tForm("line2Ph")}
           />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex items-center gap-3">
-            <label className="w-24 text-zinc-400">City</label>
+            <label className="w-24 text-zinc-400">{tForm('city')}</label>
             <input
               value={address.city || address.addressCity || ''}
               onChange={e => updateAddressField('city', e.target.value)}
@@ -302,7 +335,7 @@ export default function CompanySettingsPage() {
             />
           </div>
           <div className="flex items-center gap-3">
-            <label className="w-24 text-zinc-400">ZIP / Postal</label>
+            <label className="w-24 text-zinc-400">{tForm('zip')}</label>
             <input
               value={address.zip || address.addressZip || ''}
               onChange={e => updateAddressField('zip', e.target.value)}
@@ -313,7 +346,7 @@ export default function CompanySettingsPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <label className="w-48 text-zinc-400">Base Currency</label>
+          <label className="w-48 text-zinc-400">{tForm('baseCurrency')}</label>
           <div className="flex-1">
             <select
               value={baseCurrency}
@@ -341,12 +374,12 @@ export default function CompanySettingsPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <label className="w-48 text-zinc-400">Default Tax Jurisdiction</label>
+          <label className="w-48 text-zinc-400">{tForm('defaultTaxJurisdiction')}</label>
           <input
             value={defaultTaxJurisdiction}
             onChange={e => setDefaultTaxJurisdiction(e.target.value.toUpperCase())}
             onBlur={e => handleJurisdictionOverride(e.target.value)}
-            placeholder="e.g. CA-ON, US-CA, DE"
+            placeholder={tForm("taxJurPh")}
             className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 font-mono text-sm"
           />
         </div>
@@ -357,32 +390,32 @@ export default function CompanySettingsPage() {
         {/* Branding & Compliance fields required for professional invoices */}
         <div className="pt-4 border-t border-zinc-800 mt-4 space-y-4">
           <div className="flex items-center gap-3">
-            <label className="w-48 text-zinc-400">VAT / Tax ID</label>
+            <label className="w-48 text-zinc-400">{tForm('taxId')}</label>
             <input value={taxId} onChange={e => setTaxId(e.target.value)} onBlur={e => saveTaxId(e.target.value)} placeholder="DE123456789" className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 font-mono text-sm" />
           </div>
 
           <div className="flex items-center gap-3">
-            <label className="w-48 text-zinc-400">Registration / Company Number</label>
+            <label className="w-48 text-zinc-400">{tForm('regNumber')}</label>
             <input value={regNumber} onChange={e => setRegNumber(e.target.value)} onBlur={e => saveReg(e.target.value)} placeholder="HRB 12345" className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 font-mono text-sm" />
           </div>
 
           {/* International bank details: EU (IBAN+BIC) or US/CA (routing+account) */}
           <div className="pt-2">
-            <div className="text-sm font-medium mb-2 text-zinc-300">Bank Details</div>
+            <div className="text-sm font-medium mb-2 text-zinc-300">{tForm('bankDetails')}</div>
             <div className="flex items-center gap-3 mb-2">
-              <label className="w-48 text-zinc-400">Bank Name</label>
+              <label className="w-48 text-zinc-400">{tForm('bankName')}</label>
               <input value={bankName} onChange={e => setBankName(e.target.value)} onBlur={e => { setBankName(e.target.value); saveBank({ bankName: e.target.value }) }} className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1" placeholder="Deutsche Bank / Chase" />
             </div>
             <div className="flex items-center gap-3 mb-2">
-              <label className="w-48 text-zinc-400">IBAN</label>
+              <label className="w-48 text-zinc-400">{tForm('iban')}</label>
               <input value={iban} onChange={e => setIban(e.target.value)} onBlur={e => { setIban(e.target.value); saveBank({ iban: e.target.value }) }} className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 font-mono text-sm" placeholder="DE44 3704 0044 ..." />
             </div>
             <div className="flex items-center gap-3 mb-2">
-              <label className="w-48 text-zinc-400">BIC / SWIFT</label>
+              <label className="w-48 text-zinc-400">{tForm('bic')}</label>
               <input value={bic} onChange={e => setBic(e.target.value)} onBlur={e => { setBic(e.target.value); saveBank({ bic: e.target.value }) }} className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 font-mono text-sm" placeholder="DEUTDEFF" />
             </div>
             <div className="flex items-center gap-3 mb-2">
-              <label className="w-48 text-zinc-400">Routing / Transit / ABA</label>
+              <label className="w-48 text-zinc-400">{tForm('routing')}</label>
               <input value={routing} onChange={e => setRouting(e.target.value)} onBlur={e => { setRouting(e.target.value); saveBank({ routing: e.target.value }) }} className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 font-mono text-sm" placeholder="021000021 (US) / 12345-678 (CA)" />
             </div>
             <div className="flex items-center gap-3">
@@ -398,25 +431,40 @@ export default function CompanySettingsPage() {
                {logoPreview && (
                  <div className="mt-2">
                    <img src={logoPreview} alt="logo preview" className="max-h-12 border border-zinc-700 rounded bg-white p-1" />
-                   <div className="text-[10px] text-zinc-500">Will appear on invoices</div>
+                   <div className="text-[10px] text-zinc-500">{tForm('logoHelp')}</div>
                  </div>
                )}
              </div>
            </div>
 
-           <div className="flex items-center gap-3">
-             <label className="w-48 text-zinc-400">Default Invoice Language</label>
-             <select
-               value={defaultLanguage}
-               onChange={e => saveDefaultLanguage((e.target.value as 'en' | 'de'))}
-               className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-sm"
-             >
-               <option value="en">English</option>
-               <option value="de">Deutsch</option>
-             </select>
-           </div>
-         </div>
-       </div>
+            <div className="flex items-start gap-3">
+              <label className="w-48 text-zinc-400 pt-1">{t('defaultLanguage')}</label>
+              <div className="flex flex-col gap-2">
+                <select
+                  value={defaultLanguage}
+                  onChange={e => void saveDefaultLanguage(e.target.value as 'en' | 'de')}
+                  className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-sm"
+                >
+                  <option value="en">{t('englishDefault')}</option>
+                  <option value="de">{t('german')}</option>
+                </select>
+                <p className="text-[10px] text-zinc-500 max-w-md">
+                  {t('defaultLanguageHelp')}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void resetStandardAccountNames()}
+                  className="self-start text-xs px-3 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:border-zinc-500"
+                >
+                  {t('applyStandardNames')}
+                </button>
+                <p className="text-[10px] text-zinc-600 max-w-md">
+                  {t('applyStandardNamesHelp')}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
 
       <div className="text-[10px] text-zinc-500 mt-6">All changes are saved immediately and audited. Bank details (IBAN+BIC or routing+account), Tax ID, address and Logo are used for branded, jurisdiction-compliant invoices. Due date is shown on invoices; no default terms text.</div>
     </div>

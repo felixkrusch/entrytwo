@@ -1,5 +1,7 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
+
 import { useEffect, useState } from 'react'
 import { PROVIDERS } from '@/lib/providers'
 
@@ -15,6 +17,9 @@ interface LlmConfigStatus {
 }
 
 export default function AiProviderPage() {
+  const tForm = useTranslations('app.aiForm')
+  const t = useTranslations('app.adminPages')
+
   const [status, setStatus] = useState<LlmConfigStatus | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -34,13 +39,13 @@ export default function AiProviderPage() {
   }, [])
 
   if (loading) {
-    return <div className="text-sm text-zinc-500">Loading...</div>
+    return <div className="text-sm text-zinc-500">{t('loading')}</div>
   }
 
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-xl font-semibold">AI / LLM Provider</h1>
+        <h1 className="text-xl font-semibold">{tForm('title')}</h1>
         <p className="text-xs text-zinc-500">
           Connect OpenAI, xAI (Grok), Anthropic, OpenRouter, Kilo Gateway, DeepSeek, Gemini, Qwen, or Hugging Face.
           API keys are configured via environment variables for security.
@@ -49,18 +54,18 @@ export default function AiProviderPage() {
 
       <div className="space-y-4 text-sm max-w-xl">
         <div className="border border-zinc-800 rounded-lg p-4">
-          <div className="font-medium mb-2">Current Configuration</div>
+          <div className="font-medium mb-2">{tForm('current')}</div>
           <div className="space-y-1 text-xs">
             <div className="flex justify-between">
-              <span className="text-zinc-400">Provider:</span>
+              <span className="text-zinc-400">{tForm('provider')}</span>
               <span className="font-mono">{status?.provider || 'openai'}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-zinc-400">Model:</span>
+              <span className="text-zinc-400">{tForm('model')}</span>
               <span className="font-mono">{status?.model || 'gpt-4o-mini'}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-zinc-400">API Key:</span>
+              <span className="text-zinc-400">{tForm('apiKey')}</span>
               <span className={status?.hasKey ? 'text-emerald-400' : 'text-rose-400'}>
                 {status?.hasKey ? `${status.keyEnv} is set` : `${status?.keyEnv || 'LLM_API_KEY'} not configured`}
               </span>

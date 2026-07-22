@@ -3,12 +3,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCurrency } from '@/lib/utils'
+import { useTranslations } from 'next-intl'
 
 interface ContactItem {
   id: string
   name: string
   email?: string
   type: 'CUSTOMER' | 'VENDOR'
+  preferredLanguage?: string | null
 }
 
 interface InvoiceLineForm {
@@ -75,6 +77,7 @@ interface Invoice {
 }
 
 export default function InvoicingPanel() {
+  const t = useTranslations('app.views.invoicing')
   const router = useRouter()
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [loading, setLoading] = useState(true)
@@ -191,6 +194,8 @@ export default function InvoicingPanel() {
   const [notes, setNotes] = useState('')
   const [textSnippets, setTextSnippets] = useState<SavedSnippet[]>([])
   const [invoiceLanguage, setInvoiceLanguage] = useState<'en' | 'de'>('en')
+  const [companyDefaultLanguage, setCompanyDefaultLanguage] = useState<'en' | 'de'>('en')
+  const [languageTouched, setLanguageTouched] = useState(false)
 
   // --- All useCallback definitions FIRST (before any useEffect that references them) ---
   const fetchContacts = useCallback(async () => {
@@ -200,6 +205,17 @@ export default function InvoicingPanel() {
       setContacts(data.contacts || [])
     } catch {}
   }, [])
+
+  const resolveInvoiceLanguage = useCallback(
+    (contactId: string): 'en' | 'de' => {
+      const c = contacts.find((x) => x.id === contactId)
+      if (c?.preferredLanguage === 'de' || c?.preferredLanguage === 'en') {
+        return c.preferredLanguage
+      }
+      return companyDefaultLanguage
+    },
+    [contacts, companyDefaultLanguage],
+  )
 
   const fetchSnippets = useCallback(async () => {
     try {
@@ -223,12 +239,15 @@ export default function InvoicingPanel() {
     // Email availability (SMTP configured) — gates Email button
     fetch('/api/invoices/email/status').then(r => r.json()).then(d => setEmailEnabled(!!d.configured)).catch(() => {})
     // Text snippets are loaded only when the create form opens (see showCreate effect)
-    // Load default invoice language from company settings
+    // Company default language → fallback for new invoices (contact pref wins when set)
     fetch('/api/settings').then(r => r.json()).then((s: any[]) => {
       if (Array.isArray(s)) {
         const langSetting = s.find(x => x.key === 'company.defaultLanguage')
         const v = (langSetting?.value as any)?.value
-        if (v === 'de' || v === 'en') setInvoiceLanguage(v)
+        if (v === 'de' || v === 'en') {
+          setCompanyDefaultLanguage(v)
+          setInvoiceLanguage((prev) => (languageTouched ? prev : v))
+        }
       }
     }).catch(() => {})
   }, [])
@@ -761,16 +780,16 @@ export default function InvoicingPanel() {
     <div className="p-6">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Invoicing</h1>
+          <h1 className="text-xl font-semibold">{t('title')}</h1>
           <p className="text-xs text-zinc-500 mt-1">
-            AI-first invoicing. Chat on the left to create invoices naturally. Or use the form below.
+            {t('subtitle')}
           </p>
         </div>
         <button
           onClick={openCreate}
           className="px-3 py-1.5 rounded bg-emerald-500 text-black font-medium text-sm hover:bg-emerald-400"
         >
-          New Invoice
+          {t('newInvoice')}
         </button>
       </div>
 
@@ -780,21 +799,21 @@ export default function InvoicingPanel() {
           onClick={() => setShowRecurring(!showRecurring)}
           className="px-3 py-1 rounded bg-zinc-800 hover:bg-zinc-700"
         >
-          {showRecurring ? 'Hide' : 'Show'} Recurring Schedules
+          {showRecurring ? `${t('hide')} ${t('recurringSchedulesShort')}` : `${t('show')} ${t('recurringSchedulesShort')}`}
         </button>
         {showCreate && (
           <button onClick={makeRecurring} className="px-3 py-1 rounded bg-emerald-800 text-emerald-200 hover:bg-emerald-700">
-            Make this form recurring…
+            {t('makeRecurring')}
           </button>
         )}
-        <span className="text-zinc-500 ml-2">Recurring always creates DRAFT first. You review and send.</span>
+        <span className="text-zinc-500 ml-2">{t('draftFirstNote')}</span>
       </div>
 
       {showRecurring && (
         <div className="mb-6 border border-zinc-800 rounded p-3 text-sm">
-          <div className="text-xs text-zinc-400 mb-2">Recurring schedules (generate DRAFT invoices on schedule)</div>
+          <div className="text-xs text-zinc-400 mb-2">{t('recurringTitle')}</div>
           {recurring.length === 0 ? (
-            <div className="text-zinc-500 text-xs">No recurring schedules yet. Create one from the invoice form.</div>
+            <div className="text-zinc-500 text-xs">{t('noRecurring')}</div>
           ) : (
             <div className="space-y-1">
               {recurring.map(r => (
@@ -805,7 +824,7 @@ export default function InvoicingPanel() {
                     <span className="text-xs ml-2 text-zinc-500">{r.frequency} ×{r.interval} • next {r.nextDueDate ? new Date(r.nextDueDate).toLocaleDateString() : '—'}</span>
                   </div>
                   <div className="flex gap-2 text-xs">
-                    <button onClick={() => generateNow(r.id)} className="px-2 py-0.5 rounded bg-emerald-800 text-emerald-200">Generate now</button>
+                    <button onClick={() => generateNow(r.id)} className="px-2 py-0.5 rounded bg-emerald-800 text-emerald-200">{t('generateNow')}</button>
                     <button onClick={() => toggleRecurringStatus(r)} className="px-2 py-0.5 rounded bg-zinc-800">{r.status === 'ACTIVE' ? 'Pause' : 'Resume'}</button>
                     <span className={`px-2 py-0.5 rounded ${r.autoSend ? 'bg-amber-900 text-amber-200' : 'bg-zinc-800'}`}>
                       {r.autoSend ? 'auto-send' : 'draft only'}
@@ -821,15 +840,15 @@ export default function InvoicingPanel() {
       {/* Quick stats */}
       <div className="mb-5 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
         <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-          <div className="text-[10px] text-zinc-400">Outstanding</div>
+          <div className="text-[10px] text-zinc-400">{t('outstanding')}</div>
           <div className="text-lg font-semibold tabular-nums mt-0.5">{formatCurrency(stats.outstanding)}</div>
         </div>
         <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-          <div className="text-[10px] text-rose-400">Overdue</div>
+          <div className="text-[10px] text-rose-400">{t('overdue')}</div>
           <div className="text-lg font-semibold tabular-nums mt-0.5 text-rose-400">{formatCurrency(stats.overdue)}</div>
         </div>
         <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-          <div className="text-[10px] text-emerald-400">Collected this month</div>
+          <div className="text-[10px] text-emerald-400">{t('collectedThisMonth')}</div>
           <div className="text-lg font-semibold tabular-nums mt-0.5 text-emerald-400">{formatCurrency(stats.thisMonthPaid)}</div>
         </div>
       </div>
@@ -838,21 +857,29 @@ export default function InvoicingPanel() {
       {showCreate && (
         <div className="mb-8 border border-zinc-700 rounded-lg p-4 bg-zinc-950">
            <div className="flex items-center justify-between mb-4">
-             <div className="font-medium">{editingInvoiceId ? 'Edit Invoice (DRAFT)' : 'Create Invoice'}</div>
+             <div className="font-medium">{editingInvoiceId ? t('editInvoiceDraft') : t('createInvoice')}</div>
              <button onClick={closeCreate} className="text-2xl leading-none px-2 text-zinc-400 hover:text-rose-400" aria-label="Close">×</button>
            </div>
 
           <div className="max-w-2xl space-y-4">
               <div>
-                <label className="text-xs text-zinc-400 block mb-1">Customer *</label>
+                <label className="text-xs text-zinc-400 block mb-1">{t('customerRequired')}</label>
                 <div className="flex items-end gap-2">
-                   <div className="w-[83%]">
+                     <div className="w-[83%]">
                      <select
                        value={newContactId}
-                       onChange={e => setNewContactId(e.target.value)}
+                       onChange={e => {
+                         const id = e.target.value
+                         setNewContactId(id)
+                         if (!languageTouched && id) {
+                           setInvoiceLanguage(resolveInvoiceLanguage(id))
+                         } else if (!languageTouched && !id) {
+                           setInvoiceLanguage(companyDefaultLanguage)
+                         }
+                       }}
                        className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700 text-sm"
                      >
-                       <option value="">Select a customer...</option>
+                       <option value="">{t('selectCustomer')}</option>
                        {contacts.map(c => (
                          <option key={c.id} value={c.id}>{c.name}{c.email ? ` (${c.email})` : ''}</option>
                        ))}
@@ -869,7 +896,7 @@ export default function InvoicingPanel() {
                     }}
                     className="px-2 py-1.5 rounded bg-emerald-700 text-emerald-100 text-xs hover:bg-emerald-600 whitespace-nowrap"
                   >
-                    + Add new customer
+                    {t('addNewCustomer')}
                   </button>
                 </div>
               </div>
@@ -877,7 +904,7 @@ export default function InvoicingPanel() {
               {/* Issue / Due dates */}
               <div className="grid grid-cols-2 gap-3">
                <div>
-                 <label className="text-xs text-zinc-400 block mb-1">Issue Date</label>
+                 <label className="text-xs text-zinc-400 block mb-1">{t('issueDate')}</label>
                  <input
                    type="date"
                    value={formIssueDate}
@@ -886,7 +913,7 @@ export default function InvoicingPanel() {
                  />
                </div>
                <div>
-                 <label className="text-xs text-zinc-400 block mb-1">Due Date</label>
+                 <label className="text-xs text-zinc-400 block mb-1">{t('dueDate')}</label>
                  <input
                    type="date"
                    value={formDueDate}
@@ -898,7 +925,7 @@ export default function InvoicingPanel() {
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-xs text-zinc-400">Line Items</label>
+                <label className="text-xs text-zinc-400">{t('lineItems')}</label>
                 <button type="button" onClick={addLine} className="text-xs text-emerald-400 hover:text-emerald-300">
                   + Add Line
                 </button>
@@ -908,7 +935,7 @@ export default function InvoicingPanel() {
                   <div key={index} className="flex gap-2">
                     <input
                       type="text"
-                      placeholder="Description"
+                      placeholder={t('descriptionPh')}
                       value={line.description}
                       onChange={e => updateLine(index, 'description', e.target.value)}
                       className="flex-1 px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-sm"
@@ -930,7 +957,7 @@ export default function InvoicingPanel() {
                        className="w-28 px-1 py-1 rounded bg-zinc-900 border border-zinc-700 text-xs"
                        title="Tax rate"
                      >
-                       <option value="">No tax</option>
+                       <option value="">{t('noTax')}</option>
                        {taxRates.map(tr => (
                          <option key={tr.id} value={tr.id}>
                            {tr.name} ({(tr.rate * 100).toFixed(0)}%)
@@ -945,24 +972,30 @@ export default function InvoicingPanel() {
                 </div>
                </div>
  
-               {/* Invoice language — small (~30%), placed just above snippets */}
-              <div className="w-[30%]">
-                <label className="text-xs text-zinc-400 block mb-1">Language</label>
-                <select
-                  value={invoiceLanguage}
-                  onChange={e => setInvoiceLanguage(e.target.value as 'en' | 'de')}
-                  className="w-full px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-sm"
-                >
-                  <option value="en">English</option>
-                  <option value="de">Deutsch</option>
-                </select>
-              </div>
+                {/* Invoice language — per document; defaults from contact → company */}
+               <div className="w-[40%]">
+                 <label className="text-xs text-zinc-400 block mb-1">{t('invoiceLanguage')}</label>
+                 <select
+                   value={invoiceLanguage}
+                   onChange={e => {
+                     setLanguageTouched(true)
+                     setInvoiceLanguage(e.target.value as 'en' | 'de')
+                   }}
+                   className="w-full px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-sm"
+                 >
+                   <option value="en">{t('english')}</option>
+                   <option value="de">{t('german')}</option>
+                 </select>
+                 <p className="text-[10px] text-zinc-600 mt-1">
+                   {t('invoiceLanguageHelp')}
+                 </p>
+               </div>
 
               {snippets.length > 0 && (
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <label className="text-xs text-zinc-400">Saved Snippets</label>
-                      <button type="button" onClick={saveAsSnippet} className="text-[10px] text-emerald-400 hover:text-emerald-300">Save current line as snippet</button>
+                      <label className="text-xs text-zinc-400">{t('savedSnippets')}</label>
+                      <button type="button" onClick={saveAsSnippet} className="text-[10px] text-emerald-400 hover:text-emerald-300">{t('saveLineSnippet')}</button>
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {snippets.map(s => (
@@ -977,18 +1010,18 @@ export default function InvoicingPanel() {
                {/* Invoice-level free text field + its own text snippets (parallel to line snippets) */}
                <div>
                  <div className="flex items-center justify-between mb-1">
-                   <label className="text-xs text-zinc-400">Notes / Message on invoice</label>
-                   <button type="button" onClick={saveCurrentTextAsSnippet} className="text-[10px] text-emerald-400 hover:text-emerald-300">Save current text as snippet</button>
+                   <label className="text-xs text-zinc-400">{t('notesOnInvoice')}</label>
+                   <button type="button" onClick={saveCurrentTextAsSnippet} className="text-[10px] text-emerald-400 hover:text-emerald-300">{t('saveTextSnippet')}</button>
                  </div>
                  <textarea
                    value={notes}
                    onChange={e => setNotes(e.target.value)}
                    rows={3}
                    className="w-full px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-sm"
-                   placeholder="Thank you for your business. Payment is due by the due date above."
+                   placeholder={t('thankYouDefault')}
                  />
                  <div className="mt-2">
-                   <div className="text-[10px] text-zinc-400 mb-1">Text Snippets</div>
+                   <div className="text-[10px] text-zinc-400 mb-1">{t('textSnippets')}</div>
                    {textSnippets.length > 0 ? (
                      <div className="flex flex-wrap gap-1">
                        {textSnippets.map(ts => (
@@ -1005,17 +1038,17 @@ export default function InvoicingPanel() {
 
              <div className="border-t border-zinc-700 pt-4 space-y-1">
               <div className="flex justify-between text-sm">
-                <span className="text-zinc-400">Subtotal</span>
+                <span className="text-zinc-400">{t('subtotal')}</span>
                 <span>{formatCurrency(subtotal)}</span>
               </div>
               {taxTotal > 0 && (
                 <div className="flex justify-between text-sm">
-                  <span className="text-zinc-400">Tax</span>
+                  <span className="text-zinc-400">{t('tax')}</span>
                   <span>{formatCurrency(taxTotal)}</span>
                 </div>
               )}
               <div className="flex justify-between text-sm font-medium">
-                <span>Total</span>
+                <span>{t('total')}</span>
                 <span>{formatCurrency(grandTotal)}</span>
               </div>
             </div>
@@ -1028,7 +1061,7 @@ export default function InvoicingPanel() {
                {saving ? (editingInvoiceId ? 'Saving...' : 'Creating...') : (editingInvoiceId ? 'Update Invoice' : 'Create Invoice')}
              </button>
             <div className="text-[10px] text-zinc-500 text-center mt-1">
-              Creates as DRAFT. Use Send buttons below to actually deliver it.
+              {t('createsAsDraft')}
             </div>
           </div>
         </div>
@@ -1041,21 +1074,21 @@ export default function InvoicingPanel() {
           onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
           className="px-2 py-1.5 rounded bg-zinc-900 border border-zinc-700 text-sm"
         >
-          <option value="ALL">All Status</option>
-          <option value="DRAFT">Draft</option>
-          <option value="SENT">Sent</option>
-          <option value="PAID">Paid</option>
-          <option value="OVERDUE">Overdue</option>
-          <option value="CANCELLED">Cancelled</option>
+          <option value="ALL">{t('allStatus')}</option>
+          <option value="DRAFT">{t('draft')}</option>
+          <option value="SENT">{t('sent')}</option>
+          <option value="PAID">{t('paid')}</option>
+          <option value="OVERDUE">{t('overdue')}</option>
+          <option value="CANCELLED">{t('cancelled')}</option>
         </select>
       </div>
 
       {/* Invoice list */}
       <div className="max-w-4xl space-y-2 max-h-[55vh] overflow-y-auto">
         {loading ? (
-          <div className="text-zinc-500">Loading...</div>
+          <div className="text-zinc-500">{t('loading')}</div>
         ) : invoices.length === 0 ? (
-          <div className="text-zinc-500 p-4">No invoices yet. Click &quot;New Invoice&quot; above.</div>
+          <div className="text-zinc-500 p-4">{t('noInvoices')}</div>
          ) : (
            invoices.map(invoice => (
               <div
@@ -1097,12 +1130,12 @@ export default function InvoicingPanel() {
                               setCreatedInvoiceId(null);
                               setExpandedId(null); setExpandedData(null);
                            });
-                         }} className="px-2 py-1 rounded text-xs text-emerald-400 hover:text-emerald-300">Edit Invoice</button>
+                         }} className="px-2 py-1 rounded text-xs text-emerald-400 hover:text-emerald-300">{t('editInvoice')}</button>
 
-                         <button onClick={(e) => { e.stopPropagation(); void deleteDraft(invoice.id); }} className="px-2 py-1 rounded text-xs text-rose-400 hover:text-rose-300">Delete</button>
-                         <button onClick={(e) => { e.stopPropagation(); downloadPdf(invoice.id); }} className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-zinc-200">PDF</button>
-                         <button onClick={(e) => { e.stopPropagation(); void sendViaEmail(invoice.id); }} disabled={processingPayment === invoice.id || !emailEnabled} className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-50" title={!emailEnabled ? 'SMTP not configured' : ''}>Email</button>
-                         <button onClick={(e) => { e.stopPropagation(); void markSent(invoice.id); }} className="px-2 py-1 rounded text-xs bg-blue-800 text-blue-200" title="Mark as actually sent to customer">Mark Sent</button>
+                         <button onClick={(e) => { e.stopPropagation(); void deleteDraft(invoice.id); }} className="px-2 py-1 rounded text-xs text-rose-400 hover:text-rose-300">{t('delete')}</button>
+                         <button onClick={(e) => { e.stopPropagation(); downloadPdf(invoice.id); }} className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-zinc-200">{t('pdf')}</button>
+                         <button onClick={(e) => { e.stopPropagation(); void sendViaEmail(invoice.id); }} disabled={processingPayment === invoice.id || !emailEnabled} className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-50" title={!emailEnabled ? t('smtpNotConfigured') : ''}>{t('email')}</button>
+                         <button onClick={(e) => { e.stopPropagation(); void markSent(invoice.id); }} className="px-2 py-1 rounded text-xs bg-blue-800 text-blue-200" title={t('markAsActuallySent')}>{t('markSent')}</button>
                        </>
                      )}
 
@@ -1110,18 +1143,18 @@ export default function InvoicingPanel() {
                      <>
                        {stripeEnabled && <button onClick={() => void createPaymentLink(invoice.id)} disabled={processingPayment === invoice.id} className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-emerald-400 disabled:opacity-50">Stripe</button>}
                        {paypalEnabled && <button onClick={() => void sendPayPalInvoice(invoice.id)} disabled={processingPayment === invoice.id} className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-blue-400 disabled:opacity-50">PayPal</button>}
-                        <button onClick={() => void sendViaEmail(invoice.id)} disabled={processingPayment === invoice.id || !emailEnabled} className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-50" title={!emailEnabled ? 'SMTP not configured' : ''}>Email</button>
-                       <button onClick={() => void markPaidManual(invoice.id)} disabled={processingPayment === invoice.id} className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-emerald-400 disabled:opacity-50">Paid</button>
-                       <button onClick={() => downloadPdf(invoice.id)} className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-zinc-200">PDF</button>
+                        <button onClick={() => void sendViaEmail(invoice.id)} disabled={processingPayment === invoice.id || !emailEnabled} className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-50" title={!emailEnabled ? t('smtpNotConfigured') : ''}>{t('email')}</button>
+                       <button onClick={() => void markPaidManual(invoice.id)} disabled={processingPayment === invoice.id} className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-emerald-400 disabled:opacity-50">{t('paid')}</button>
+                       <button onClick={() => downloadPdf(invoice.id)} className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-zinc-200">{t('pdf')}</button>
                      </>
                    )}
 
                    {invoice.status === 'PAID' && (
-                     <button onClick={() => downloadPdf(invoice.id)} className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-zinc-200">PDF</button>
+                     <button onClick={() => downloadPdf(invoice.id)} className="px-2 py-1 rounded text-xs text-zinc-400 hover:text-zinc-200">{t('pdf')}</button>
                    )}
 
                    {invoice.status === 'CANCELLED' && (
-                     <span className="text-[10px] text-zinc-500 px-2">Cancelled</span>
+                     <span className="text-[10px] text-zinc-500 px-2">{t('cancelled')}</span>
                    )}
                   </div>
                 </div>
@@ -1138,12 +1171,12 @@ export default function InvoicingPanel() {
                          </div>
                        </div>
                        <div className="flex gap-2">
-                         <button onClick={() => downloadPdf(expandedData.id)} className="text-xs px-2 py-0.5 rounded bg-zinc-800">PDF</button>
+                         <button onClick={() => downloadPdf(expandedData.id)} className="text-xs px-2 py-0.5 rounded bg-zinc-800">{t('pdf')}</button>
                           <button onClick={() => { setExpandedId(null); setExpandedData(null) }} className="text-xs px-2 py-0.5 rounded bg-zinc-800" aria-label="Close">×</button>
                        </div>
                      </div>
 
-                      <div className="text-xs text-zinc-400 mb-1">Line items</div>
+                      <div className="text-xs text-zinc-400 mb-1">{t('lineItems')}</div>
                       <div className="space-y-1 mb-3">
                          {(expandedData.lines || []).map((l, i: number) => (
                           <div key={i} className="flex justify-between text-xs">
@@ -1155,7 +1188,7 @@ export default function InvoicingPanel() {
 
                       {expandedData.notes && (
                         <div className="mb-3">
-                          <div className="text-xs text-zinc-400 mb-1">Notes</div>
+                          <div className="text-xs text-zinc-400 mb-1">{t('notes')}</div>
                           <div className="text-xs whitespace-pre-wrap text-zinc-300">{expandedData.notes}</div>
                         </div>
                       )}
@@ -1196,12 +1229,12 @@ export default function InvoicingPanel() {
                                setShowCreate(true)
                                setCreatedInvoiceId(null)
                                setExpandedId(null); setExpandedData(null)
-                           }} className="px-3 py-1 text-xs rounded bg-emerald-700">Edit Invoice</button>
+                           }} className="px-3 py-1 text-xs rounded bg-emerald-700">{t('editInvoice')}</button>
 
-                         <button onClick={() => void deleteDraft(expandedData.id)} className="px-3 py-1 text-xs rounded bg-rose-900 text-rose-200">Delete Draft</button>
+                         <button onClick={() => void deleteDraft(expandedData.id)} className="px-3 py-1 text-xs rounded bg-rose-900 text-rose-200">{t('deleteDraft')}</button>
 
-                            <button onClick={() => void sendViaEmail(expandedData.id)} disabled={processingPayment === expandedData.id || !emailEnabled} className="px-3 py-1 text-xs rounded bg-zinc-700 disabled:opacity-50" title={!emailEnabled ? 'SMTP not configured' : ''}>Email PDF</button>
-                           <button onClick={() => void markSent(expandedData.id)} className="px-3 py-1 text-xs rounded bg-blue-800">Mark as Sent</button>
+                            <button onClick={() => void sendViaEmail(expandedData.id)} disabled={processingPayment === expandedData.id || !emailEnabled} className="px-3 py-1 text-xs rounded bg-zinc-700 disabled:opacity-50" title={!emailEnabled ? t('smtpNotConfigured') : ''}>{t('emailPdf')}</button>
+                           <button onClick={() => void markSent(expandedData.id)} className="px-3 py-1 text-xs rounded bg-blue-800">{t('markAsSent')}</button>
                         </>
                       )}
 
@@ -1209,18 +1242,18 @@ export default function InvoicingPanel() {
                         <>
                           {stripeEnabled && <button onClick={() => void createPaymentLink(expandedData.id)} disabled={processingPayment === expandedData.id} className="px-3 py-1 text-xs rounded bg-emerald-700">Stripe</button>}
                           {paypalEnabled && <button onClick={() => void sendPayPalInvoice(expandedData.id)} disabled={processingPayment === expandedData.id} className="px-3 py-1 text-xs rounded bg-blue-700">PayPal</button>}
-                           <button onClick={() => void sendViaEmail(expandedData.id)} disabled={processingPayment === expandedData.id || !emailEnabled} className="px-3 py-1 text-xs rounded bg-zinc-700 disabled:opacity-50" title={!emailEnabled ? 'SMTP not configured' : ''}>Email PDF</button>
-                          <button onClick={() => void markPaidManual(expandedData.id)} disabled={processingPayment === expandedData.id} className="px-3 py-1 text-xs rounded bg-emerald-700">Mark Paid</button>
-                          <button onClick={() => void markSent(expandedData.id)} className="px-3 py-1 text-xs rounded bg-zinc-700" title="Re-send / confirm sent">Mark Sent (again)</button>
+                           <button onClick={() => void sendViaEmail(expandedData.id)} disabled={processingPayment === expandedData.id || !emailEnabled} className="px-3 py-1 text-xs rounded bg-zinc-700 disabled:opacity-50" title={!emailEnabled ? t('smtpNotConfigured') : ''}>{t('emailPdf')}</button>
+                          <button onClick={() => void markPaidManual(expandedData.id)} disabled={processingPayment === expandedData.id} className="px-3 py-1 text-xs rounded bg-emerald-700">{t('markPaid')}</button>
+                          <button onClick={() => void markSent(expandedData.id)} className="px-3 py-1 text-xs rounded bg-zinc-700" title={t('resendConfirm')}>{t('markSentAgain')}</button>
                         </>
                       )}
 
                       {expandedData.status === 'PAID' && (
-                        <button onClick={() => downloadPdf(expandedData.id)} className="px-3 py-1 text-xs rounded bg-zinc-700">Download PDF</button>
+                        <button onClick={() => downloadPdf(expandedData.id)} className="px-3 py-1 text-xs rounded bg-zinc-700">{t('downloadPdf')}</button>
                       )}
 
                       {['DRAFT', 'SENT'].includes(expandedData.status) && (
-                        <button onClick={() => void cancelInvoice(expandedData.id)} className="px-3 py-1 text-xs rounded bg-rose-900 text-rose-200 ml-auto">Cancel</button>
+                        <button onClick={() => void cancelInvoice(expandedData.id)} className="px-3 py-1 text-xs rounded bg-rose-900 text-rose-200 ml-auto">{t('cancel')}</button>
                       )}
                     </div>
                   </div>
@@ -1231,7 +1264,7 @@ export default function InvoicingPanel() {
        </div>
 
       <div className="mt-4 text-[10px] text-zinc-500">
-        Invoices are created as DRAFT. Click a row to expand details in place (accordion). Use &quot;Mark Sent&quot; only when you have actually delivered it.
+        {t('accordionHelp')}
       </div>
     </div>
   )

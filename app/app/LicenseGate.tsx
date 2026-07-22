@@ -1,22 +1,14 @@
 'use client'
 
 import { useState } from 'react'
+import { useTranslations } from 'next-intl'
 
-/**
- * LicenseGate
- *
- * Shown only after the 30-day trial when no valid key has been accepted yet.
- *
- * Activation here is the SINGLE point where the external verify service is called.
- * Per the "verify once, trust forever" policy (see lib/license.ts and docs),
- * after successful activation the key is stored and the instance is permanently
- * licensed. No further verification calls are made anywhere in the app.
- */
 interface LicenseGateProps {
   onActivated: () => void
 }
 
 export default function LicenseGate({ onActivated }: LicenseGateProps) {
+  const t = useTranslations('app.views.license')
   const [key, setKey] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -35,10 +27,10 @@ export default function LicenseGate({ onActivated }: LicenseGateProps) {
         onActivated()
       } else {
         const data = await res.json().catch(() => ({}))
-        setError(data.error || 'Invalid license key')
+        setError(data.error || t('invalid'))
       }
     } catch {
-      setError('Failed to activate license')
+      setError(t('failed'))
     } finally {
       setLoading(false)
     }
@@ -47,9 +39,9 @@ export default function LicenseGate({ onActivated }: LicenseGateProps) {
   return (
     <div className="flex items-center justify-center h-full bg-zinc-950 p-6">
       <div className="max-w-md w-full text-center">
-        <h1 className="text-2xl font-semibold text-white mb-2">License Required</h1>
+        <h1 className="text-2xl font-semibold text-white mb-2">{t('required')}</h1>
         <p className="text-zinc-400 mb-6">
-          Your 30-day trial has ended. Enter your perpetual license key to continue using entrytwo.
+          {t('verifyOnce')}
         </p>
 
         <div className="space-y-3">
@@ -57,7 +49,7 @@ export default function LicenseGate({ onActivated }: LicenseGateProps) {
             type="text"
             value={key}
             onChange={(e) => setKey(e.target.value)}
-            placeholder="Paste your license key here"
+            placeholder={t('pasteHere')}
             className="w-full rounded border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             onKeyDown={(e) => {
               if (e.key === 'Enter') void handleActivate()
@@ -68,15 +60,14 @@ export default function LicenseGate({ onActivated }: LicenseGateProps) {
             disabled={loading || !key.trim()}
             className="w-full rounded bg-blue-600 px-4 py-3 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Activating...' : 'Activate License'}
+            {loading ? t('activating') : t('activate')}
           </button>
           {error && <div className="text-sm text-rose-400">{error}</div>}
         </div>
 
         <div className="mt-6 text-xs text-zinc-500">
-          Don&apos;t have a key?{' '}
           <a href="https://entrytwo.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
-            Get your license at entrytwo.com
+            {t('getOne')}
           </a>
         </div>
       </div>

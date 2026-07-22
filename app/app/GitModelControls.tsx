@@ -1,5 +1,7 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
+
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -28,6 +30,7 @@ interface RestorePreview {
 }
 
 export default function GitModelControls() {
+  const tHist = useTranslations('app.views.history')
   const router = useRouter()
   const searchParams = useSearchParams()
 

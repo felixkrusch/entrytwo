@@ -12,6 +12,7 @@ interface Contact {
   address?: string
   taxId?: string
   currency?: string
+  preferredLanguage?: string | null
   notes?: string
   entryCount: number
   vatValidated?: boolean
@@ -32,6 +33,7 @@ export default function ContactsPage() {
   const [newType, setNewType] = useState<'CUSTOMER' | 'VENDOR'>('CUSTOMER')
   const [newPhone, setNewPhone] = useState('')
   const [newTaxId, setNewTaxId] = useState('')
+  const [newPreferredLanguage, setNewPreferredLanguage] = useState<'' | 'en' | 'de'>('')
 
   const fetchContacts = useCallback(async () => {
     setLoading(true)
@@ -71,12 +73,14 @@ export default function ContactsPage() {
         type: newType,
         phone: newPhone || undefined,
         taxId: newTaxId || undefined,
+        preferredLanguage: newPreferredLanguage || undefined,
       }),
     })
     setNewName('')
     setNewEmail('')
     setNewPhone('')
     setNewTaxId('')
+    setNewPreferredLanguage('')
     setShowAddModal(false)
     void fetchContacts()
   }
@@ -164,6 +168,11 @@ export default function ContactsPage() {
                   )}
                   {contact.taxId && (
                     <span className="text-xs text-zinc-400 mt-1 block">Tax: {contact.taxId}</span>
+                  )}
+                  {contact.preferredLanguage && (
+                    <span className="text-xs text-zinc-500 mt-1 block">
+                      Language: {contact.preferredLanguage === 'de' ? 'Deutsch' : 'English'}
+                    </span>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
@@ -254,6 +263,21 @@ export default function ContactsPage() {
                   className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
                   placeholder="DE276452187"
                 />
+              </div>
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1">Preferred language</label>
+                <select
+                  value={newPreferredLanguage}
+                  onChange={e => setNewPreferredLanguage(e.target.value as '' | 'en' | 'de')}
+                  className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700"
+                >
+                  <option value="">— Use company default —</option>
+                  <option value="en">English</option>
+                  <option value="de">Deutsch</option>
+                </select>
+                <p className="text-[10px] text-zinc-600 mt-1">
+                  Used to prefill invoice language when billing this contact.
+                </p>
               </div>
             </div>
             <div className="flex gap-2 mt-6">

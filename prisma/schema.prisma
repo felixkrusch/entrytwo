@@ -208,6 +208,7 @@ model Contact {
   taxId             String? // VAT/EIN/tax identification
   website           String? // Company website URL
   currency          String? // Preferred currency (ISO 4217), fallback to company default
+  preferredLanguage String? // Optional 'en' | 'de' — used to prefill invoice language
   notes             String? // Internal notes
   vatValid          Boolean? // Whether VAT validation passed
   vatValidated      Boolean            @default(false)

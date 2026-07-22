@@ -1,5 +1,7 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
+
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import QuickFeedImport from '@/app/app/QuickFeedImport'
@@ -38,6 +40,9 @@ const PROVIDERS = [
 ]
 
 export default function BankFeedsPage() {
+  const tForm = useTranslations('app.bankFeedsForm')
+  const t = useTranslations('app.adminPages')
+
   const [connections, setConnections] = useState<BankConnection[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [transactions, setTransactions] = useState<FeedTransaction[]>([])
@@ -100,13 +105,13 @@ export default function BankFeedsPage() {
   }
 
   if (loading) {
-    return <div className="text-sm text-zinc-500">Loading...</div>
+    return <div className="text-sm text-zinc-500">{t('loading')}</div>
   }
 
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-xl font-semibold">Processor Feeds</h1>
+        <h1 className="text-xl font-semibold">{tForm('title')}</h1>
         <p className="text-xs text-zinc-500 mt-1">Stripe and PayPal can be connected for automatic transaction import. For all other banks and credit cards, upload statements or paste transaction tables directly into chat.</p>
       </div>
 
@@ -134,7 +139,7 @@ export default function BankFeedsPage() {
 
       {/* Manual authoritative entry kept as advanced/power tool, not the main story */}
       <details className="mt-8">
-        <summary className="cursor-pointer text-sm text-zinc-400 hover:text-zinc-200">Advanced: Manually record a transaction with a real rate</summary>
+        <summary className="cursor-pointer text-sm text-zinc-400 hover:text-zinc-200">{tForm('advanced')}</summary>
         <div className="mt-3">
           <QuickFeedImport />
         </div>
@@ -160,15 +165,15 @@ export default function BankFeedsPage() {
 
       {transactions.length > 0 && (
         <div className="mt-8">
-          <h2 className="text-lg font-semibold mb-3">Pending Transactions</h2>
+          <h2 className="text-lg font-semibold mb-3">{tForm('pending')}</h2>
           <div className="border border-zinc-800 rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-zinc-900">
                 <tr className="text-left">
-                  <th className="px-3 py-2">Date</th>
-                  <th className="px-3 py-2">Description</th>
-                  <th className="px-3 py-2">Amount</th>
-                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">{tForm('date')}</th>
+                  <th className="px-3 py-2">{tForm('description')}</th>
+                  <th className="px-3 py-2">{tForm('amount')}</th>
+                  <th className="px-3 py-2">{tForm('status')}</th>
                   <th className="px-3 py-2"></th>
                 </tr>
               </thead>
@@ -201,10 +206,10 @@ export default function BankFeedsPage() {
       {(showConnect && (stripeConfigured || paypalConfigured)) && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-6 w-96">
-            <h3 className="font-medium mb-4">Connect Bank Feed</h3>
+            <h3 className="font-medium mb-4">{tForm('connect')}</h3>
 
             <div className="mb-3">
-              <label className="text-xs text-zinc-400">Provider</label>
+              <label className="text-xs text-zinc-400">{tForm('provider')}</label>
               <select
                 value={selectedProvider}
                 onChange={e => setSelectedProvider(e.target.value)}
@@ -224,13 +229,13 @@ export default function BankFeedsPage() {
             </div>
 
             <div className="mb-4">
-              <label className="text-xs text-zinc-400">Account (where transactions will be booked)</label>
+              <label className="text-xs text-zinc-400">{tForm('account')}</label>
               <select
                 value={selectedAccount}
                 onChange={e => setSelectedAccount(e.target.value)}
                 className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 mt-1"
               >
-                <option value="">Select account...</option>
+                <option value="">{tForm('selectAccount')}</option>
                 {accounts.map(a => (
                   <option key={a.id} value={a.id}>{a.name} ({a.code})</option>
                 ))}

@@ -37,6 +37,8 @@ interface Account {
 function AppContent({ children }: { children: ReactNode }) {
   const { isOpen, suggestion, closeNewEntry } = useNewEntry()
   const t = useTranslations('app.toasts')
+  const tShell = useTranslations('app.shell')
+  const tHist = useTranslations('app.views.history')
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -168,7 +170,7 @@ function AppContent({ children }: { children: ReactNode }) {
   if (needsBootstrap === null) {
     return (
       <div className="flex h-screen items-center justify-center bg-zinc-950 text-zinc-400">
-        Checking setup...
+        {tShell('checkingSetup')}
       </div>
     )
   }
@@ -176,7 +178,7 @@ function AppContent({ children }: { children: ReactNode }) {
   if (needsBootstrap) {
     return (
       <div className="flex h-screen items-center justify-center bg-zinc-950 text-zinc-400">
-        Opening initial setup...
+        {tShell('openingSetup')}
       </div>
     )
   }
@@ -236,14 +238,14 @@ function AppContent({ children }: { children: ReactNode }) {
             {view === 'dashboard' && (
               <>
                 <div className="flex items-center justify-between">
-                  <div className="text-xs text-zinc-500">Dashboard • Live</div>
+                  <div className="text-xs text-zinc-500">{tShell('dashboardLive')}</div>
                   <div className="flex items-center gap-2">
                      <button
                        onClick={() => window.dispatchEvent(new CustomEvent('journal-updated'))}
                        className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
-                       title="Refresh all panels"
+                       title={tShell('refreshAllTitle')}
                      >
-                       Refresh all
+                       {tShell('refreshAll')}
                      </button>
                     {(selectedAccount) && (
                       <button
@@ -253,9 +255,9 @@ function AppContent({ children }: { children: ReactNode }) {
                           window.dispatchEvent(new CustomEvent('clear-all-filters'))
                         }}
                         className="text-[10px] px-2 py-0.5 rounded border border-rose-800 text-rose-400 hover:bg-rose-950"
-                        title="Clear all filters (accounts, journal, reports, search)"
+                        title={tShell('clearFiltersTitle')}
                       >
-                        Clear filters
+                        {tShell('clearFilters')}
                       </button>
                     )}
                   </div>
@@ -264,13 +266,16 @@ function AppContent({ children }: { children: ReactNode }) {
                 {selectedAccount && (
                   <div className="flex items-center gap-2 -mt-4 mb-2">
                     <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-emerald-400 border border-zinc-700">
-                      Filtered to {selectedAccount.code} {selectedAccount.name ? `— ${selectedAccount.name}` : ''}
+                      {tShell('filteredTo', {
+                        code: selectedAccount.code,
+                        name: selectedAccount.name ? ` — ${selectedAccount.name}` : '',
+                      })}
                     </span>
                     <button
                       onClick={() => setSelectedAccount(null)}
                       className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
                     >
-                      Clear filter
+                      {tShell('clearFilter')}
                     </button>
                   </div>
                 )}
@@ -289,7 +294,7 @@ function AppContent({ children }: { children: ReactNode }) {
                   <div className="lg:col-span-3 xl:col-span-6">
                     {/* Dashboard shows only the 5 most recent entries. Full journal with pagination is at ?view=journal */}
                     <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm font-medium text-zinc-300">Recent entries</div>
+                      <div className="text-sm font-medium text-zinc-300">{tShell('recentEntries')}</div>
                       <div className="flex items-center gap-2">
                          <button
                            onClick={() => router.push('/app?view=journal')}
@@ -351,12 +356,14 @@ function AppContent({ children }: { children: ReactNode }) {
                   {view === 'ledger' && !ledgerAccountCode && (
                     <div className="p-6">
                       <div className="mb-6">
-                        <h1 className="text-2xl font-semibold tracking-tight">Ledger</h1>
+                        <h1 className="text-2xl font-semibold tracking-tight">{tShell('ledgerTitle')}</h1>
                         <p className="text-sm text-zinc-400 mt-1 max-w-prose">
-                          A ledger shows the activity and running balance for <span className="text-zinc-200">one specific account</span> over time — like a bank statement for that account.
-                          It includes the full double-entry of each transaction for context.
+                          {tShell('ledgerIntro1')}
                         </p>
-                        <p className="text-sm text-zinc-400 mt-3">Select an account to begin.</p>
+                        <p className="text-sm text-zinc-400 mt-1 max-w-prose">
+                          {tShell('ledgerIntro2')}
+                        </p>
+                        <p className="text-sm text-zinc-400 mt-3">{tShell('ledgerSelect')}</p>
                       </div>
 
                       <ErrorBoundary>
@@ -378,14 +385,14 @@ function AppContent({ children }: { children: ReactNode }) {
                     <div className="p-4">
                       <div className="mb-4 flex items-center justify-between">
                         <div>
-                          <h1 className="text-xl font-semibold">Journal</h1>
-                          <p className="text-xs text-zinc-500 mt-1">All journal entries with pagination.</p>
+                          <h1 className="text-xl font-semibold">{tShell('journalTitle')}</h1>
+                          <p className="text-xs text-zinc-500 mt-1">{tShell('journalSubtitle')}</p>
                         </div>
                         <button
                           onClick={() => setShowRecurring(v => !v)}
                           className="text-xs px-3 py-1 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800"
                         >
-                          {showRecurring ? 'Show entries' : 'Recurring schedules'}
+                          {showRecurring ? tShell('showEntries') : tShell('recurringSchedules')}
                         </button>
                       </div>
                       {showRecurring ? (
@@ -409,9 +416,9 @@ function AppContent({ children }: { children: ReactNode }) {
                    {view === 'history' && (
                      <div className="p-4 space-y-6">
                        <div>
-                         <h1 className="text-xl font-semibold">Commit History</h1>
+                         <h1 className="text-xl font-semibold">{tShell('historyTitle')}</h1>
                          <p className="text-xs text-zinc-500 mt-1">
-                           Branching, point-in-time views, reconcile, merge, tagging, and the full immutable commit log.
+                           {tShell('historySubtitle')}
                          </p>
                        </div>
 
@@ -422,7 +429,7 @@ function AppContent({ children }: { children: ReactNode }) {
 
                        {/* Full commit history list */}
                        <div>
-                         <div className="mb-2 text-sm font-medium text-zinc-300">Commits</div>
+                          <div className="mb-2 text-sm font-medium text-zinc-300">{tShell('commits')}</div>
                          <ErrorBoundary>
                            <AuditLogPanel />
                          </ErrorBoundary>
@@ -471,6 +478,8 @@ const COUNTRY_CODES = [
 type CountryCode = typeof COUNTRY_CODES[number]
 
 function ContactsContent() {
+  const tShell = useTranslations('app.shell')
+  const tHist = useTranslations('app.views.history')
   const [contacts, setContacts] = useState<ContactItem[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -693,31 +702,31 @@ function ContactsContent() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Contacts</h1>
+          <h1 className="text-xl font-semibold">{tShell('contactsTitle')}</h1>
           <p className="text-xs text-zinc-500 mt-1">
-            Manage customers and vendors.
+            {tShell('contactsSubtitle')}
           </p>
         </div>
         <button
           onClick={() => { setShowForm(true); resetForm(); setEditingContact(null); }}
           className="px-3 py-1.5 rounded bg-emerald-500 text-black font-medium text-sm hover:bg-emerald-400"
         >
-          Add Contact
+          {tShell('contactsAdd')}
         </button>
       </div>
 
       {/* Quick stats (mirrors InvoicingPanel) */}
       <div className="mb-5 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
         <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-          <div className="text-[10px] text-zinc-400">Total</div>
+          <div className="text-[10px] text-zinc-400">{tShell('contactsTotal')}</div>
           <div className="text-lg font-semibold tabular-nums mt-0.5">{stats.total}</div>
         </div>
         <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-          <div className="text-[10px] text-emerald-400">Customers</div>
+          <div className="text-[10px] text-emerald-400">{tShell('contactsStatsCustomers')}</div>
           <div className="text-lg font-semibold tabular-nums mt-0.5 text-emerald-400">{stats.customers}</div>
         </div>
         <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-          <div className="text-[10px] text-amber-400">Vendors</div>
+          <div className="text-[10px] text-amber-400">{tShell('contactsStatsVendors')}</div>
           <div className="text-lg font-semibold tabular-nums mt-0.5 text-amber-400">{stats.vendors}</div>
         </div>
       </div>
@@ -728,7 +737,7 @@ function ContactsContent() {
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
           <input
             type="text"
-            placeholder="Search contacts..."
+            placeholder={tShell('contactsSearch')}
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-8 pr-3 py-1.5 rounded bg-zinc-900 border border-zinc-700 text-sm"
@@ -739,9 +748,9 @@ function ContactsContent() {
           onChange={e => setTypeFilter(e.target.value as 'ALL' | 'CUSTOMER' | 'VENDOR')}
           className="px-2 py-1.5 rounded bg-zinc-900 border border-zinc-700 text-sm"
         >
-          <option value="ALL">All types</option>
-          <option value="CUSTOMER">Customers</option>
-          <option value="VENDOR">Vendors</option>
+          <option value="ALL">{tShell('contactsAllTypes')}</option>
+          <option value="CUSTOMER">{tShell('contactsCustomers')}</option>
+          <option value="VENDOR">{tShell('contactsVendors')}</option>
         </select>
       </div>
 
@@ -749,13 +758,13 @@ function ContactsContent() {
       {showForm && (
         <div id="contact-form-section" className="mb-8 border border-zinc-700 rounded-lg p-4 bg-zinc-950">
           <div className="flex items-center justify-between mb-4">
-            <div className="font-medium">{editingContact ? 'Edit Contact' : 'Add Contact'}</div>
+            <div className="font-medium">{editingContact ? tShell('contactsEdit') : tShell('contactsAdd')}</div>
             <button onClick={() => { setShowForm(false); resetForm() }} className="text-2xl leading-none px-2 text-zinc-400 hover:text-rose-400" aria-label="Close">×</button>
           </div>
 
           <div className="space-y-3">
             <div>
-              <label className="text-xs text-zinc-400 block mb-1">Name *</label>
+              <label className="text-xs text-zinc-400 block mb-1">{tShell('contactsName')} *</label>
               <input
                 type="text"
                 value={newName}
@@ -765,7 +774,7 @@ function ContactsContent() {
               />
             </div>
             <div>
-              <label className="text-xs text-zinc-400 block mb-1">Email</label>
+              <label className="text-xs text-zinc-400 block mb-1">{tShell('contactsEmail')}</label>
               <input
                 type="email"
                 value={newEmail}
@@ -775,7 +784,7 @@ function ContactsContent() {
             </div>
             {!editingContact && (
               <div>
-                <label className="text-xs text-zinc-400 block mb-1">Type</label>
+                <label className="text-xs text-zinc-400 block mb-1">{tShell('contactsType')}</label>
                 <select
                   value={newType}
                   onChange={e => setNewType(e.target.value as 'CUSTOMER' | 'VENDOR')}

@@ -1,5 +1,7 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
+
 import { useEffect, useState, useTransition } from 'react'
 import { RefreshCw } from 'lucide-react'
 
@@ -7,6 +9,8 @@ type WebhookEvent = { id: string; provider: string; externalId: string; eventTyp
 type Job = { id: string; idempotencyKey: string; status: string; attempts: number; lastError: string | null }
 
 export default function WebhookEventsPage() {
+  const t = useTranslations('app.adminPages')
+
   const [events, setEvents] = useState<WebhookEvent[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
   const [error, setError] = useState('')

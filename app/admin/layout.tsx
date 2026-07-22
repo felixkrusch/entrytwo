@@ -3,35 +3,34 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Suspense, useEffect, useState } from 'react'
+import { useTranslations } from 'next-intl'
 import TopBar from '@/app/app/TopBar'
 import { NewEntryProvider } from '@/app/app/NewEntryContext'
 import LicenseGate from '@/app/app/LicenseGate'
 import LicenseModal from '@/app/app/LicenseModal'
 
-const navItems = [
-  { href: '/admin', label: 'Overview' },
-  { href: '/admin/company', label: 'Company Settings' },
-  { href: '/admin/tax', label: 'Tax Settings' },
-  { href: '/admin/users', label: 'Users' },
-  { href: '/admin/ai', label: 'AI / LLM Provider' },
-  { href: '/admin/backup', label: 'Backup & Export' },
-  { href: '/admin/bank-feeds', label: 'Bank Feeds' },
-  { href: '/admin/automation', label: 'Automation' },
-  { href: '/admin/chart-of-accounts', label: 'Chart of Accounts' },
-  { href: '/admin/update', label: 'Update' },
-  { href: '/app?view=history', label: 'Commit History' },
-]
-
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const t = useTranslations('app.adminNav')
+
+  const navItems = [
+    { href: '/admin', label: t('overview') },
+    { href: '/admin/company', label: t('company') },
+    { href: '/admin/tax', label: t('tax') },
+    { href: '/admin/users', label: t('users') },
+    { href: '/admin/ai', label: t('ai') },
+    { href: '/admin/backup', label: t('backup') },
+    { href: '/admin/bank-feeds', label: t('bankFeeds') },
+    { href: '/admin/automation', label: t('automation') },
+    { href: '/admin/chart-of-accounts', label: t('chartOfAccounts') },
+    { href: '/admin/update', label: t('update') },
+    { href: '/app?view=history', label: t('history') },
+  ]
 
   const [licenseStatus, setLicenseStatus] = useState<any>(null)
   const [licenseLoading, setLicenseLoading] = useState(true)
   const [showLicenseModal, setShowLicenseModal] = useState(false)
 
-  // "Verify once, trust forever"
-  // /api/license/status only reflects the stored license.acceptedKey.
-  // No call to the external verify service happens here or anywhere except activation.
   const loadLicense = async () => {
     setLicenseLoading(true)
     try {
@@ -76,9 +75,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       </Suspense>
 
       <div className="flex flex-1 min-h-0">
-        {/* Left sidebar menu */}
         <div className="w-56 border-r border-zinc-800 bg-zinc-950 p-4 flex flex-col">
-          <div className="text-xs uppercase tracking-widest text-zinc-500 mb-3 px-2">Admin</div>
+          <div className="text-xs uppercase tracking-widest text-zinc-500 mb-3 px-2">{t('section')}</div>
 
           <nav className="space-y-1">
             {navItems.map(item => {
@@ -101,7 +99,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             })}
           </nav>
 
-          {/* License button in left-hand admin menu - not full width */}
           <div className="mt-3">
             <button
               onClick={openLicenseModal}
@@ -112,18 +109,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                     ? 'border-amber-800 bg-amber-900/30 text-amber-400 hover:bg-amber-900/50'
                     : 'border-red-800 bg-red-900/30 text-red-400 hover:bg-red-900/50'
               }`}
-              title="Enter or change license key"
+              title={t('licenseTitle')}
             >
-              License
+              {t('license')}
             </button>
           </div>
 
           <div className="mt-auto pt-6 text-[10px] text-zinc-500 px-2">
-            Changes are saved immediately and audited.
+            {t('footer')}
           </div>
         </div>
 
-        {/* Main content */}
         <div className="flex-1 overflow-auto p-8">
           <div className="max-w-4xl mx-auto">
             <NewEntryProvider>
@@ -133,7 +129,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </div>
 
-      {/* License modal (available from admin area too) */}
       <LicenseModal
         isOpen={showLicenseModal}
         onClose={() => setShowLicenseModal(false)}

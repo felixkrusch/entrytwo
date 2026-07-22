@@ -18,6 +18,7 @@ const ContactSchema = z.object({
   addressLine2: z.string().max(200).optional(),
   taxId: z.string().optional(),
   currency: z.string().optional(),
+  preferredLanguage: z.enum(['en', 'de']).optional().nullable(),
   notes: z.string().optional(),
   website: z.string().url().optional(),
 })
@@ -89,7 +90,23 @@ export async function POST(request: Request) {
       )
     }
 
-    const { name, email, type, phone, addressStreet, addressCity, addressState, addressZip, addressCountry, addressLine2, taxId, currency, notes, website } = parsed.data
+    const {
+      name,
+      email,
+      type,
+      phone,
+      addressStreet,
+      addressCity,
+      addressState,
+      addressZip,
+      addressCountry,
+      addressLine2,
+      taxId,
+      currency,
+      preferredLanguage,
+      notes,
+      website,
+    } = parsed.data
 
     const contact = await prisma.contact.create({
       data: {
@@ -105,6 +122,7 @@ export async function POST(request: Request) {
         addressLine2,
         taxId,
         currency,
+        preferredLanguage: preferredLanguage ?? null,
         notes,
         website,
       },

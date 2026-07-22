@@ -38,6 +38,7 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
   const [companyName, setCompanyName] = useState('')
   const [baseCurrency, setBaseCurrency] = useState('USD')
   const [defaultCountry, setDefaultCountry] = useState('')
+  const [defaultLanguage, setDefaultLanguage] = useState<'en' | 'de'>('en')
 
   const fetchData = async () => {
     try {
@@ -71,6 +72,24 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
 
   const createUser = async (forceAdmin = false) => {
     if (!newEmail) return
+    if (forceAdmin) {
+      // Prefer full onboarding so language + CoA are applied
+      const res = await fetch('/api/onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: newEmail,
+          name: newName || undefined,
+          companyName: companyName || 'My Company',
+          baseCurrency,
+          defaultLanguage,
+        }),
+      })
+      if (res.ok) {
+        window.location.reload()
+        return
+      }
+    }
     const roleToUse = forceAdmin ? 'ADMIN' : newRole
     await fetch('/api/users', {
       method: 'POST',
@@ -84,15 +103,6 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
   }
 
   const completeOnboarding = async () => {
-    const standardAccounts = [
-      { code: '1000', name: 'Cash', type: 'ASSET' as const },
-      { code: '1010', name: 'Bank Account', type: 'ASSET' as const },
-      { code: '2000', name: 'Accounts Payable', type: 'LIABILITY' as const },
-      { code: '3000', name: 'Retained Earnings', type: 'EQUITY' as const },
-      { code: '4000', name: 'Revenue', type: 'REVENUE' as const },
-      { code: '5000', name: 'Expenses', type: 'EXPENSE' as const },
-    ]
-
     const res = await fetch('/api/onboarding', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -101,12 +111,12 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
         name: newName,
         companyName: companyName || 'My Company',
         baseCurrency,
-        accounts: standardAccounts,
+        defaultLanguage,
+        // Server applies full standard CoA in the chosen language when accounts omitted
       }),
     })
     if (res.ok) {
-      await fetchData()
-      if (onBootstrapComplete) onBootstrapComplete()
+      window.location.reload()
     }
   }
 
@@ -168,8 +178,17 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
               onChange={e => setNewName(e.target.value)}
               className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm w-48"
             />
+            <select
+              value={defaultLanguage}
+              onChange={e => setDefaultLanguage(e.target.value as 'en' | 'de')}
+              className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm"
+              title={t('defaultLanguage') || 'Default language'}
+            >
+              <option value="en">English</option>
+              <option value="de">Deutsch</option>
+            </select>
             <button
-              onClick={() => createUser(true)}
+              onClick={() => void createUser(true)}
               className="px-4 py-2 rounded bg-amber-500 text-black font-medium text-sm hover:bg-amber-400"
             >
               {t('createFirstAdmin')}
@@ -234,6 +253,21 @@ export default function AdminPanel({ onBootstrapComplete }: AdminPanelProps) {
                 <option value="GBP">GBP</option>
                 <option value="CHF">CHF</option>
               </select>
+            </div>
+            <div>
+              <label className="text-zinc-400 text-xs block mb-1">{t('defaultLanguage') || 'Default language'}</label>
+              <select
+                value={defaultLanguage}
+                onChange={e => setDefaultLanguage(e.target.value as 'en' | 'de')}
+                className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm w-full"
+              >
+                <option value="en">English (default)</option>
+                <option value="de">Deutsch</option>
+              </select>
+              <p className="text-[10px] text-zinc-500 mt-1">
+                {t('defaultLanguageHelp') ||
+                  'UI language and standard chart-of-accounts names for this installation.'}
+              </p>
             </div>
             <div className="flex gap-2">
               <button

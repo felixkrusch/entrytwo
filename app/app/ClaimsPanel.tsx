@@ -1,5 +1,6 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { Check, ChevronRight, FileImage, Loader2, Paperclip, Plus, ReceiptText, Send, ShieldCheck, Trash2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -64,6 +65,7 @@ function toDateInput(value: string) {
 }
 
 export default function ClaimsPanel() {
+  const t = useTranslations('app.views.claims')
   const [claims, setClaims] = useState<Claim[]>([])
   const [users, setUsers] = useState<Option[]>([])
   const [accounts, setAccounts] = useState<Option[]>([])
@@ -105,7 +107,7 @@ export default function ClaimsPanel() {
       const response = await fetch('/api/expense-claims', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ claimantUserId: actor.id, title: 'New expense claim', lines: [] }),
+        body: JSON.stringify({ claimantUserId: actor.id, title: t('newClaim'), lines: [] }),
       })
       const claim = await response.json()
       if (!response.ok) throw new Error(claim.error || 'Could not create claim')
@@ -143,24 +145,25 @@ export default function ClaimsPanel() {
     }
   }
 
-  if (loading && !claims.length) return <div className="flex min-h-80 items-center justify-center text-zinc-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading claims</div>
+  if (loading && !claims.length) return <div className="flex min-h-80 items-center justify-center text-zinc-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" />{t('loading')}</div>
 
   return (
     <div className="p-6">
       <div className="mb-6 flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Expense claims</h1>
-          <p className="mt-1 text-xs text-zinc-500">Collect receipts, review expenses and post approved claims.</p>
+          <h1 className="text-xl font-semibold">{t('title')}</h1>
+          <p className="mt-1 text-xs text-zinc-500">{t('subtitle')}</p>
         </div>
         <button onClick={createClaim} disabled={saving} className="inline-flex items-center gap-1 text-xs px-3 py-1 rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400 disabled:opacity-50">
-          <Plus className="h-3 w-3" />New claim
+          <Plus className="h-3 w-3" />{t('newClaim')}
         </button>
       </div>
 
       <div className="mb-4 flex items-center gap-2 overflow-x-auto text-xs">
         {statuses.map(status => (
           <button key={status} onClick={() => { setFilter(status); setSelectedId(null) }} className={`whitespace-nowrap rounded px-3 py-1 ${filter === status ? 'bg-zinc-700 text-zinc-100' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'}`}>
-            {status.replaceAll('_', ' ').toLowerCase()} {status !== 'ALL' && <span className="ml-1 text-zinc-600">{claims.filter(claim => claim.workflowStatus === status).length}</span>}
+            {status === 'ALL' ? t('statusAll') : status === 'DRAFT' ? t('statusDraft') : status === 'SUBMITTED' ? t('statusSubmitted') : status === 'CHANGES_REQUESTED' ? t('statusChangesRequested') : status === 'APPROVED' ? t('statusApproved') : status === 'REJECTED' ? t('statusRejected') : status.replaceAll('_', ' ').toLowerCase()}
+            {status !== 'ALL' && <span className="ml-1 text-zinc-600">{claims.filter(claim => claim.workflowStatus === status).length}</span>}
           </button>
         ))}
       </div>
@@ -181,12 +184,12 @@ export default function ClaimsPanel() {
           setReviewComment={setReviewComment}
         />
       ) : filtered.length === 0 ? (
-        <div className="rounded-lg border border-zinc-800 p-8 text-center text-sm text-zinc-500">No claims in this queue.</div>
+        <div className="rounded-lg border border-zinc-800 p-8 text-center text-sm text-zinc-500">{t('empty')}</div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-zinc-800">
           <table className="w-full text-sm">
             <thead className="bg-zinc-950 text-xs text-zinc-400">
-              <tr><th className="px-3 py-2 text-left font-normal">Claim</th><th className="hidden px-3 py-2 text-left font-normal sm:table-cell">Claimant</th><th className="px-3 py-2 text-left font-normal">Status</th><th className="hidden px-3 py-2 text-right font-normal md:table-cell">Receipts</th><th className="px-3 py-2 text-right font-normal">Total</th><th className="w-8" /></tr>
+              <tr><th className="px-3 py-2 text-left font-normal">Claim</th><th className="hidden px-3 py-2 text-left font-normal sm:table-cell">{t('claimant')}</th><th className="px-3 py-2 text-left font-normal">{t('status')}</th><th className="hidden px-3 py-2 text-right font-normal md:table-cell">{t('receipts')}</th><th className="px-3 py-2 text-right font-normal">{t('total')}</th><th className="w-8" /></tr>
             </thead>
             <tbody>
               {filtered.map(claim => (
@@ -220,6 +223,7 @@ function ClaimEditor(props: {
   reviewComment: string
   setReviewComment: (value: string) => void
 }) {
+  const t = useTranslations('app.views.claims')
   const { claim, users, accounts, actor } = props
   const expenseAccounts = accounts.filter(account => account.type === 'EXPENSE')
   const liabilityAccounts = accounts.filter(account => account.type === 'LIABILITY')
@@ -286,38 +290,38 @@ function ClaimEditor(props: {
 
   return (
     <div>
-      <button onClick={props.onBack} className="mb-3 text-xs text-zinc-400 hover:text-zinc-200">← Back to claims</button>
+      <button onClick={props.onBack} className="mb-3 text-xs text-zinc-400 hover:text-zinc-200">{t('backToClaims')}</button>
       <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950 p-3">
         <div>
-          <div className="flex items-center gap-2"><span className="font-mono text-xs text-zinc-500">{claim.claimNumber}</span><span className={`rounded border px-2 py-0.5 text-[10px] ${statusStyle[claim.workflowStatus]}`}>{claim.workflowStatus.replaceAll('_', ' ')}</span>{claim.postingStatus === 'POSTED' && <span className="rounded border border-violet-800 bg-violet-950/40 px-2 py-0.5 text-[10px] text-violet-300">POSTED</span>}</div>
+          <div className="flex items-center gap-2"><span className="font-mono text-xs text-zinc-500">{claim.claimNumber}</span><span className={`rounded border px-2 py-0.5 text-[10px] ${statusStyle[claim.workflowStatus]}`}>{claim.workflowStatus.replaceAll('_', ' ')}</span>{claim.postingStatus === 'POSTED' && <span className="rounded border border-violet-800 bg-violet-950/40 px-2 py-0.5 text-[10px] text-violet-300">{t('posted')}</span>}</div>
           <div className="mt-1 text-[10px] text-zinc-500">Revision {claim.revision}{claim.approvedRevision ? ` · approved revision ${claim.approvedRevision}` : ''}</div>
         </div>
-        <div className="text-right"><div className="text-lg font-semibold tabular-nums text-zinc-100">{formatMoney(lines.reduce((sum, line) => sum + Math.round((Number(line.grossAmount) || 0) * (Number(line.fxRateToBase) || 1) * 100) / 100, 0), claim.baseCurrency)}</div><div className="text-[10px] text-zinc-500">Claim total</div></div>
+        <div className="text-right"><div className="text-lg font-semibold tabular-nums text-zinc-100">{formatMoney(lines.reduce((sum, line) => sum + Math.round((Number(line.grossAmount) || 0) * (Number(line.fxRateToBase) || 1) * 100) / 100, 0), claim.baseCurrency)}</div><div className="text-[10px] text-zinc-500">{t('claimTotal')}</div></div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
         <div className="min-w-0 space-y-4">
           <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="text-xs text-zinc-400 sm:col-span-2">Title<input value={title} disabled={!editable} onChange={event => setTitle(event.target.value)} className="mt-1 w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-100 disabled:opacity-60" /></label>
-              <label className="text-xs text-zinc-400">Claimant<select value={claimantUserId} disabled={!editable || actor?.role === 'VIEWER'} onChange={event => setClaimantUserId(event.target.value)} className="mt-1 w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm"><option value="">Select claimant</option>{users.map(user => <option key={user.id} value={user.id}>{user.name || user.email}</option>)}</select></label>
-              <label className="text-xs text-zinc-400">Reimbursement payable<select value={reimbursementAccountId} disabled={!editable} onChange={event => setReimbursementAccountId(event.target.value)} className="mt-1 w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm"><option value="">Select liability account</option>{liabilityAccounts.map(account => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select></label>
-              <label className="text-xs text-zinc-400 sm:col-span-2">Business purpose<textarea value={purpose} disabled={!editable} onChange={event => setPurpose(event.target.value)} rows={2} className="mt-1 w-full resize-none rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm disabled:opacity-60" /></label>
+              <label className="text-xs text-zinc-400 sm:col-span-2">{t('titleField')}<input value={title} disabled={!editable} onChange={event => setTitle(event.target.value)} className="mt-1 w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-100 disabled:opacity-60" /></label>
+              <label className="text-xs text-zinc-400">{t('claimant')}<select value={claimantUserId} disabled={!editable || actor?.role === 'VIEWER'} onChange={event => setClaimantUserId(event.target.value)} className="mt-1 w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm"><option value="">{t('selectClaimant')}</option>{users.map(user => <option key={user.id} value={user.id}>{user.name || user.email}</option>)}</select></label>
+              <label className="text-xs text-zinc-400">{t('reimbursementPayable')}<select value={reimbursementAccountId} disabled={!editable} onChange={event => setReimbursementAccountId(event.target.value)} className="mt-1 w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm"><option value="">{t('selectLiability')}</option>{liabilityAccounts.map(account => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select></label>
+              <label className="text-xs text-zinc-400 sm:col-span-2">{t('businessPurpose')}<textarea value={purpose} disabled={!editable} onChange={event => setPurpose(event.target.value)} rows={2} className="mt-1 w-full resize-none rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm disabled:opacity-60" /></label>
             </div>
           </section>
 
           <section>
-            <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-zinc-200">Expense lines</h2>{editable && <button onClick={addLine} className="inline-flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300"><Plus className="h-3.5 w-3.5" />Add line</button>}</div>
+            <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-zinc-200">{t('expenseLines')}</h2>{editable && <button onClick={addLine} className="inline-flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300"><Plus className="h-3.5 w-3.5" />{t('addLine')}</button>}</div>
             <div className="space-y-3">
-              {lines.length === 0 && <button onClick={addLine} disabled={!editable} className="w-full rounded-lg border border-dashed border-zinc-700 p-5 text-xs text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300">Add the first expense line</button>}
+              {lines.length === 0 && <button onClick={addLine} disabled={!editable} className="w-full rounded-lg border border-dashed border-zinc-700 p-5 text-xs text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300">{t('addFirstLine')}</button>}
               {lines.map((line, index) => (
                 <div key={line.id || index} className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
                   <div className="mb-2 flex items-center justify-between"><span className="text-[10px] font-medium text-zinc-500">LINE {index + 1}</span>{editable && <button onClick={() => setLines(current => current.filter((_, i) => i !== index))} className="rounded p-1 text-zinc-600 hover:bg-zinc-800 hover:text-rose-400"><Trash2 className="h-3.5 w-3.5" /></button>}</div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <input type="date" value={line.expenseDate} disabled={!editable} onChange={event => updateLine(index, { expenseDate: event.target.value })} className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs" />
-                    <input placeholder="Merchant" value={line.merchant || ''} disabled={!editable} onChange={event => updateLine(index, { merchant: event.target.value })} className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs" />
-                    <input placeholder="Description" value={line.description} disabled={!editable} onChange={event => updateLine(index, { description: event.target.value })} className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs sm:col-span-2" />
-                    <select value={line.accountId} disabled={!editable} onChange={event => updateLine(index, { accountId: event.target.value })} className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs"><option value="">Expense account</option>{expenseAccounts.map(account => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select>
+                    <input placeholder={t('merchant')} value={line.merchant || ''} disabled={!editable} onChange={event => updateLine(index, { merchant: event.target.value })} className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs" />
+                    <input placeholder={t('description')} value={line.description} disabled={!editable} onChange={event => updateLine(index, { description: event.target.value })} className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs sm:col-span-2" />
+                    <select value={line.accountId} disabled={!editable} onChange={event => updateLine(index, { accountId: event.target.value })} className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs"><option value="">{t('expenseAccount')}</option>{expenseAccounts.map(account => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select>
                     <div className="grid grid-cols-[1fr_58px_1fr] gap-2"><input type="number" min="0" step="0.01" value={line.grossAmount} disabled={!editable} onChange={event => updateLine(index, { grossAmount: Number(event.target.value) })} className="min-w-0 rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs" /><input maxLength={3} value={line.currency} disabled={!editable} onChange={event => updateLine(index, { currency: event.target.value.toUpperCase() })} className="min-w-0 rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs uppercase" /><input type="number" step="0.000001" value={line.fxRateToBase ?? 1} disabled={!editable || line.currency === claim.baseCurrency} onChange={event => updateLine(index, { fxRateToBase: Number(event.target.value) })} className="min-w-0 rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs" title="FX rate to base" /></div>
                   </div>
                   {claim.receipts.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{claim.receipts.map(receipt => { const linked = line.receiptIds?.includes(receipt.id); return <button type="button" key={receipt.id} disabled={!editable} onClick={() => updateLine(index, { receiptIds: linked ? line.receiptIds?.filter(id => id !== receipt.id) : [...(line.receiptIds || []), receipt.id] })} className={`rounded-md border px-2 py-1 text-[10px] ${linked ? 'border-emerald-700 bg-emerald-950/40 text-emerald-300' : 'border-zinc-700 text-zinc-500'}`}>{linked && <Check className="mr-1 inline h-3 w-3" />}{receipt.fileAsset.originalName}</button> })}</div>}
@@ -331,24 +335,24 @@ function ClaimEditor(props: {
 
         <aside className="space-y-3">
           <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-            <div className="mb-2 flex items-center justify-between"><h2 className="text-sm font-medium">Receipts</h2>{editable && <button onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1 rounded border border-zinc-700 px-2 py-1 text-[10px] text-zinc-300 hover:bg-zinc-800"><Paperclip className="h-3 w-3" />Add</button>}</div>
+            <div className="mb-2 flex items-center justify-between"><h2 className="text-sm font-medium">{t('receipts')}</h2>{editable && <button onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1 rounded border border-zinc-700 px-2 py-1 text-[10px] text-zinc-300 hover:bg-zinc-800"><Paperclip className="h-3 w-3" />{t('add')}</button>}</div>
             <input ref={fileRef} type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp" onChange={upload} className="hidden" />
             <div className="space-y-2">
               {claim.receipts.map(receipt => <div key={receipt.id} className="group flex items-center gap-2 rounded border border-zinc-800 bg-zinc-900 px-2 py-1.5"><a href={`/api/files/${receipt.fileAssetId}`} target="_blank" className="flex min-w-0 flex-1 items-center gap-1.5"><FileImage className="h-3.5 w-3.5 shrink-0 text-zinc-500" /><span className="truncate text-[10px] text-zinc-300">{receipt.fileAsset.originalName}</span></a>{receipt.duplicateStatus !== 'CLEAR' && <span title="Possible duplicate" className="h-1.5 w-1.5 rounded-full bg-amber-400" />}{editable && <button onClick={() => removeReceipt(receipt.id)} className="rounded p-1 text-zinc-600 hover:bg-zinc-800 hover:text-rose-400"><X className="h-3 w-3" /></button>}</div>)}
-              {!claim.receipts.length && <button disabled={!editable} onClick={() => fileRef.current?.click()} className="w-full rounded border border-dashed border-zinc-700 p-4 text-[10px] text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300">Select multiple receipts</button>}
+              {!claim.receipts.length && <button disabled={!editable} onClick={() => fileRef.current?.click()} className="w-full rounded border border-dashed border-zinc-700 p-4 text-[10px] text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300">{t('selectReceipts')}</button>}
             </div>
           </section>
 
           <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-            <h2 className="mb-2 text-sm font-medium">Workflow</h2>
-            {claim.workflowStatus === 'DRAFT' || claim.workflowStatus === 'CHANGES_REQUESTED' || claim.workflowStatus === 'REJECTED' ? <button onClick={() => props.onAction('submit')} disabled={props.saving} className="inline-flex w-full items-center justify-center gap-1.5 rounded bg-sky-700 px-3 py-1.5 text-xs font-medium text-sky-100 hover:bg-sky-600"><Send className="h-3.5 w-3.5" />Submit for approval</button> : null}
-            {claim.workflowStatus === 'SUBMITTED' && canApprove && <div className="space-y-2"><textarea value={props.reviewComment} onChange={event => props.setReviewComment(event.target.value)} placeholder="Review note" rows={3} className="w-full resize-none rounded border border-zinc-700 bg-zinc-900 p-2 text-xs" /><button onClick={() => props.onAction('approve')} className="inline-flex w-full items-center justify-center gap-1.5 rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium text-emerald-100 hover:bg-emerald-600"><ShieldCheck className="h-3.5 w-3.5" />Approve revision {claim.revision}</button><div className="grid grid-cols-2 gap-2"><button onClick={() => props.onAction('request-changes')} className="rounded border border-amber-800 px-2 py-1 text-[10px] text-amber-300 hover:bg-amber-950">Request changes</button><button onClick={() => props.onAction('reject')} className="rounded border border-rose-900 px-2 py-1 text-[10px] text-rose-300 hover:bg-rose-950">Reject</button></div>{actor?.role === 'ADMIN' && actor.id === claim.claimantUserId && <p className="text-[10px] text-zinc-600">Admin self-approval enabled.</p>}</div>}
-            {claim.workflowStatus === 'SUBMITTED' && !canApprove && <p className="text-xs text-zinc-500">Waiting for an eligible approver.</p>}
-            {claim.workflowStatus === 'APPROVED' && claim.postingStatus === 'UNPOSTED' && (actor?.role === 'ADMIN' || actor?.role === 'ACCOUNTANT') && <button onClick={() => props.onAction('post')} className="inline-flex w-full items-center justify-center gap-1.5 rounded bg-violet-800 px-3 py-1.5 text-xs font-medium text-violet-100 hover:bg-violet-700"><ReceiptText className="h-3.5 w-3.5" />Post to ledger</button>}
+            <h2 className="mb-2 text-sm font-medium">{t('workflow')}</h2>
+            {claim.workflowStatus === 'DRAFT' || claim.workflowStatus === 'CHANGES_REQUESTED' || claim.workflowStatus === 'REJECTED' ? <button onClick={() => props.onAction('submit')} disabled={props.saving} className="inline-flex w-full items-center justify-center gap-1.5 rounded bg-sky-700 px-3 py-1.5 text-xs font-medium text-sky-100 hover:bg-sky-600"><Send className="h-3.5 w-3.5" />{t('submit')}</button> : null}
+            {claim.workflowStatus === 'SUBMITTED' && canApprove && <div className="space-y-2"><textarea value={props.reviewComment} onChange={event => props.setReviewComment(event.target.value)} placeholder={t('reviewNote')} rows={3} className="w-full resize-none rounded border border-zinc-700 bg-zinc-900 p-2 text-xs" /><button onClick={() => props.onAction('approve')} className="inline-flex w-full items-center justify-center gap-1.5 rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium text-emerald-100 hover:bg-emerald-600"><ShieldCheck className="h-3.5 w-3.5" />Approve revision {claim.revision}</button><div className="grid grid-cols-2 gap-2"><button onClick={() => props.onAction('request-changes')} className="rounded border border-amber-800 px-2 py-1 text-[10px] text-amber-300 hover:bg-amber-950">{t('requestChanges')}</button><button onClick={() => props.onAction('reject')} className="rounded border border-rose-900 px-2 py-1 text-[10px] text-rose-300 hover:bg-rose-950">{t('reject')}</button></div>{actor?.role === 'ADMIN' && actor.id === claim.claimantUserId && <p className="text-[10px] text-zinc-600">{t('adminSelfApprove')}</p>}</div>}
+            {claim.workflowStatus === 'SUBMITTED' && !canApprove && <p className="text-xs text-zinc-500">{t('waitingApprover')}</p>}
+            {claim.workflowStatus === 'APPROVED' && claim.postingStatus === 'UNPOSTED' && (actor?.role === 'ADMIN' || actor?.role === 'ACCOUNTANT') && <button onClick={() => props.onAction('post')} className="inline-flex w-full items-center justify-center gap-1.5 rounded bg-violet-800 px-3 py-1.5 text-xs font-medium text-violet-100 hover:bg-violet-700"><ReceiptText className="h-3.5 w-3.5" />{t('postToLedger')}</button>}
             {claim.postingStatus === 'POSTED' && <div className="rounded-lg border border-emerald-900 bg-emerald-950/20 p-3 text-xs text-emerald-300"><Check className="mr-2 inline h-4 w-4" />Posted as {claim.postedJournalEntry?.entryNumber || 'journal entry'}</div>}
           </section>
 
-          <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-3"><h2 className="mb-2 text-sm font-medium">Activity</h2><div className="space-y-2">{claim.activities.slice(0, 10).map(activity => <div key={activity.id} className="border-l border-zinc-700 pl-2"><div className="text-[10px] text-zinc-300">{activity.action.replaceAll('_', ' ').toLowerCase()}</div><div className="text-[9px] text-zinc-600">{activity.actor.name || activity.actor.email} · {new Date(activity.createdAt).toLocaleString()}</div>{activity.comment && <div className="mt-0.5 text-[10px] text-zinc-500">{activity.comment}</div>}</div>)}</div></section>
+          <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-3"><h2 className="mb-2 text-sm font-medium">{t('activity')}</h2><div className="space-y-2">{claim.activities.slice(0, 10).map(activity => <div key={activity.id} className="border-l border-zinc-700 pl-2"><div className="text-[10px] text-zinc-300">{activity.action.replaceAll('_', ' ').toLowerCase()}</div><div className="text-[9px] text-zinc-600">{activity.actor.name || activity.actor.email} · {new Date(activity.createdAt).toLocaleString()}</div>{activity.comment && <div className="mt-0.5 text-[10px] text-zinc-500">{activity.comment}</div>}</div>)}</div></section>
         </aside>
       </div>
     </div>

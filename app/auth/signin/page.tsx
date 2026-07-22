@@ -17,6 +17,7 @@ export default function SignInPage() {
   const [sent, setSent] = useState(false)
   const [needsBootstrap, setNeedsBootstrap] = useState(false)
   const [error, setError] = useState('')
+  const [bootstrapLanguage, setBootstrapLanguage] = useState<'en' | 'de'>('en')
 
   useEffect(() => {
     // If an invitation token is present, redirect to the dedicated invite page
@@ -39,7 +40,24 @@ export default function SignInPage() {
     setLoading(true)
     setError('')
     try {
-      // In dev mode, use the dev sign-in endpoint
+      // Full onboarding: admin + company language + localized standard CoA
+      const onboard = await fetch('/api/onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          companyName: 'My Company',
+          baseCurrency: 'EUR',
+          defaultLanguage: bootstrapLanguage,
+        }),
+      })
+      if (!onboard.ok) {
+        const data = await onboard.json().catch(() => ({}))
+        setError(data.error || 'Bootstrap failed')
+        return
+      }
+
+      // Dev/session sign-in after first admin exists
       const res = await fetch('/api/auth/dev', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -49,7 +67,8 @@ export default function SignInPage() {
         const target = res.redirected && res.url ? res.url : CALLBACK_URL
         window.location.href = target
       } else {
-        setError('Sign-in failed')
+        // Onboarding succeeded; user can sign in normally
+        window.location.href = CALLBACK_URL
       }
     } catch (err) {
       setError((err as Error)?.message || 'Failed')
@@ -109,6 +128,23 @@ export default function SignInPage() {
               required
               className="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-2"
             />
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">
+                {t('defaultLanguage') || 'Default language'}
+              </label>
+              <select
+                value={bootstrapLanguage}
+                onChange={e => setBootstrapLanguage(e.target.value as 'en' | 'de')}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-2 text-sm"
+              >
+                <option value="en">English (default)</option>
+                <option value="de">Deutsch</option>
+              </select>
+              <p className="text-[10px] text-zinc-500 mt-1">
+                {t('defaultLanguageHelp') ||
+                  'Sets the app UI and standard chart of accounts for this installation.'}
+              </p>
+            </div>
             {error && <div className="text-rose-400 text-sm">{error}</div>}
             <button
               type="submit"
