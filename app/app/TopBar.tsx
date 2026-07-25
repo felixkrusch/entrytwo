@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { Settings, BarChart3, FileText, Users, CreditCard, File, History, ChevronDown, ReceiptText } from 'lucide-react'
+import { Settings, BarChart3, FileText, Users, CreditCard, File, History, ChevronDown, ReceiptText, LogOut } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { useTranslations } from 'next-intl'
+import { signOut } from '@/lib/auth-client'
 
 interface TopBarProps {
   showSettings?: boolean
@@ -197,21 +198,38 @@ export default function TopBar({ showSettings = false, onOpenLicenseModal }: Top
 
                 {onOpenLicenseModal && (
                   <button
-                    onClick={() => onOpenLicenseModal()}
+                    type="button"
+                    onClick={() => {
+                      setShowAdminMenu(false)
+                      onOpenLicenseModal()
+                    }}
                     className={
                       !license
-                        ? "text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800 ml-2"
+                        ? 'w-full text-left px-3 py-1.5 hover:bg-zinc-900 text-zinc-300'
                         : license.isLicensed
-                          ? "text-[10px] px-2 py-0.5 rounded border border-emerald-800 bg-emerald-900/30 text-emerald-400 hover:bg-emerald-900/50 ml-2"
+                          ? 'w-full text-left px-3 py-1.5 hover:bg-zinc-900 text-emerald-400'
                           : license.inTrial
-                            ? "text-[10px] px-2 py-0.5 rounded border border-amber-800 bg-amber-900/30 text-amber-400 hover:bg-amber-900/50 ml-2"
-                            : "text-[10px] px-2 py-0.5 rounded border border-red-800 bg-red-900/30 text-red-400 hover:bg-red-900/50 ml-2"
+                            ? 'w-full text-left px-3 py-1.5 hover:bg-zinc-900 text-amber-400'
+                            : 'w-full text-left px-3 py-1.5 hover:bg-zinc-900 text-red-400'
                     }
                     title={tAdmin('licenseTitle')}
                   >
                     {t('license')}
                   </button>
                 )}
+
+                <div className="my-1 border-t border-zinc-800" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAdminMenu(false)
+                    void signOut({ callbackUrl: '/auth/signin' })
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 hover:bg-zinc-900 text-zinc-300"
+                >
+                  <LogOut className="w-4 h-4" />
+                  {t('signOut')}
+                </button>
               </div>
             )}
           </div>

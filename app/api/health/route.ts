@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { getRequestId } from '@/lib/correlation'
 import { rateLimit } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
+import { authReadiness } from '@/lib/env'
 import { access } from 'fs/promises'
 import { join } from 'path'
 
@@ -42,7 +43,9 @@ export async function GET(request: NextRequest) {
       jobsDead = await prisma.durableJob.count({ where: { status: 'DEAD_LETTER' } })
     } catch {}
 
-    const ready = !!dbCheck && missingProdSecrets.length === 0 && storageOk
+    const auth = authReadiness()
+    const authOk = process.env.NODE_ENV !== 'production' || auth.productionReady
+    const ready = !!dbCheck && missingProdSecrets.length === 0 && storageOk && authOk
 
     const body = {
       status: ready ? 'ok' : 'degraded',
@@ -50,6 +53,15 @@ export async function GET(request: NextRequest) {
       timestamp: new Date().toISOString(),
       database: dbCheck ? 'connected' : 'disconnected',
       storage: storageOk ? 'reachable' : 'unreachable',
+      auth: {
+        smtp: auth.smtp,
+        google: auth.google,
+        microsoft: auth.microsoft,
+        publicUrlConfigured: auth.publicUrlConfigured,
+        authSecretConfigured: auth.authSecretConfigured,
+        trustHost: auth.trustHost,
+        productionReady: auth.productionReady,
+      },
       webhooks: { stripe: stripeWebhook ? 'configured' : 'missing', paypal: paypalWebhook ? 'configured' : 'missing' },
       jobs: { pending: jobsPending, deadLetter: jobsDead },
       version: process.env.npm_package_version || 'unknown',

@@ -6,6 +6,7 @@ const apiRoot = join(process.cwd(), 'app', 'api')
 const locallyPublicRoutes = new Set([
   'auth/[...nextauth]/route.ts',
   'auth/dev/route.ts',
+  'auth/methods/route.ts',
   'bootstrap/status/route.ts',
   'health/route.ts',
   'jobs/run/route.ts',

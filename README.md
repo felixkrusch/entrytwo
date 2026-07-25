@@ -42,14 +42,15 @@ On a fresh database, create the first **ADMIN** user (bootstrap flow).
 - [docs/Git-Model-for-Accounting.md](./docs/Git-Model-for-Accounting.md) — **Foundational philosophy** (read this first).
 - [docs/Self-Hosted-Update-Delivery.md](./docs/Self-Hosted-Update-Delivery.md) — Signed self-hosted release and update architecture.
 - [docs/Licensing-and-Trial.md](./docs/Licensing-and-Trial.md) — 30-day trial, pay-to-own licensing, license key format, entitlement verification, and how the trial transitions into the perpetual + maintenance model.
+- [docs/VPS-Auth-Install.md](./docs/VPS-Auth-Install.md) — Production OAuth + magic-link checklist (when the install is ready for real users).
 
 ---
 
-## Current Status (2026-06-26)
+## Current Status (2026-07-25)
 
 **Phase 0-2 foundations are complete** (no technical debt allowed on these):
 
-- Full i18n (next-intl) across UI, chat, modals, reports. Zero hardcoded English.
+- Full i18n (next-intl) across UI, chat, modals, reports. `en` + `de` ship; company default language + localized standard CoA.
 - Tax foundation live: `TaxRate` + `taxRateId` on lines + live selector + tax-aware P&L + Balance Sheet.
 - Multi-currency foundation:
   - `JournalLine`: `currency`, `fxRateToBase`, `fxSource`, `fxDate`
@@ -63,13 +64,17 @@ On a fresh database, create the first **ADMIN** user (bootstrap flow).
 - Audit log detail view (click events for full payload)
 - Transaction templates (save/use/delete recurring patterns)
 - Real-time verification in journal modal
+- Git Model for Accounting (branches, merge, tags, restore, diff, blame)
 
-**Phase 3 in progress:**
-- [ ] Magic Link authentication (Auth.js)
+**Phase 3:**
+- [x] Magic Link authentication (Auth.js + `VerificationToken`; branded SMTP mail; single-use, 30 min)
 - [x] RFC 6238 TOTP 2FA with mandatory administrator setup and one-time recovery codes
-- [ ] OAuth login (Google, Microsoft)
-- [ ] Data export/import for backup/migration
-- [ ] Licensing/activation system
+- [x] OAuth login (Google + Microsoft Entra ID; invitation-gated; invite email must match IdP email)
+- [x] Production auth gates (`AUTH_URL`, `AUTH_TRUST_HOST`, ≥1 real method); dev instant login only when `NODE_ENV !== production`
+- [x] Sign out from the settings (gear) menu
+- [x] Licensing/activation system (30-day trial + pay-to-own; see Licensing-and-Trial.md)
+- [x] Data export/import for backup/migration (Admin → Backup)
+- [ ] VPS install verified end-to-end with real IdP + SMTP (operator checklist: [VPS-Auth-Install.md](./docs/VPS-Auth-Install.md))
 
 ---
 

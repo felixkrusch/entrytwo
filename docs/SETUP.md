@@ -74,11 +74,13 @@ SMTP_FROM="noreply@yourdomain.com"
 # Or Resend API (recommended for cloud)
 RESEND_API_KEY=""
 
-# OAuth providers (optional)
+# OAuth providers (optional) — Google and/or Microsoft Entra ID
 GOOGLE_CLIENT_ID=""
 GOOGLE_CLIENT_SECRET=""
-GITHUB_CLIENT_ID=""
-GITHUB_CLIENT_SECRET=""
+MICROSOFT_ENTRA_ID_ID=""
+MICROSOFT_ENTRA_ID_SECRET=""
+MICROSOFT_ENTRA_ID_ISSUER="https://login.microsoftonline.com/common/v2.0"
+AUTH_URL="http://localhost:3000"
 
 # Bank feed encryption (required for storing provider credentials)
 ENCRYPTION_KEY=""  # 64 hex characters (32 bytes)
@@ -103,19 +105,27 @@ ANTHROPIC_API_KEY=""
 3. Go to **APIs & Services** → **Credentials**
 4. Click **Create Credentials** → **OAuth 2.0 Client IDs**
 5. Choose **Web application** type
-6. Set **Authorized redirect URI**: `https://yourdomain.com/api/auth/callback/google`
+6. Set **Authorized redirect URI**: `https://yourdomain.com/api/auth/callback/google` (local: `http://localhost:3000/api/auth/callback/google`)
 7. Copy the Client ID and Client Secret to your `.env` file
 
-### GitHub OAuth
+### Microsoft Entra ID OAuth
 
-1. Visit [GitHub Settings → Developer settings → OAuth Apps](https://github.com/settings/developers)
-2. Click **New OAuth App**
-3. Fill in:
-   - **Application name**: entrytwo
-   - **Homepage URL**: `https://yourdomain.com`
-   - **Authorization callback URL**: `https://yourdomain.com/api/auth/callback/github`
-4. Register the application
-5. Copy the Client ID and Client Secret to your `.env` file
+1. Open [Azure Portal → Microsoft Entra ID → App registrations](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps)
+2. **New registration** → name it entrytwo
+3. Supported account types: single tenant, or multitenant + personal Microsoft accounts (match your issuer)
+4. Redirect URI (Web): `https://yourdomain.com/api/auth/callback/microsoft-entra-id` (local: `http://localhost:3000/api/auth/callback/microsoft-entra-id`)
+5. Create a client secret under **Certificates & secrets**
+6. Set in `.env`:
+   - `MICROSOFT_ENTRA_ID_ID` = Application (client) ID
+   - `MICROSOFT_ENTRA_ID_SECRET` = client secret value
+   - `MICROSOFT_ENTRA_ID_ISSUER` = `https://login.microsoftonline.com/{tenant}/v2.0` or `.../common/v2.0`
+
+### Magic links (SMTP)
+
+Set `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, and ideally `SMTP_FROM` + `AUTH_URL`.  
+In local development you can leave SMTP empty and use instant email sign-in (`/api/auth/dev`).
+
+**Production / VPS:** see [VPS-Auth-Install.md](./VPS-Auth-Install.md). Production refuses to start without at least one real auth method (SMTP and/or Google and/or Microsoft), a public `AUTH_URL`, strong `AUTH_SECRET`, and `AUTH_TRUST_HOST=true`.
 
 ### Stripe (Payment Processor Feed)
 
@@ -248,25 +258,33 @@ npm start
 - [ ] You can see the chart of accounts and create a manual journal entry
 - [ ] You can upload a PDF and get a suggestion with currency + tax (if detected)
 - [ ] Bank feed connections work (add `{"apiKey":"sk_test_..."}` for Stripe)
-- [ ] OAuth login tested (optional: set GOOGLE_CLIENT_ID/SECRET)
+- [ ] OAuth and/or magic link tested when configured (optional in local dev — instant email is enough)
+- [ ] Sign out works from the settings (gear) menu
 
 ---
 
 ## 11. Production Considerations
 
-- Use a strong `AUTH_SECRET` (required for Auth.js)
-- Enable HTTPS
-- Set up proper email delivery for magic links (or use OAuth)
-- Use a managed Postgres (or well-secured self-hosted)
-- Regular backups
-- Set `ENCRYPTION_KEY` for bank feed credential storage
-- Set `STRIPE_WEBHOOK_SECRET` for webhook signature verification
-- Consider read replicas for reporting
+Full VPS auth checklist: **[VPS-Auth-Install.md](./VPS-Auth-Install.md)**.
 
-**Authentication Status:**
-- ✅ Phase 3: Auth.js Magic Link via Email (SMTP or dev fallback)
-- ✅ Phase 3: RFC 6238 TOTP 2FA, mandatory administrator setup, and one-time recovery codes
-- ✅ Phase 3: OAuth login (Google, GitHub - requires env vars)
+- `NODE_ENV=production`; strong `AUTH_SECRET` (≥ 32 chars)
+- `AUTH_URL` / `APP_PUBLIC_URL` = public **https** origin (no trailing slash)
+- `AUTH_TRUST_HOST=true` behind nginx/caddy/traefik
+- At least one real sign-in method: full SMTP and/or Google and/or Microsoft Entra ID
+- Instant email (`/api/auth/dev`) is **disabled** in production
+- New users after bootstrap need an invitation; OAuth/magic email must match the invite
+- Admin TOTP is mandatory in production after first sign-in
+- Use managed Postgres (or well-secured self-hosted); regular backups (Admin → Backup and/or `pg_dump`)
+- Set `ENCRYPTION_KEY` for bank feed credential storage
+- Set webhook secrets if using Stripe/PayPal feeds
+- Confirm `GET /api/health` → `ready: true` and `auth.productionReady: true`
+
+**Authentication status (2026-07-25):**
+- ✅ Magic link (Auth.js + `VerificationToken`, branded SMTP, single-use)
+- ✅ TOTP 2FA (mandatory admin setup + recovery codes)
+- ✅ OAuth (Google, Microsoft Entra ID), invitation-gated
+- ✅ Sign out in settings menu
+- ✅ Production env validation on boot via `instrumentation.ts`
 
 ---
 

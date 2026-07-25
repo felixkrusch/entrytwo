@@ -9,7 +9,7 @@ export async function rateLimit(request: NextRequest, options?: { keyPrefix?: st
              request.headers.get('x-real-ip') ?? 
              'unknown'
   
-  const hasAuth = request.cookies.has('authjs.session') ||
+  const hasAuth = request.cookies.has('authjs.session-token') ||
                   request.cookies.has('authjs.session_token') ||
                   request.cookies.has('__Secure-authjs.session-token')
   
