@@ -25,12 +25,20 @@ export async function GET(
   // contact used for potential future extension; currently not needed for QR payload
   void invoice.contact
 
-  // Company creditor info from settings
+  // Company creditor info from settings (IBAN lives under company.bank in Admin → Company)
   const companyNameSetting = await prisma.setting.findUnique({ where: { key: 'company.name' } })
-  const ibanSetting = await prisma.setting.findUnique({ where: { key: 'company.iban' } })
+  const bankSetting = await prisma.setting.findUnique({ where: { key: 'company.bank' } })
+  const legacyIbanSetting = await prisma.setting.findUnique({ where: { key: 'company.iban' } })
 
   const companyName = ((companyNameSetting?.value as Record<string, unknown>)?.value as string) || 'Your Company'
-  const iban = (((ibanSetting?.value as Record<string, unknown>)?.value as string) || '').replace(/\s+/g, '').toUpperCase()
+  const bank = (bankSetting?.value && typeof bankSetting.value === 'object' && !Array.isArray(bankSetting.value))
+    ? bankSetting.value as Record<string, unknown>
+    : {}
+  const ibanRaw =
+    (typeof bank.iban === 'string' && bank.iban)
+    || ((legacyIbanSetting?.value as Record<string, unknown>)?.value as string)
+    || ''
+  const iban = ibanRaw.replace(/\s+/g, '').toUpperCase()
 
   const amount = Number(invoice.total).toFixed(2).replace('.', ',')
   const currency = (invoice.currency || 'EUR').toUpperCase()

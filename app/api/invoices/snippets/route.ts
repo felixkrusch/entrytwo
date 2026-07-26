@@ -139,3 +139,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Failed to save snippet' }, { status: 500 })
   }
 }
+
+export async function DELETE(request: Request) {
+  if (!await requireUser(['ADMIN', 'ACCOUNTANT'])) {
+    return NextResponse.json({ error: 'Accountant access required' }, { status: 403 })
+  }
+  try {
+    const url = new URL(request.url)
+    const id = url.searchParams.get('id') || ''
+    if (!id) {
+      return NextResponse.json({ error: 'id is required' }, { status: 400 })
+    }
+
+    const existing = await prisma.template.findUnique({ where: { id } })
+    if (!existing) {
+      return NextResponse.json({ error: 'Snippet not found' }, { status: 404 })
+    }
+
+    await prisma.template.delete({ where: { id } })
+    return NextResponse.json({ success: true })
+  } catch {
+    return NextResponse.json({ error: 'Failed to delete snippet' }, { status: 500 })
+  }
+}
