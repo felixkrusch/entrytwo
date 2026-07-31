@@ -9,6 +9,9 @@ FROM deps AS build
 WORKDIR /app/entrytwo
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# next build collects page data and validates AUTH_SECRET in production mode
+ENV AUTH_SECRET=build-placeholder-not-for-runtime
+ENV AUTH_TRUST_HOST=true
 RUN npx prisma generate
 RUN npm run build
 
@@ -29,12 +32,13 @@ COPY --from=build /app/entrytwo/.next ./.next
 COPY --from=build /app/entrytwo/public ./public
 COPY --from=build /app/entrytwo/.grok ./.grok
 COPY --from=build /app/entrytwo/prisma ./prisma
+COPY --from=build /app/entrytwo/prisma.config.ts ./prisma.config.ts
 COPY --from=build /app/entrytwo/scripts ./scripts
 COPY --from=build /app/entrytwo/package.json ./package.json
 COPY --from=build /app/entrytwo/next.config.ts ./next.config.ts
-COPY --from=build /app/entrytwo/compose.yaml ./compose.yaml
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
-RUN chmod +x ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh \
+    && mkdir -p .data/files .data/backups uploads logs backups
 
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION

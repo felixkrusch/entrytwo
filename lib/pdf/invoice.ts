@@ -39,6 +39,7 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
   const routing = text(bank.routing || bank.transit)
   const accountNumber = text(bank.accountNumber || bank.account)
   const currency = (invoice.currency || 'EUR').toUpperCase()
+  const german = (invoice.language || 'en').toLowerCase().startsWith('de')
 
   const money = new Intl.NumberFormat(invoice.language || 'en', { style: 'currency', currency })
   const date = new Intl.DateTimeFormat(invoice.language || 'en', { year: 'numeric', month: 'short', day: '2-digit' })
@@ -79,7 +80,7 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
     }
   }
 
-  const doc = new PDFDocument({ size: 'A4', margin: 44, info: { Title: `Invoice ${invoice.invoiceNumber}`, Author: companyName } })
+  const doc = new PDFDocument({ size: 'A4', margin: 44, info: { Title: `${german ? 'Rechnung' : 'Invoice'} ${invoice.invoiceNumber}`, Author: companyName } })
   doc.registerFont('Geist', geistRegular)
   doc.registerFont('Geist-SemiBold', geistSemibold)
   const chunks: Buffer[] = []
@@ -103,12 +104,11 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
     if (logoUrl) doc.image(logoUrl, left, 42, { fit: [132, 42] })
     else doc.font(bold).fontSize(15).fillColor(ink).text(companyName, left, 48, { width: 250 })
 
-    doc.font(bold).fontSize(25).fillColor(ink).text('INVOICE', 350, 40, { width: 201, align: 'right' })
+    doc.font(bold).fontSize(25).fillColor(ink).text(german ? 'RECHNUNG' : 'INVOICE', 350, 40, { width: 201, align: 'right' })
     doc.font(regular).fontSize(9).fillColor(muted).text(invoice.invoiceNumber, 350, 72, { width: 201, align: 'right' })
     doc.roundedRect(468, 89, 83, 20, 10).fill(invoice.status === 'PAID' ? '#dcfce7' : '#dbeafe')
-    doc.font(bold).fontSize(8).fillColor(invoice.status === 'PAID' ? '#166534' : '#1d4ed8').text(invoice.status, 468, 96, { width: 83, align: 'center' })
+    doc.font(bold).fontSize(8).fillColor(invoice.status === 'PAID' ? '#166534' : '#1d4ed8').text((german ? ({ DRAFT: 'ENTWURF', SENT: 'GESENDET', PAID: 'BEZAHLT', OVERDUE: 'ÜBERFÄLLIG', CANCELLED: 'STORNIERT' } as Record<string,string>) : ({ DRAFT: 'DRAFT', SENT: 'SENT', PAID: 'PAID', OVERDUE: 'OVERDUE', CANCELLED: 'CANCELLED' } as Record<string,string>))[invoice.status] || invoice.status, 468, 96, { width: 83, align: 'center' })
 
-    const german = (invoice.language || 'en').toLowerCase().startsWith('de')
     doc.moveTo(left, 124).lineTo(right, 124).lineWidth(0.7).strokeColor(border).stroke()
     doc.font(bold).fontSize(9.5).fillColor(ink).text(companyName, left, 147, { width: 220 })
     doc.font(regular).fontSize(9.5).fillColor(ink)
@@ -195,16 +195,16 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
       doc.roundedRect(left, paymentY, contentWidth, qrUrl ? 105 : 82, 7).fill(panel)
       if (qrUrl) doc.image(qrUrl, left + 14, paymentY + 14, { width: 76, height: 76 })
       const paymentX = qrUrl ? left + 108 : left + 18
-      doc.font(bold).fontSize(9).fillColor(ink).text('PAYMENT DETAILS', paymentX, paymentY + 16)
+      doc.font(bold).fontSize(9).fillColor(ink).text(german ? 'ZAHLUNGSINFORMATIONEN' : 'PAYMENT DETAILS', paymentX, paymentY + 16)
       doc.font(regular).fontSize(8).fillColor(muted)
       let detailY = paymentY + 34
-      const details = [bankName && `Bank  ${bankName}`, iban && `IBAN  ${iban}`, bic && `BIC  ${bic}`, routing && `Routing  ${routing}`, accountNumber && `Account  ${accountNumber}`, `Reference  ${invoice.invoiceNumber}`].filter(Boolean) as string[]
+      const details = [bankName && `Bank  ${bankName}`, iban && `IBAN  ${iban}`, bic && `BIC  ${bic}`, routing && `Routing  ${routing}`, accountNumber && `Account  ${accountNumber}`, `${german ? 'Verwendungszweck' : 'Reference'}  ${invoice.invoiceNumber}`].filter(Boolean) as string[]
       details.forEach(item => { doc.text(item, paymentX, detailY, { width: right - paymentX - 14 }); detailY += 11 })
       paymentY += qrUrl ? 119 : 96
     }
 
     if (invoice.notes) {
-      doc.font(bold).fontSize(8).fillColor(ink).text('NOTES', left, paymentY)
+      doc.font(bold).fontSize(8).fillColor(ink).text(german ? 'NOTIZEN' : 'NOTES', left, paymentY)
       doc.font(regular).fontSize(8).fillColor(muted).text(invoice.notes, left, paymentY + 15, { width: contentWidth })
     }
 

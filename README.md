@@ -13,7 +13,7 @@
 
 ## Quick Start
 
-See the full guide: [docs/SETUP.md](./docs/SETUP.md)
+See: [docs/SETUP.md](./docs/SETUP.md) (local) · [docs/PRODUCTION.md](./docs/PRODUCTION.md) (VPS) · [docs/VPS-Auth-Install.md](./docs/VPS-Auth-Install.md) (auth smoke)
 
 ```bash
 npm install

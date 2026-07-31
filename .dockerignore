@@ -14,12 +14,14 @@
 **/bin
 **/charts
 **/docker-compose*
-**/compose*
-**/Dockerfile*
+**/compose.debug*
+**/compose.update*
 **/node_modules
 **/npm-debug.log
 **/obj
 **/secrets.dev.yaml
 **/values.dev.yaml
+**/.next
 LICENSE
 README.md
+docs

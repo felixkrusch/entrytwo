@@ -33,8 +33,13 @@ export default function SignInPage() {
   const [bootstrapLanguage, setBootstrapLanguage] = useState<'en' | 'de'>('en')
   const [methods, setMethods] = useState<AuthMethods | null>(null)
   const [useMagicLink, setUseMagicLink] = useState(false)
+  const [setupHint, setSetupHint] = useState('')
+  // Avoid SSR/client mismatch: bootstrap + methods are client-fetched only
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
+    let cancelled = false
+
     const params = new URLSearchParams(window.location.search)
     const token = params.get('token') || params.get('invitation')
     if (token) {
@@ -52,28 +57,44 @@ export default function SignInPage() {
       }
     }
 
-    fetch('/api/bootstrap/status')
-      .then(r => r.json())
-      .then(d => setNeedsBootstrap(!!d.needsBootstrap))
-      .catch(() => setNeedsBootstrap(false))
-
-    fetch('/api/auth/methods')
-      .then(r => r.json())
-      .then((d: AuthMethods) => {
-        setMethods(d)
-        // Prefer real magic link when SMTP is up; still allow instant in dev
-        setUseMagicLink(!!d.magicLink && !d.instantEmail)
-      })
-      .catch(() => {
-        setMethods({
-          magicLink: false,
-          google: false,
-          microsoft: false,
-          oauth: [],
-          devCredentials: true,
-          instantEmail: true,
+    Promise.all([
+      fetch('/api/bootstrap/status')
+        .then(r => r.json())
+        .then(d => {
+          if (cancelled) return
+          setNeedsBootstrap(!!d.needsBootstrap)
+          if (typeof d.error === 'string' && d.error) setSetupHint(d.error)
         })
-      })
+        .catch(() => {
+          if (cancelled) return
+          setNeedsBootstrap(true)
+          setSetupHint('Could not reach bootstrap API. Is the server and database running?')
+        }),
+      fetch('/api/auth/methods')
+        .then(r => r.json())
+        .then((d: AuthMethods) => {
+          if (cancelled) return
+          setMethods(d)
+          setUseMagicLink(!!d.magicLink && !d.instantEmail)
+        })
+        .catch(() => {
+          if (cancelled) return
+          setMethods({
+            magicLink: false,
+            google: false,
+            microsoft: false,
+            oauth: [],
+            devCredentials: true,
+            instantEmail: true,
+          })
+        }),
+    ]).finally(() => {
+      if (!cancelled) setReady(true)
+    })
+
+    return () => {
+      cancelled = true
+    }
   }, [t])
 
   const handleBootstrap = async (e: FormEvent) => {
@@ -163,14 +184,31 @@ export default function SignInPage() {
     }
   }
 
+  // Same shell on server + first client paint (ready=false) to avoid hydration mismatch
+  if (!ready) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-zinc-900 text-white">
+        <div className="w-80">
+          <img src="/entrytwo-logo.svg" alt="entrytwo" width={160} height={43} className="mb-6 h-8 w-auto" />
+          <p className="text-sm text-zinc-500">Loading…</p>
+        </div>
+      </div>
+    )
+  }
+
   if (needsBootstrap) {
     return (
       <div className="flex h-screen items-center justify-center bg-zinc-900 text-white">
         <div className="w-80">
-          <img src="/entrytwo-logo.svg" alt="entrytwo" className="h-8 w-auto mb-6" />
+          <img src="/entrytwo-logo.svg" alt="entrytwo" width={160} height={43} className="mb-6 h-8 w-auto" />
           <form onSubmit={handleBootstrap} className="space-y-4">
             <h1 className="text-xl font-semibold">{t('firstAdminTitle')}</h1>
             <p className="text-sm text-zinc-400">{t('firstAdminDesc')}</p>
+            {setupHint && (
+              <div className="rounded border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+                {setupHint}
+              </div>
+            )}
             <input
               type="email"
               value={email}
@@ -209,7 +247,7 @@ export default function SignInPage() {
     return (
       <div className="flex h-screen items-center justify-center bg-zinc-900 text-white">
         <div className="w-80 space-y-4">
-          <img src="/entrytwo-logo.svg" alt="entrytwo" className="h-8 w-auto mb-2" />
+          <img src="/entrytwo-logo.svg" alt="entrytwo" width={160} height={43} className="mb-2 h-8 w-auto" />
           <h1 className="text-xl mb-2">{t('checkEmail')}</h1>
           <p className="text-zinc-400">{t('magicSent', { email })}</p>
           <p className="text-xs text-zinc-500">{t('magicHint')}</p>
@@ -234,7 +272,7 @@ export default function SignInPage() {
   return (
     <div className="flex h-screen items-center justify-center bg-zinc-900 text-white">
       <div className="w-80">
-        <img src="/entrytwo-logo.svg" alt="entrytwo" className="h-8 w-auto mb-6" />
+        <img src="/entrytwo-logo.svg" alt="entrytwo" width={160} height={43} className="mb-6 h-8 w-auto" />
         <div className="space-y-4">
           <p className="text-sm text-zinc-400">{t('description')}</p>
 
@@ -301,11 +339,9 @@ export default function SignInPage() {
             >
               {loading
                 ? t('sending')
-                : useMagicLink && methods?.magicLink
-                  ? t('send')
-                  : methods?.instantEmail
-                    ? t('continueDev')
-                    : t('send')}
+                : methods?.instantEmail && !(useMagicLink && methods.magicLink)
+                  ? t('continueDev')
+                  : t('send')}
             </button>
 
             <p className="text-xs text-zinc-500">

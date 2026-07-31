@@ -162,7 +162,7 @@ export default function ClaimsPanel() {
       <div className="mb-4 flex items-center gap-2 overflow-x-auto text-xs">
         {statuses.map(status => (
           <button key={status} onClick={() => { setFilter(status); setSelectedId(null) }} className={`whitespace-nowrap rounded px-3 py-1 ${filter === status ? 'bg-zinc-700 text-zinc-100' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'}`}>
-            {status === 'ALL' ? t('statusAll') : status === 'DRAFT' ? t('statusDraft') : status === 'SUBMITTED' ? t('statusSubmitted') : status === 'CHANGES_REQUESTED' ? t('statusChangesRequested') : status === 'APPROVED' ? t('statusApproved') : status === 'REJECTED' ? t('statusRejected') : status.replaceAll('_', ' ').toLowerCase()}
+            {status === 'ALL' ? t('statusAll') : status === 'DRAFT' ? t('statusDraft') : status === 'SUBMITTED' ? t('statusSubmitted') : status === 'CHANGES_REQUESTED' ? t('statusChangesRequested') : status === 'APPROVED' ? t('statusApproved') : status === 'REJECTED' ? t('statusRejected') : String(status).replaceAll('_', ' ').toLowerCase()}
             {status !== 'ALL' && <span className="ml-1 text-zinc-600">{claims.filter(claim => claim.workflowStatus === status).length}</span>}
           </button>
         ))}

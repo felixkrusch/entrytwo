@@ -265,19 +265,21 @@ npm start
 
 ## 11. Production Considerations
 
-Full VPS auth checklist: **[VPS-Auth-Install.md](./VPS-Auth-Install.md)**.
+Full deploy guide: **[PRODUCTION.md](./PRODUCTION.md)**. Auth smoke table: **[VPS-Auth-Install.md](./VPS-Auth-Install.md)**.
 
 - `NODE_ENV=production`; strong `AUTH_SECRET` (≥ 32 chars)
 - `AUTH_URL` / `APP_PUBLIC_URL` = public **https** origin (no trailing slash)
 - `AUTH_TRUST_HOST=true` behind nginx/caddy/traefik
-- At least one real sign-in method: full SMTP and/or Google and/or Microsoft Entra ID
+- At least one real sign-in method: full SMTP and/or Google and/or Microsoft Entra ID — **required before first production boot**
 - Instant email (`/api/auth/dev`) is **disabled** in production
+- Point DNS at the VPS **before** expecting HTTPS (Caddy/Let’s Encrypt)
 - New users after bootstrap need an invitation; OAuth/magic email must match the invite
 - Admin TOTP is mandatory in production after first sign-in
 - Use managed Postgres (or well-secured self-hosted); regular backups (Admin → Backup and/or `pg_dump`)
 - Set `ENCRYPTION_KEY` for bank feed credential storage
 - Set webhook secrets if using Stripe/PayPal feeds
 - Confirm `GET /api/health` → `ready: true` and `auth.productionReady: true`
+- Docker image must include `prisma.config.ts`; entrypoint runs migrations on start
 
 **Authentication status (2026-07-25):**
 - ✅ Magic link (Auth.js + `VerificationToken`, branded SMTP, single-use)
@@ -301,6 +303,18 @@ Full VPS auth checklist: **[VPS-Auth-Install.md](./VPS-Auth-Install.md)**.
 ```bash
 npx prisma generate
 ```
+
+**Docker: `datasource.url property is required` on migrate**
+- Image must ship `prisma.config.ts`; `DATABASE_URL` must be set at runtime (entrypoint writes it for Prisma dotenv).
+
+**Docker build: `AUTH_SECRET is required in production`**
+- Current Dockerfile sets a build-only placeholder. Rebuild from latest `Dockerfile`.
+
+**Production: configure at least one sign-in method**
+- Set full SMTP (`SMTP_HOST` + `USER` + `PASS`) and/or OAuth before starting.
+
+**HTTPS / SSL internal error in browser**
+- Confirm `dig +short your.domain` returns the VPS IP, then restart Caddy so ACME can issue a cert.
 
 ---
 

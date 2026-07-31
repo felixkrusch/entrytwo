@@ -81,17 +81,25 @@ function toAdapterUser(user: {
 const emailProviders = []
 const oauthProviders = []
 
-if (isSmtpConfigured()) {
-  emailProviders.push(
-    EmailProvider({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@entrytwo.local',
-      maxAge: 60 * 30,
-      async sendVerificationRequest({ identifier, url }) {
-        await sendMagicLinkEmail({ email: identifier, url })
-      },
-    }),
-  )
-}
+  if (isSmtpConfigured()) {
+    emailProviders.push(
+      EmailProvider({
+        server: {
+          host: process.env.SMTP_HOST,
+          port: Number(process.env.SMTP_PORT || 587),
+          auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS,
+          },
+        },
+        from: process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@entrytwo.local',
+        maxAge: 60 * 30,
+        async sendVerificationRequest({ identifier, url }) {
+          await sendMagicLinkEmail({ email: identifier, url })
+        },
+      }),
+    )
+  }
 
 if (isGoogleOAuthConfigured()) {
   oauthProviders.push(
