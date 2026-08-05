@@ -69,8 +69,16 @@ describe('portable backup manifest', () => {
     }
 
     // Create a small file asset + DB rows, export, wipe, restore, and verify integrity.
-    const buffer = Buffer.from('receipt-bytes-for-backup-test')
-    const asset = await storeAttachmentBuffer(buffer, 'receipt.txt', 'text/plain', owner.id)
+    // Use a minimal valid PNG (allowed attachment type; text/plain is rejected).
+    const buffer = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+      0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+      0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, 0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00,
+      0x00, 0x00, 0x03, 0x00, 0x01, 0x00, 0x05, 0xfe, 0xd4, 0xef, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+      0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ])
+    const asset = await storeAttachmentBuffer(buffer, 'receipt.png', 'image/png', owner.id)
+    const fileAsset = await prisma.fileAsset.findUniqueOrThrow({ where: { id: asset.id } })
 
     // Ensure there is at least one account (restore order needs it) and a journal entry to carry the asset.
     await prisma.account.upsert({
@@ -84,8 +92,6 @@ describe('portable backup manifest', () => {
       data: {
         date: new Date(),
         description: 'Backup round-trip test entry',
-        baseCurrency: 'EUR',
-        branch: 'main',
         createdBy: owner.id,
         lines: { create: [{ accountId: acc.id, debit: 1, credit: 0, currency: 'EUR' }] },
       },
@@ -99,7 +105,9 @@ describe('portable backup manifest', () => {
 
     const manifest = await buildBackupDirectory(root)
     expect(manifest.database.tables.find(t => t.name === 'fileAsset')?.rows).toBeGreaterThanOrEqual(1)
-    const receiptEntry = manifest.receipts.find(r => r.path.endsWith(asset.id) || r.path.includes(asset.storageKey))
+    const receiptEntry = manifest.receipts.find(
+      (r) => r.path === `files/${fileAsset.storageKey}` || r.path.endsWith(fileAsset.storageKey),
+    )
     expect(receiptEntry).toBeTruthy()
 
     // Validate manifest + files
@@ -124,7 +132,7 @@ describe('portable backup manifest', () => {
     const restoredAsset = await prisma.fileAsset.findUnique({ where: { id: asset.id } })
     expect(restoredAsset).toBeTruthy()
     const restoredBytes = await readFile(join(process.cwd(), '.data', 'files', restoredAsset!.storageKey))
-    expect(restoredBytes.toString()).toBe('receipt-bytes-for-backup-test')
+    expect(Buffer.compare(restoredBytes, buffer)).toBe(0)
 
     const restoredJe = await prisma.journalEntry.findUnique({ where: { id: je.id }, include: { attachments: true } })
     expect(restoredJe?.attachments.length).toBe(1)
