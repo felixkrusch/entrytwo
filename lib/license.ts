@@ -2,6 +2,9 @@ import { prisma } from '@/lib/prisma'
 
 export const MASTER_LICENSE_KEY = 'FCKGW-RHQQ2-YXRKT-8TG6W-2B7Q8'
 
+/** This app only accepts keys issued for this product (or master). */
+export const LICENSE_PRODUCT = 'entrytwo' as const
+
 export const TRIAL_DAYS = 30
 
 export interface LicenseStatus {
@@ -34,22 +37,29 @@ export async function verifyLicenseKey(key: string): Promise<boolean> {
   //
   // The external service (entrytwo_verify at LICENSE_VERIFY_URL) performs:
   // - Ed25519 signature verification of et1.<payload>.<sig> tokens
+  // - Product binding (entrytwo vs invoices)
   // - Optional Stripe re-check (if STRIPE_SECRET_KEY is configured on the service)
   const verifyUrl = process.env.LICENSE_VERIFY_URL
   if (verifyUrl) {
     try {
       const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 8000) // 8s safety timeout
+      const timeout = setTimeout(() => controller.abort(), 8000)
       const res = await fetch(verifyUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key }),
+        body: JSON.stringify({ key, product: LICENSE_PRODUCT }),
         signal: controller.signal,
       })
       clearTimeout(timeout)
       if (res.ok) {
-        const data = await res.json().catch(() => ({}))
-        return !!data.valid
+        const data = await res.json().catch(() => ({})) as {
+          valid?: boolean
+          product?: string
+          master?: boolean
+        }
+        if (!data.valid) return false
+        if (data.master) return true
+        return data.product === LICENSE_PRODUCT
       }
     } catch {
       // network error / timeout / abort → fall through to false for non-master keys
@@ -77,10 +87,7 @@ export async function getLicenseStatus(): Promise<LicenseStatusResponse> {
   //
   // The only place that ever calls the external service is verifyLicenseKey(),
   // and that is called exclusively from /api/license/activate at key entry time.
-  //
-  // See: Licensing-and-Trial.md, app/api/license/activate/route.ts, app/api/license/status/route.ts
 
-  // firstUseAt (records on first access)
   const firstUseSetting = await prisma.setting.findUnique({ where: { key: 'license.firstUseAt' } })
   let firstUseAt: string | null = null
   if (firstUseSetting?.value && typeof firstUseSetting.value === 'object' && 'value' in firstUseSetting.value) {
@@ -98,7 +105,6 @@ export async function getLicenseStatus(): Promise<LicenseStatusResponse> {
     })
   }
 
-  // accepted key — once a valid key has been accepted, we treat the app as permanently licensed.
   let acceptedKey: string | null = null
   const keySetting = await prisma.setting.findUnique({ where: { key: 'license.acceptedKey' } })
   if (keySetting?.value && typeof keySetting.value === 'object' && 'value' in keySetting.value) {
