@@ -130,23 +130,6 @@ curl -sS https://your.domain/api/health
 # expect: "ready": true, "status": "ok", auth.productionReady: true
 
 Open the site → bootstrap first **ADMIN** → complete **TOTP** → company settings.
-```
-
----
-
-### Also available: Build from source (clone)
-
-If you **do** have access to the private repo (`felixkrusch/entrytwo`):
-
-```bash
-git clone https://github.com/felixkrusch/entrytwo.git
-cd entrytwo
-cp .env.example .env   # edit .env — fill secrets, AUTH_URL, SMTP or OAuth, POSTGRES_PASSWORD
-docker compose up -d --build
-```
-
-> The clone path requires repo access. It uses the same `ghcr.io/felixkrusch/entrytwo:latest` image.
-
 ### Build notes (image packaging)
 
 - `docker build` needs a placeholder `AUTH_SECRET` at **build** time (set in the Dockerfile). Runtime must override with a real secret via `.env`.

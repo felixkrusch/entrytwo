@@ -114,22 +114,6 @@ On first visit you should be able to create the initial **ADMIN** user if none e
 
 ---
 
-### Build from source (clone)
-
-If you **do** have access to the private repo (`felixkrusch/entrytwo`), you can build locally instead:
-
-```bash
-git clone https://github.com/felixkrusch/entrytwo.git
-cd entrytwo/entrytwo_v1
-cp .env.example .env
-# edit .env
-docker compose up --build
-```
-
-> The clone path requires repo access. It uses the same `ghcr.io/felixkrusch/entrytwo:latest` image built and signed on every `v*` tag.
-
----
-
 ## 3. Environment Variables
 
 Copy `.env.example` to `.env` and fill in:
@@ -396,31 +380,6 @@ docker compose exec app npm run db:seed
 
 # 6. Open http://localhost:3000
 # On first visit with no admin users, create the initial **ADMIN** account.
-
----
-
-### Also available: Build from source (clone)
-
-If you **do** have access to the private repo (`felixkrusch/entrytwo`), you can build locally instead:
-
-```bash
-git clone https://github.com/felixkrusch/entrytwo.git
-cd entrytwo/entrytwo_v1
-cp .env.example .env
-# edit .env
-docker compose up --build
-```
-
-> The clone path requires repo access. It uses the same `ghcr.io/felixkrusch/entrytwo:latest` image.
-# edit .env — set POSTGRES_PASSWORD, AUTH_SECRET, AUTH_URL, SMTP/OAuth, etc.
-
-# 4. Start
-docker compose up -d
-```
-
-This pulls `ghcr.io/felixkrusch/entrytwo:latest` (built and signed on every `v*` tag by the release workflow) — no `git clone` needed.
-
-Adjust ports in `compose.yaml` / `compose.debug.yaml` as needed.
 
 ---
 
