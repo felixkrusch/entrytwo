@@ -41,13 +41,105 @@ openssl rand -base64 24   # POSTGRES_PASSWORD
 
 ## Docker deploy (single host)
 
+Two ways to run:
+
+### Option A: Build from source (clone the repo)
+
 ```bash
+git clone https://github.com/felixkrusch/entrytwo.git
+cd entrytwo
+cp .env.example .env   # edit .env — fill secrets, AUTH_URL, SMTP or OAuth, POSTGRES_PASSWORD
+docker compose up -d --build
+```
+
+### Option B: Pull published image from GHCR (no clone needed)
+
+Images are built and signed on every `v*` tag and published to `ghcr.io/felixkrusch/entrytwo`.
+
+```bash
+mkdir entrytwo && cd entrytwo
+
+# Write a minimal compose.yaml (see SETUP.md §8B for a full template):
+cat > compose.yaml <<'EOF'
+services:
+  app:
+    image: ghcr.io/felixkrusch/entrytwo:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?required}@db:5432/entrytwo
+      - APP_IMAGE=ghcr.io/felixkrusch/entrytwo:latest
+      - UPDATER_URL=http://updater:4000
+      - UPDATER_TOKEN=${UPDATER_TOKEN:?required}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backups:/app/entrytwo/backups
+      - ./logs:/app/entrytwo/logs
+      - ./uploads:/app/entrytwo/public/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      updater:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  updater:
+    image: ghcr.io/felixkrusch/entrytwo:latest
+    build:
+      context: .
+      dockerfile: ./updater/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - UPDATER_PORT=4000
+      - UPDATER_TOKEN=${UPDATER_TOKEN:?required}
+      - UPDATE_VERIFY_SIGNATURE=true
+      - APP_IMAGE=ghcr.io/felixkrusch/entrytwo:latest
+      - COMPOSE_FILE=/app/entrytwo/compose.yaml
+      - APP_PUBLIC_URL=http://app:3000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./compose.yaml:/app/entrytwo/compose.yaml:ro
+      - ./backups:/app/entrytwo/backups
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=entrytwo
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+EOF
+
 cp .env.example .env
-# edit .env — fill secrets, AUTH_URL, SMTP or OAuth, POSTGRES_PASSWORD
+# edit .env — set POSTGRES_PASSWORD, AUTH_SECRET, AUTH_URL, SMTP/OAuth, etc.
 
 docker compose up -d --build
-# app entrypoint runs: prisma migrate deploy, then next start
+```
 
+`docker compose up -d` after this pulls `ghcr.io/felixkrusch/entrytwo:latest` (the app image is pulled; the updater sidecar still builds from the local `updater/Dockerfile` since it needs the Docker socket). The app entrypoint runs `prisma migrate deploy`, then `next start`.
+
+```bash
 curl -sS https://your.domain/api/health
 # expect: "ready": true, "status": "ok", auth.productionReady: true
 ```

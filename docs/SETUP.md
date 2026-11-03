@@ -221,11 +221,106 @@ npm run dev
 
 ## 8. Docker (Full Stack)
 
+### Option A: Build from source (default)
+
 ```bash
 docker compose up --build
 ```
 
-This will start the Next.js app + Postgres. Adjust ports in `compose.yaml` / `compose.debug.yaml` as needed.
+This builds the image locally from this checkout. Use this when you have cloned the repo.
+
+### Option B: Pull from GHCR (no clone required)
+
+If you don't have access to the private repo, run the published image directly:
+
+```bash
+# 1. Create an empty project dir
+mkdir entrytwo && cd entrytwo
+
+# 2. Create compose + env from the release artifacts, or write them by hand:
+cat > compose.yaml <<'EOF'
+services:
+  app:
+    image: ${APP_IMAGE:-ghcr.io/felixkrusch/entrytwo:latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/entrytwo
+      - APP_IMAGE=ghcr.io/felixkrusch/entrytwo:latest
+      - COMPOSE_FILE=/app/entrytwo/compose.yaml
+      - UPDATER_URL=http://updater:4000
+      - UPDATER_TOKEN=${UPDATER_TOKEN:?required}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backups:/app/entrytwo/backups
+      - ./logs:/app/entrytwo/logs
+      - ./uploads:/app/entrytwo/public/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      updater:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  updater:
+    image: ghcr.io/felixkrusch/entrytwo:latest
+    build:
+      context: .
+      dockerfile: ./updater/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - UPDATER_PORT=4000
+      - UPDATER_TOKEN=${UPDATER_TOKEN:?required}
+      - UPDATE_VERIFY_SIGNATURE=true
+      - APP_IMAGE=ghcr.io/felixkrusch/entrytwo:latest
+      - COMPOSE_FILE=/app/entrytwo/compose.yaml
+      - APP_PUBLIC_URL=http://app:3000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./compose.yaml:/app/entrytwo/compose.yaml:ro
+      - ./backups:/app/entrytwo/backups
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=entrytwo
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+EOF
+
+# 3. Configure .env (copy from release notes / docs)
+cp .env.example .env
+# edit .env — set POSTGRES_PASSWORD, AUTH_SECRET, AUTH_URL, SMTP/OAuth, etc.
+
+# 4. Start
+docker compose up -d
+```
+
+This pulls `ghcr.io/felixkrusch/entrytwo:latest` (built and signed on every `v*` tag by the release workflow) — no `git clone` needed.
+
+Adjust ports in `compose.yaml` / `compose.debug.yaml` as needed.
 
 ---
 
