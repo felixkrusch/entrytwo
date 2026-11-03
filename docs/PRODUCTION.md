@@ -41,25 +41,13 @@ openssl rand -base64 24   # POSTGRES_PASSWORD
 
 ## Docker deploy (single host)
 
-Two ways to run:
+### Primary: Pull published image from GHCR (no clone needed)
 
-### Option A: Build from source (clone the repo)
-
-```bash
-git clone https://github.com/felixkrusch/entrytwo.git
-cd entrytwo
-cp .env.example .env   # edit .env — fill secrets, AUTH_URL, SMTP or OAuth, POSTGRES_PASSWORD
-docker compose up -d --build
-```
-
-### Option B: Pull published image from GHCR (no clone needed)
-
-Images are built and signed on every `v*` tag and published to `ghcr.io/felixkrusch/entrytwo`.
+The repo is private. Run the published image directly — built and signed on every `v*` tag:
 
 ```bash
 mkdir entrytwo && cd entrytwo
 
-# Write a minimal compose.yaml (see SETUP.md §8B for a full template):
 cat > compose.yaml <<'EOF'
 services:
   app:
@@ -132,19 +120,32 @@ volumes:
 EOF
 
 cp .env.example .env
-# edit .env — set POSTGRES_PASSWORD, AUTH_SECRET, AUTH_URL, SMTP/OAuth, etc.
+# edit .env — fill secrets, AUTH_URL, SMTP or OAuth, POSTGRES_PASSWORD
 
+docker compose up -d
+
+# app entrypoint runs: prisma migrate deploy, then next start
+
+curl -sS https://your.domain/api/health
+# expect: "ready": true, "status": "ok", auth.productionReady: true
+
+Open the site → bootstrap first **ADMIN** → complete **TOTP** → company settings.
+```
+
+---
+
+### Also available: Build from source (clone)
+
+If you **do** have access to the private repo (`felixkrusch/entrytwo`):
+
+```bash
+git clone https://github.com/felixkrusch/entrytwo.git
+cd entrytwo
+cp .env.example .env   # edit .env — fill secrets, AUTH_URL, SMTP or OAuth, POSTGRES_PASSWORD
 docker compose up -d --build
 ```
 
-`docker compose up -d` after this pulls `ghcr.io/felixkrusch/entrytwo:latest` (the app image is pulled; the updater sidecar still builds from the local `updater/Dockerfile` since it needs the Docker socket). The app entrypoint runs `prisma migrate deploy`, then `next start`.
-
-```bash
-curl -sS https://your.domain/api/health
-# expect: "ready": true, "status": "ok", auth.productionReady: true
-```
-
-Open the site → bootstrap first **ADMIN** → complete **TOTP** → company settings.
+> The clone path requires repo access. If you don't have it, use the **pull path above** — it uses the same `ghcr.io/felixkrusch/entrytwo:latest` image.
 
 ### Build notes (image packaging)
 

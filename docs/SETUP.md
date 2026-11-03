@@ -221,32 +221,24 @@ npm run dev
 
 ## 8. Docker (Full Stack)
 
-### Option A: Build from source (default)
+### Primary: Pull from GHCR (no clone required)
+
+The repo is private. Run the published image directly — built and signed on every `v*` tag:
 
 ```bash
-docker compose up --build
-```
-
-This builds the image locally from this checkout. Use this when you have cloned the repo.
-
-### Option B: Pull from GHCR (no clone required)
-
-If you don't have access to the private repo, run the published image directly:
-
-```bash
-# 1. Create an empty project dir
+# 1. Create a fresh directory
 mkdir entrytwo && cd entrytwo
 
-# 2. Create compose + env from the release artifacts, or write them by hand:
+# 2. Write compose.yaml
 cat > compose.yaml <<'EOF'
 services:
   app:
-    image: ${APP_IMAGE:-ghcr.io/felixkrusch/entrytwo:latest}
+    image: ghcr.io/felixkrusch/entrytwo:latest
     restart: unless-stopped
     env_file: .env
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/entrytwo
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?required}@db:5432/entrytwo
       - APP_IMAGE=ghcr.io/felixkrusch/entrytwo:latest
       - COMPOSE_FILE=/app/entrytwo/compose.yaml
       - UPDATER_URL=http://updater:4000
@@ -310,8 +302,37 @@ volumes:
   postgres_data:
 EOF
 
-# 3. Configure .env (copy from release notes / docs)
+# 3. Copy and edit environment
 cp .env.example .env
+# edit .env — set POSTGRES_PASSWORD, AUTH_SECRET, ENCRYPTION_KEY, JOB_RUNNER_SECRET,
+# AUTH_URL (public origin), AUTH_TRUST_HOST=true, SMTP/OAuth sign-in method,
+# and at least one LLM key if using AI/chat features.
+
+# 4. Start
+docker compose up -d
+
+# 5. Migrate and seed
+docker compose exec app npx prisma migrate deploy
+docker compose exec app npm run db:seed
+
+# 6. Open http://localhost:3000
+# On first visit with no admin users, create the initial **ADMIN** account.
+
+---
+
+### Also available: Build from source (clone)
+
+If you **do** have access to the private repo (`felixkrusch/entrytwo`), you can build locally instead:
+
+```bash
+git clone https://github.com/felixkrusch/entrytwo.git
+cd entrytwo/entrytwo_v1
+cp .env.example .env
+# edit .env
+docker compose up --build
+```
+
+> The clone path requires repo access. If you don't have it, use the **pull path above** — it uses the same `ghcr.io/felixkrusch/entrytwo:latest` image.
 # edit .env — set POSTGRES_PASSWORD, AUTH_SECRET, AUTH_URL, SMTP/OAuth, etc.
 
 # 4. Start
