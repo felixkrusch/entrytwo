@@ -112,9 +112,14 @@ A single GitHub Actions `release` workflow, triggered on version tags (`v*`):
    (`ghcr.io/<org>/entrytwo:1.4.2` + `@sha256:…`).
 2. **Sign** with cosign keyless (`cosign sign --yes ghcr.io/...@<digest>`).
    Sign the *multi-arch index*, not per-arch manifests.
-3. **Attest** SBOM (Syft/CycloneDX) + **SLSA provenance** (`actions/attest-build-provenance`).
+3. **Attest** the SPDX SBOM with `cosign attest` in GHCR. BuildKit attaches
+   `mode=min` provenance to both images. This does not use GitHub's repository
+   attestation API, which is unavailable for user-owned private repositories.
 4. Publish a **signed release manifest** (a small JSON: version, image digest,
-   minSupportedVersion, changelog ref, published-at, signature) to GitHub Releases.
+   minSupportedVersion, changelog ref, published-at) and its Sigstore bundle to
+   the public releases-only repository, alongside the SBOM, `compose.yaml`, and
+   `entrytwo.env.example` (downloaded locally as `.env.example`). The source
+   repository remains private.
 5. Optionally fire a **webhook** to notify instances a new version is available
    (see §7).
 
@@ -122,7 +127,37 @@ Guardrails:
 - Sign *by digest*, never by mutable tag.
 - `id-token: write` + `packages: write` permissions only on the release job.
 - Keep the signing workflow path strict and reviewed; verification policy pins
-  the exact workflow identity.
+   the exact workflow identity.
+
+### One-time publisher configuration
+
+- Create and initialize the **public** repository `felixkrusch/entrytwo-releases`
+  (an initial README commit is sufficient). Do not copy application source into it.
+- In the private source repository, add the Actions secret `RELEASE_TOKEN`: a
+  fine-grained token scoped only to that public repository with **Contents: read
+  and write** permission. The built-in `GITHUB_TOKEN` cannot publish to a second
+  repository. Alternatively use an equivalently scoped GitHub App token.
+- The optional Actions variable `RELEASE_REPOSITORY` overrides the default
+  `felixkrusch/entrytwo-releases`. If overridden, update the public documentation's
+  download links too. The workflow checks that the target exists and is public
+  before building.
+- After the first push, make **both** personal-account GHCR packages public:
+  `entrytwo` and `entrytwo-updater`, under Package settings > Change visibility.
+  This does not make the source repository public. Public package visibility
+  cannot subsequently be reverted to private on GitHub.
+- If package permissions are managed separately, retain write access for the
+  private source repository under Manage Actions access.
+- Push a stable `vMAJOR.MINOR.PATCH` tag containing the updated workflow. Both
+  image packages receive version and `latest` tags for amd64 and arm64. Re-running
+  an old failed run uses its old workflow, not the new file on the default branch.
+- Test installation without GitHub credentials after publication. No customer
+  should need a source-repository token.
+
+Cosign keyless signatures and public transparency records expose the signing
+workflow identity, repository name, tag, and build metadata, not repository
+access. Do not place secrets in build arguments or published installation files.
+The updater verifies the image signature; the manifest bundle also supports
+manual `cosign verify-blob` verification using the policy in the release notes.
 
 ---
 

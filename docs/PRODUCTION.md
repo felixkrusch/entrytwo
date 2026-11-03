@@ -43,85 +43,27 @@ openssl rand -base64 24   # POSTGRES_PASSWORD
 
 ### Primary: Pull published image from GHCR (no clone needed)
 
+Use the maintained public installation instructions at
+https://entrytwo.com/docs/getting-started/installation. Download `compose.yaml`
+and `.env.example` from https://github.com/felixkrusch/entrytwo-releases/releases.
+These assets include the separate updater image, worker, and verification defaults.
+
 The repo is private. Run the published image directly — built and signed on every `v*` tag:
 
 ```bash
 mkdir entrytwo && cd entrytwo
 
-cat > compose.yaml <<'EOF'
-services:
-  app:
-    image: ghcr.io/felixkrusch/entrytwo:latest
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      - NODE_ENV=production
-      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?required}@db:5432/entrytwo
-      - APP_IMAGE=ghcr.io/felixkrusch/entrytwo:latest
-      - UPDATER_URL=http://updater:4000
-      - UPDATER_TOKEN=${UPDATER_TOKEN:?required}
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./backups:/app/entrytwo/backups
-      - ./logs:/app/entrytwo/logs
-      - ./uploads:/app/entrytwo/public/uploads
-    depends_on:
-      db:
-        condition: service_healthy
-      updater:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+RELEASE_URL=https://github.com/felixkrusch/entrytwo-releases/releases/latest/download
+curl -fL "$RELEASE_URL/compose.yaml" -o compose.yaml
+curl -fL "$RELEASE_URL/entrytwo.env.example" -o .env.example
 
-  updater:
-    image: ghcr.io/felixkrusch/entrytwo:latest
-    build:
-      context: .
-      dockerfile: ./updater/Dockerfile
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      - UPDATER_PORT=4000
-      - UPDATER_TOKEN=${UPDATER_TOKEN:?required}
-      - UPDATE_VERIFY_SIGNATURE=true
-      - APP_IMAGE=ghcr.io/felixkrusch/entrytwo:latest
-      - COMPOSE_FILE=/app/entrytwo/compose.yaml
-      - APP_PUBLIC_URL=http://app:3000
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./compose.yaml:/app/entrytwo/compose.yaml:ro
-      - ./backups:/app/entrytwo/backups
-
-  db:
-    image: postgres:16-alpine
-    environment:
-      - POSTGRES_DB=entrytwo
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?required}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-
-volumes:
-  postgres_data:
-EOF
-
+umask 077
 cp .env.example .env
 # edit .env — fill secrets, AUTH_URL, SMTP or OAuth, POSTGRES_PASSWORD
+# Keep the supplied COSIGN_IDENTITY and UPDATE_MANIFEST_URL.
 
+docker compose config --quiet
+docker compose pull
 docker compose up -d
 
 # app entrypoint runs: prisma migrate deploy, then next start
@@ -129,7 +71,14 @@ docker compose up -d
 curl -sS https://your.domain/api/health
 # expect: "ready": true, "status": "ok", auth.productionReady: true
 
+```
+
 Open the site → bootstrap first **ADMIN** → complete **TOTP** → company settings.
+Always run Compose from the installation directory. The updater mounts that
+directory at its host path so Docker resolves bind mounts correctly. Its Docker
+socket access is privileged; keep the sidecar port private. For local HTTP-only
+use, set `AUTH_ALLOW_HTTP=true`; public deployments must use HTTPS. The app port
+binds to `127.0.0.1` by default for a host reverse proxy.
 ### Build notes (image packaging)
 
 - `docker build` needs a placeholder `AUTH_SECRET` at **build** time (set in the Dockerfile). Runtime must override with a real secret via `.env`.

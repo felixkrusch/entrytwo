@@ -1,0 +1,81 @@
+services:
+  app:
+    image: ghcr.io/felixkrusch/entrytwo:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?required}@db:5432/entrytwo
+      APP_IMAGE: ghcr.io/felixkrusch/entrytwo:latest
+      COMPOSE_FILE: ${PWD:?run compose from the installation directory}/compose.yaml
+      UPDATE_SERVICE: app
+      APP_PUBLIC_URL: http://app:3000
+      UPDATER_URL: http://updater:4000
+      UPDATER_TOKEN: ${UPDATER_TOKEN:?required}
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./backups:/app/entrytwo/backups
+      - ./logs:/app/entrytwo/logs
+      - ./uploads:/app/entrytwo/public/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      updater:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    image: ghcr.io/felixkrusch/entrytwo:latest
+    command: ["worker"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?required}@db:5432/entrytwo
+      JOB_RUNNER_URL: http://app:3000
+    depends_on:
+      app:
+        condition: service_healthy
+
+  updater:
+    image: ghcr.io/felixkrusch/entrytwo-updater:latest
+    restart: unless-stopped
+    environment:
+      UPDATER_PORT: 4000
+      UPDATER_TOKEN: ${UPDATER_TOKEN:?required}
+      UPDATE_VERIFY_SIGNATURE: "true"
+      COSIGN_IDENTITY: ${COSIGN_IDENTITY:?required}
+      UPDATE_WORKER_SERVICE: worker
+      PWD: ${PWD}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Resolve bind mounts against the installation directory on the host.
+      - ${PWD:?run compose from the installation directory}:${PWD}:ro
+    working_dir: ${PWD}
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: entrytwo
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

@@ -23,89 +23,25 @@ Pull the published image directly — no repo clone needed (the repo is private)
 # 1. Create a fresh directory
 mkdir entrytwo && cd entrytwo
 
-# 2. Write compose.yaml
-cat > compose.yaml <<'EOF'
-services:
-  app:
-    image: ghcr.io/felixkrusch/entrytwo:latest
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      - NODE_ENV=production
-      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?required}@db:5432/entrytwo
-      - APP_IMAGE=ghcr.io/felixkrusch/entrytwo:latest
-      - UPDATER_URL=http://updater:4000
-      - UPDATER_TOKEN=${UPDATER_TOKEN:?required}
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./backups:/app/entrytwo/backups
-      - ./logs:/app/entrytwo/logs
-      - ./uploads:/app/entrytwo/public/uploads
-    depends_on:
-      db:
-        condition: service_healthy
-      updater:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-
-  updater:
-    image: ghcr.io/felixkrusch/entrytwo:latest
-    build:
-      context: .
-      dockerfile: ./updater/Dockerfile
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      - UPDATER_PORT=4000
-      - UPDATER_TOKEN=${UPDATER_TOKEN:?required}
-      - UPDATE_VERIFY_SIGNATURE=true
-      - APP_IMAGE=ghcr.io/felixkrusch/entrytwo:latest
-      - COMPOSE_FILE=/app/entrytwo/compose.yaml
-      - APP_PUBLIC_URL=http://app:3000
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./compose.yaml:/app/entrytwo/compose.yaml:ro
-      - ./backups:/app/entrytwo/backups
-
-  db:
-    image: postgres:16-alpine
-    environment:
-      - POSTGRES_DB=entrytwo
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?required}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-
-volumes:
-  postgres_data:
-EOF
+# 2. Download the public installation files
+RELEASE_URL=https://github.com/felixkrusch/entrytwo-releases/releases/latest/download
+curl -fL "$RELEASE_URL/compose.yaml" -o compose.yaml
+curl -fL "$RELEASE_URL/entrytwo.env.example" -o .env.example
 
 # 3. Copy and edit environment
+umask 077
 cp .env.example .env
 # Edit .env — set DATABASE_URL, POSTGRES_PASSWORD, AUTH_SECRET, ENCRYPTION_KEY,
 # JOB_RUNNER_SECRET, AUTH_URL, AUTH_TRUST_HOST=true, SMTP/OAuth, LLM keys, etc.
+# Keep the release-provided COSIGN_IDENTITY and UPDATE_MANIFEST_URL defaults.
+# For local HTTP-only use set AUTH_ALLOW_HTTP=true; public servers need HTTPS.
 
 # 4. Start
+docker compose config --quiet
+docker compose pull
 docker compose up -d
 
-# 5. Run migrations and seed
-docker compose exec app npx prisma migrate deploy
-docker compose exec app npm run db:seed
+# Migrations run automatically. Bootstrap the initial admin in the browser.
 ```
 
 Open http://localhost:3000
@@ -292,94 +228,28 @@ The repo is private. Run the published image directly — built and signed on ev
 # 1. Create a fresh directory
 mkdir entrytwo && cd entrytwo
 
-# 2. Write compose.yaml
-cat > compose.yaml <<'EOF'
-services:
-  app:
-    image: ghcr.io/felixkrusch/entrytwo:latest
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      - NODE_ENV=production
-      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?required}@db:5432/entrytwo
-      - APP_IMAGE=ghcr.io/felixkrusch/entrytwo:latest
-      - COMPOSE_FILE=/app/entrytwo/compose.yaml
-      - UPDATER_URL=http://updater:4000
-      - UPDATER_TOKEN=${UPDATER_TOKEN:?required}
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./backups:/app/entrytwo/backups
-      - ./logs:/app/entrytwo/logs
-      - ./uploads:/app/entrytwo/public/uploads
-    depends_on:
-      db:
-        condition: service_healthy
-      updater:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-
-  updater:
-    image: ghcr.io/felixkrusch/entrytwo:latest
-    build:
-      context: .
-      dockerfile: ./updater/Dockerfile
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      - UPDATER_PORT=4000
-      - UPDATER_TOKEN=${UPDATER_TOKEN:?required}
-      - UPDATE_VERIFY_SIGNATURE=true
-      - APP_IMAGE=ghcr.io/felixkrusch/entrytwo:latest
-      - COMPOSE_FILE=/app/entrytwo/compose.yaml
-      - APP_PUBLIC_URL=http://app:3000
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./compose.yaml:/app/entrytwo/compose.yaml:ro
-      - ./backups:/app/entrytwo/backups
-
-  db:
-    image: postgres:16-alpine
-    environment:
-      - POSTGRES_DB=entrytwo
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?required}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-
-volumes:
-  postgres_data:
-EOF
+# 2. Download public installation assets
+RELEASE_URL=https://github.com/felixkrusch/entrytwo-releases/releases/latest/download
+curl -fL "$RELEASE_URL/compose.yaml" -o compose.yaml
+curl -fL "$RELEASE_URL/entrytwo.env.example" -o .env.example
 
 # 3. Copy and edit environment
+umask 077
 cp .env.example .env
 # edit .env — set POSTGRES_PASSWORD, AUTH_SECRET, ENCRYPTION_KEY, JOB_RUNNER_SECRET,
 # AUTH_URL (public origin), AUTH_TRUST_HOST=true, SMTP/OAuth sign-in method,
 # and at least one LLM key if using AI/chat features.
 
 # 4. Start
+docker compose config --quiet
+docker compose pull
 docker compose up -d
 
-# 5. Migrate and seed
-docker compose exec app npx prisma migrate deploy
-docker compose exec app npm run db:seed
+# Migrations run automatically; keep COSIGN_IDENTITY and UPDATE_MANIFEST_URL defaults.
 
 # 6. Open http://localhost:3000
 # On first visit with no admin users, create the initial **ADMIN** account.
+```
 
 ---
 

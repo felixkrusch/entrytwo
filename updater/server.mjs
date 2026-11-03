@@ -12,12 +12,13 @@ import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
 import { writeFile, readFile, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 
 const execAsync = promisify(exec)
 
 const PORT = Number(process.env.UPDATER_PORT || 4000)
 const TOKEN = process.env.UPDATER_TOKEN || ''
-const LOCK_FILE = join('/tmp', 'entrytwo-updater.lock')
+const LOCK_FILE = join(tmpdir(), 'entrytwo-updater.lock')
 
 /** @type {{ status: 'idle'|'updating'|'success'|'error', progress: string, error?: string, message?: string }} */
 let state = { status: 'idle', progress: '' }
@@ -78,6 +79,7 @@ async function waitForHealth(appHealthUrl, maxAttempts = 20, intervalMs = 3000) 
 
 async function runUpdate(job) {
   const { manifest, appImage, service, composeFile, appHealthUrl } = job
+  const services = [service, process.env.UPDATE_WORKER_SERVICE].filter(Boolean).join(' ')
   try {
     await setProgress('Verifying signature…')
     if (process.env.UPDATE_VERIFY_SIGNATURE !== 'false') {
@@ -97,12 +99,12 @@ async function runUpdate(job) {
     }
 
     await setProgress('Running database migration…')
-    await execAsync(`${composeCmd(composeFile, service)} run --rm ${service} npx prisma migrate deploy`).catch(e => {
+    await execAsync(`${composeCmd(composeFile, service)} run --rm --no-deps --entrypoint npx ${service} prisma migrate deploy`).catch(e => {
       throw new Error(`Migration failed: ${e instanceof Error ? e.message : String(e)}`)
     })
 
     await setProgress('Recreating container…')
-    await execAsync(`${composeCmd(composeFile, service)} up -d --no-build ${service}`).catch(e => {
+    await execAsync(`${composeCmd(composeFile, service)} up -d --no-build --no-deps ${services}`).catch(e => {
       throw new Error(`Restart failed: ${e instanceof Error ? e.message : String(e)}`)
     })
 
@@ -111,7 +113,7 @@ async function runUpdate(job) {
     if (!healthy) {
       if (appImage && prevImageId) {
         await execAsync(`docker tag ${prevImageId} ${appImage}`).catch(() => {})
-        await execAsync(`${composeCmd(composeFile, service)} up -d --no-build ${service}`).catch(() => {})
+        await execAsync(`${composeCmd(composeFile, service)} up -d --no-build --no-deps ${services}`).catch(() => {})
       }
       throw new Error('Post-restart health check failed; container rolled back to previous image.')
     }

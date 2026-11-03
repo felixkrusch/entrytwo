@@ -6,10 +6,9 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
   packages: write
   id-token: write   # required for cosign keyless (OIDC -> Fulcio)
-  attestations: write   # required for actions/attest SLSA provenance
 
 jobs:
   release:
@@ -17,9 +16,22 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository }}   # e.g. owner/entrytwo
+      RELEASE_REPOSITORY: ${{ vars.RELEASE_REPOSITORY || 'felixkrusch/entrytwo-releases' }}
     steps:
+      - name: Check public distribution repository
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo 'Configure RELEASE_TOKEN with contents:write access to the public releases-only repository.' >&2; exit 1; }
+          test "$RELEASE_REPOSITORY" != "$GITHUB_REPOSITORY" || { echo 'Release assets must not be published to the private source repository.' >&2; exit 1; }
+          visibility=$(gh repo view "$RELEASE_REPOSITORY" --json visibility --jq .visibility)
+          test "$visibility" = PUBLIC || { echo 'RELEASE_REPOSITORY must be public.' >&2; exit 1; }
+
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Test updater
+        run: node --test updater/server.test.mjs
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -36,7 +48,10 @@ jobs:
 
       - name: Extract version
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Only stable vMAJOR.MINOR.PATCH tags are supported.' >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Build and push by digest
         id: build
@@ -48,44 +63,53 @@ jobs:
           push: true
           build-args: |
             APP_VERSION=${{ steps.version.outputs.version }}
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          provenance: mode=min
           labels: org.opencontainers.image.version=${{ steps.version.outputs.version }}
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push=true
+
+      - name: Build and push updater
+        id: updater
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./updater/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=min
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-updater:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-updater:latest
 
       - name: Sign image (cosign keyless)
         uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: v2.5.2
       - name: cosign sign
-        run: cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+        run: |
+          cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+          cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-updater@${{ steps.updater.outputs.digest }}"
         env:
           COSIGN_YES: "true"
 
-      - name: Generate SBOM + SLSA provenance
+      - name: Generate SBOM
         uses: anchore/sbom-action@v0
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
           output-file: sbom.spdx.json
-      - name: Attest SBOM
-        uses: actions/attest@v1
-        with:
-          subject-digest: ${{ steps.build.outputs.digest }}
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          predicate-type: https://spdx.dev/Document
-          predicate-path: sbom.spdx.json
-      - name: Attest SLSA provenance
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-digest: ${{ steps.build.outputs.digest }}
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          upload-release-assets: false
+      - name: Attest SBOM in registry
+        run: cosign attest --yes --type spdxjson --predicate sbom.spdx.json "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
 
       - name: Build signed release manifest
-        id: manifest
         env:
           VERSION: ${{ steps.version.outputs.version }}
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           DIGEST: ${{ steps.build.outputs.digest }}
           MIN_VERSION: ${{ vars.MIN_SUPPORTED_VERSION || '0.1.0' }}
           CHANNEL: ${{ vars.RELEASE_CHANNEL || 'stable' }}
-          CHANGELOG: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+          CHANGELOG: ${{ github.server_url }}/${{ env.RELEASE_REPOSITORY }}/releases/tag/${{ github.ref_name }}
         run: |
           cat > manifest.json <<EOF
           {
@@ -98,15 +122,32 @@ jobs:
             "changelogUrl": "${CHANGELOG}"
           }
           EOF
-          cosign sign-blob --yes --output-signature manifest.json.sig manifest.json
-          echo "manifest=$(cat manifest.json)" >> "$GITHUB_OUTPUT"
+          cosign sign-blob --yes --bundle manifest.sigstore.json manifest.json
+
+      - name: Prepare clone-free installation assets
+        run: |
+          mkdir -p dist
+          cp deploy/compose.yaml dist/compose.yaml
+          cp .env.example dist/entrytwo.env.example
+          cat >> dist/entrytwo.env.example <<EOF
+
+          # Public distribution defaults for this release.
+          UPDATE_MANIFEST_URL=https://github.com/${RELEASE_REPOSITORY}/releases/latest/download/manifest.json
+          COSIGN_IDENTITY=^https://github\\.com/${GITHUB_REPOSITORY}/\\.github/workflows/release\\.yml@refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+$
+          EOF
+          cp manifest.json manifest.sigstore.json sbom.spdx.json dist/
 
       - name: Publish GitHub Release with manifest
         uses: softprops/action-gh-release@v2
         with:
+          repository: ${{ env.RELEASE_REPOSITORY }}
+          token: ${{ secrets.RELEASE_TOKEN }}
           files: |
-            manifest.json
-            manifest.json.sig
+            dist/manifest.json
+            dist/manifest.sigstore.json
+            dist/sbom.spdx.json
+            dist/compose.yaml
+            dist/entrytwo.env.example
           body: |
             ## entrytwo ${{ steps.version.outputs.version }}
 
@@ -116,9 +157,7 @@ jobs:
             (or pin `APP_IMAGE` to the digest) to receive this update.
 
             **Verification policy**
-            - Keyless (default): identity `https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref_name }}`, issuer `https://token.actions.githubusercontent.com`
-            - Or verify with the released `manifest.json.sig` (cosign verify-blob) using our public key.
-
-            ${{ steps.manifest.outputs.manifest }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            - Keyless (default): identity `https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}`, issuer `https://token.actions.githubusercontent.com`
+            - Manifest: `cosign verify-blob --bundle manifest.sigstore.json --certificate-identity 'https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}' --certificate-oidc-issuer https://token.actions.githubusercontent.com manifest.json`
+            - BuildKit provenance is attached to the images; the signed SPDX SBOM is stored in GHCR.
+            - Both GHCR packages (`${{ env.IMAGE_NAME }}` and `${{ env.IMAGE_NAME }}-updater`) must be public for anonymous installation.
