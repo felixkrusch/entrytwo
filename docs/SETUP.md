@@ -126,7 +126,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-> The clone path requires repo access. If you don't have it, use the **pull path above** — it uses the same `ghcr.io/felixkrusch/entrytwo:latest` image built and signed on every `v*` tag.
+> The clone path requires repo access. It uses the same `ghcr.io/felixkrusch/entrytwo:latest` image built and signed on every `v*` tag.
 
 ---
 
@@ -411,7 +411,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-> The clone path requires repo access. If you don't have it, use the **pull path above** — it uses the same `ghcr.io/felixkrusch/entrytwo:latest` image.
+> The clone path requires repo access. It uses the same `ghcr.io/felixkrusch/entrytwo:latest` image.
 # edit .env — set POSTGRES_PASSWORD, AUTH_SECRET, AUTH_URL, SMTP/OAuth, etc.
 
 # 4. Start

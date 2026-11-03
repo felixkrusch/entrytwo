@@ -145,7 +145,7 @@ cp .env.example .env   # edit .env — fill secrets, AUTH_URL, SMTP or OAuth, PO
 docker compose up -d --build
 ```
 
-> The clone path requires repo access. If you don't have it, use the **pull path above** — it uses the same `ghcr.io/felixkrusch/entrytwo:latest` image.
+> The clone path requires repo access. It uses the same `ghcr.io/felixkrusch/entrytwo:latest` image.
 
 ### Build notes (image packaging)
 
