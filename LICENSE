@@ -64,12 +64,17 @@ subject to the price and applicable taxes displayed at checkout.
 There are no recurring license fees for continued use of the purchased
 version.
 
-One Core License covers one production Instance controlled by the Customer,
-with no application-imposed limits on journal entries, users, or companies
-within that Instance. Reasonable test, staging, backup, and disaster-
-recovery copies for the same licensed deployment are permitted. Additional
-independent production Instances require separate licenses unless the
-Licensor agrees otherwise in writing.
+One Core License covers multiple production Instances controlled by the
+Customer for the Customer's own business and other businesses the Customer
+owns. Separate licenses are not required for those businesses. Reasonable
+test, staging, backup, and disaster-recovery copies are also permitted.
+This permission does not extend to unrelated businesses merely because
+the Customer installs, hosts, administers, or provides bookkeeping services
+for them; their production Instances require their own licenses.
+
+There are no application-imposed limits on journal entries or users.
+Permission to deploy multiple Instances does not imply that one Instance
+supports accounting for multiple companies.
 
 A Customer may engage an administrator or service provider to install,
 operate, and maintain the licensed Instance on the Customer's behalf,
@@ -178,8 +183,8 @@ the extent permitted by law.
 
 13. CONTACT AND PERMISSIONS
 
-For commercial redistribution, hosted-service rights, additional production
-Instances, or other permissions not granted above, contact the Licensor via
+For commercial redistribution, hosted-service rights, or other permissions
+not granted above, contact the Licensor via
 https://entrytwo.com.
 
 ---
@@ -187,5 +192,6 @@ https://entrytwo.com.
 Plain-language summary (non-binding): You can inspect and clone entrytwo,
 try it for 30 days, and privately modify it. If you want to keep using it,
 buy the one-time Core License. The purchased version remains yours to use
-perpetually on your licensed Instance. The public repository is not a grant
+perpetually on Instances for your own business and other businesses you own.
+The public repository is not a grant
 to resell or redistribute entrytwo as another product.
