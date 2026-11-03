@@ -17,37 +17,116 @@ Optional but recommended:
 
 ## 2. Quick Start (Recommended)
 
+Pull the published image directly — no repo clone needed (the repo is private):
+
 ```bash
-# 1. Clone
-git clone https://github.com/felixkrusch/entrytwo.git
-cd entrytwo
+# 1. Create a fresh directory
+mkdir entrytwo && cd entrytwo
 
-# 2. Install dependencies
-npm install
+# 2. Write compose.yaml
+cat > compose.yaml <<'EOF'
+services:
+  app:
+    image: ghcr.io/felixkrusch/entrytwo:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?required}@db:5432/entrytwo
+      - APP_IMAGE=ghcr.io/felixkrusch/entrytwo:latest
+      - UPDATER_URL=http://updater:4000
+      - UPDATER_TOKEN=${UPDATER_TOKEN:?required}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backups:/app/entrytwo/backups
+      - ./logs:/app/entrytwo/logs
+      - ./uploads:/app/entrytwo/public/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      updater:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
 
-# 3. Configure environment
+  updater:
+    image: ghcr.io/felixkrusch/entrytwo:latest
+    build:
+      context: .
+      dockerfile: ./updater/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - UPDATER_PORT=4000
+      - UPDATER_TOKEN=${UPDATER_TOKEN:?required}
+      - UPDATE_VERIFY_SIGNATURE=true
+      - APP_IMAGE=ghcr.io/felixkrusch/entrytwo:latest
+      - COMPOSE_FILE=/app/entrytwo/compose.yaml
+      - APP_PUBLIC_URL=http://app:3000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./compose.yaml:/app/entrytwo/compose.yaml:ro
+      - ./backups:/app/entrytwo/backups
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=entrytwo
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+EOF
+
+# 3. Copy and edit environment
 cp .env.example .env
-# Edit .env and set your DATABASE_URL
+# Edit .env — set DATABASE_URL, POSTGRES_PASSWORD, AUTH_SECRET, ENCRYPTION_KEY,
+# JOB_RUNNER_SECRET, AUTH_URL, AUTH_TRUST_HOST=true, SMTP/OAuth, LLM keys, etc.
 
-# 4. Start PostgreSQL (choose one)
-
-# Option A: Docker Compose (easiest)
+# 4. Start
 docker compose up -d
 
-# Option B: Local Postgres
-# Make sure you have a database called "entrytwo" and update DATABASE_URL accordingly.
-
 # 5. Run migrations and seed
-npx prisma migrate dev
-npm run db:seed   # or: npx prisma db seed
-
-# 6. Start the app
-npm run dev
+docker compose exec app npx prisma migrate deploy
+docker compose exec app npm run db:seed
 ```
 
 Open http://localhost:3000
 
 On first visit you should be able to create the initial **ADMIN** user if none exists (see "First Admin Bootstrap" below).
+
+---
+
+### Build from source (clone)
+
+If you **do** have access to the private repo (`felixkrusch/entrytwo`), you can build locally instead:
+
+```bash
+git clone https://github.com/felixkrusch/entrytwo.git
+cd entrytwo/entrytwo_v1
+cp .env.example .env
+# edit .env
+docker compose up --build
+```
+
+> The clone path requires repo access. If you don't have it, use the **pull path above** — it uses the same `ghcr.io/felixkrusch/entrytwo:latest` image built and signed on every `v*` tag.
 
 ---
 
