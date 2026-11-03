@@ -1,0 +1,191 @@
+ENTRYTWO SOURCE-AVAILABLE SHAREWARE LICENSE
+Version 1.0 — 4 November 2026
+
+Copyright (c) 2026 Felix Krusch. All rights reserved.
+Website: https://entrytwo.com
+
+IMPORTANT: THIS IS A PROPRIETARY, SOURCE-AVAILABLE LICENSE, NOT AN
+OPEN-SOURCE LICENSE. PUBLIC ACCESS TO THE SOURCE CODE DOES NOT MAKE
+ENTRYTWO FREE SOFTWARE OR AUTHORIZE UNRESTRICTED REDISTRIBUTION.
+
+1. DEFINITIONS
+
+"Software" means the entrytwo application, its source code, compiled
+releases, Docker images, accompanying documentation, and modifications
+based on them, excluding third-party components governed by their own
+licenses.
+
+"Licensor" means Felix Krusch, the copyright holder of entrytwo.
+
+"Customer" means the individual or legal entity evaluating or licensing
+the Software. "Instance" means a deployed installation of entrytwo,
+including its application services and associated database.
+
+2. PUBLIC SOURCE ACCESS
+
+The Licensor grants permission, at no charge, to:
+
+(a) view, download, clone, and inspect the publicly available source code;
+(b) build and run the Software for evaluation under Section 3;
+(c) make and test private modifications; and
+(d) use the repository host's ordinary fork and pull-request features to
+    propose contributions to the official entrytwo project.
+
+These permissions do not transfer ownership or grant a general right to
+publish, redistribute, sublicense, sell, or commercially host the
+Software or modified versions. Public forks made solely through the
+repository host for contributing to the official project are permitted;
+independent public mirrors, repackaged releases, and distributions are not.
+
+3. FREE 30-DAY TRIAL
+
+A Customer may use the complete Software free of charge for 30 consecutive
+days beginning with first use of an Instance, without a credit card.
+The trial includes ordinary functional use and private evaluation.
+
+The trial is limited to one evaluation period per Customer. Reinstalling,
+cloning, resetting a database, or creating replacement Instances does not
+restart or extend that period. After the trial, continued use requires a
+purchased license, except where separate written permission is granted.
+
+The trial is not a transfer of ownership of the Software. The Customer
+retains ownership of the data entered into or generated using the Software.
+
+4. PAID PERPETUAL LICENSE
+
+Following purchase and activation, the Licensor grants the Customer a
+non-exclusive, non-transferable (except as required by applicable law),
+perpetual right to install, run, and privately modify the licensed version
+of the Software for the Customer's own purposes, including commercial
+accounting and bookkeeping activity.
+
+The advertised Core License is a one-time purchase, currently EUR 119,
+subject to the price and applicable taxes displayed at checkout.
+There are no recurring license fees for continued use of the purchased
+version.
+
+One Core License covers one production Instance controlled by the Customer,
+with no application-imposed limits on journal entries, users, or companies
+within that Instance. Reasonable test, staging, backup, and disaster-
+recovery copies for the same licensed deployment are permitted. Additional
+independent production Instances require separate licenses unless the
+Licensor agrees otherwise in writing.
+
+A Customer may engage an administrator or service provider to install,
+operate, and maintain the licensed Instance on the Customer's behalf,
+including on a VPS or server controlled or rented by the Customer.
+
+5. UPDATES AND MAJOR UPGRADES
+
+Security and maintenance updates for the purchased version are included
+without recurring charges, consistent with the lifetime-update offer
+advertised for the Core License. They do not require an annual maintenance
+subscription.
+
+New major-version upgrades may be offered as separate, optional paid
+purchases. Declining a major upgrade does not terminate the Customer's
+perpetual right to use the version already licensed.
+
+Optional installation, consulting, custom development, third-party hosting,
+and third-party AI/API services are not included in the Software license
+unless expressly stated in a separate offer.
+
+6. SELF-HOSTING, DATA, AND OFFLINE USE
+
+The Software is designed to run on infrastructure controlled by the
+Customer. The Licensor does not acquire ownership of the Customer's
+accounting records, uploaded documents, or other Customer data.
+
+Once successfully activated, the licensed version may continue to operate
+without contacting a licensing server; the Licensor does not reserve a
+remote deactivation or "kill switch" for a valid perpetual license.
+Features dependent on external services, including optional cloud AI
+providers, may still require internet access and separate credentials.
+
+The Customer is responsible for securing and backing up its own deployment,
+subject to any mandatory statutory obligations of the Licensor.
+
+7. RESTRICTIONS
+
+Except where this License expressly permits it, or applicable law requires
+otherwise, the Customer may not:
+
+(a) publish, redistribute, sell, rent, sublicense, or offer copies of the
+    Software or substantial portions of its source code to third parties;
+(b) offer entrytwo or a derivative as a separately marketed hosted software
+    service or competing software product without written permission;
+(c) remove or misrepresent copyright, attribution, or license notices; or
+(d) represent an unofficial modification as an official entrytwo release.
+
+Nothing here prohibits using a licensed Instance to manage the Customer's
+own work or to provide professional bookkeeping services to clients.
+Nothing here restricts rights that cannot lawfully be waived, including
+rights relating to necessary use, observation, testing, or backup copies.
+
+8. CONTRIBUTIONS AND THIRD-PARTY COMPONENTS
+
+Submitting a pull request does not automatically transfer copyright in a
+contribution. Contribution acceptance and any additional rights needed for
+redistribution may be addressed separately with the contributor.
+
+Third-party libraries, fonts, assets, and other components retain their
+respective licenses. Where those licenses grant additional rights, those
+rights remain unaffected by this License. See the relevant third-party
+notices and dependency license information.
+
+9. FINANCIAL AND AI OUTPUTS
+
+entrytwo is a software tool, not a substitute for professional accounting,
+tax, or legal judgment. The Customer should independently review financial
+statements, tax treatment, imports, and AI-generated suggestions before
+relying on them or submitting them to third parties.
+
+This section does not limit any mandatory warranty, conformity, or other
+statutory rights.
+
+10. WARRANTIES AND LIABILITY
+
+To the extent permitted by applicable law, the Software is provided without
+additional voluntary warranties beyond those expressly promised by the
+Licensor. No clause in this License excludes or limits liability for intent,
+gross negligence, injury to life, body, or health, or any liability or
+consumer right that cannot legally be excluded or limited.
+
+Any other limitation of liability applies only to the extent valid under
+the law governing the contract. Mandatory rights concerning digital
+products, defects, updates, and remedies remain unaffected.
+
+11. TERMINATION AND EFFECT ON DATA
+
+The trial permission ends when the trial period expires. A paid perpetual
+license does not expire merely because a new version is released or the
+Customer stops purchasing optional services.
+
+The Licensor may exercise statutory remedies for material violations of
+this License, subject to applicable notice and cure requirements. Nothing
+in this License grants the Licensor ownership of Customer data or a right
+to remotely delete Customer records.
+
+12. GOVERNING LAW AND MANDATORY RIGHTS
+
+This License is governed by the laws of Germany, excluding its conflict-of-
+laws rules to the extent permitted. For consumers, mandatory protections
+of the country of their habitual residence remain unaffected.
+
+No provision limits rights granted by mandatory law. If a provision is
+invalid or unenforceable, the remaining provisions continue to apply to
+the extent permitted by law.
+
+13. CONTACT AND PERMISSIONS
+
+For commercial redistribution, hosted-service rights, additional production
+Instances, or other permissions not granted above, contact the Licensor via
+https://entrytwo.com.
+
+---
+
+Plain-language summary (non-binding): You can inspect and clone entrytwo,
+try it for 30 days, and privately modify it. If you want to keep using it,
+buy the one-time Core License. The purchased version remains yours to use
+perpetually on your licensed Instance. The public repository is not a grant
+to resell or redistribute entrytwo as another product.
