@@ -112,6 +112,10 @@ A single GitHub Actions `release` workflow, triggered on version tags (`v*`):
    (`ghcr.io/<org>/entrytwo:1.4.2` + `@sha256:…`).
 2. **Sign** with cosign keyless (`cosign sign --yes ghcr.io/...@<digest>`).
    Sign the *multi-arch index*, not per-arch manifests.
+   Before signing, the updater image must pass `updater/smoke-test.sh` on both
+   AMD64 and ARM64 using its default entrypoint, including health, Docker Compose,
+   and Cosign checks. Only version tags are pushed during the build; `latest`
+   is promoted after smoke tests and signing succeed.
 3. **Attest** the SPDX SBOM with `cosign attest` in GHCR. BuildKit attaches
    `mode=min` provenance to both images. This does not use GitHub's repository
    attestation API, which is unavailable for user-owned private repositories.

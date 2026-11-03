@@ -65,7 +65,6 @@ jobs:
             APP_VERSION=${{ steps.version.outputs.version }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           provenance: mode=min
           labels: org.opencontainers.image.version=${{ steps.version.outputs.version }}
 
@@ -80,7 +79,11 @@ jobs:
           provenance: mode=min
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-updater:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-updater:latest
+
+      - name: Smoke-test published updater on both architectures
+        env:
+          UPDATER_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-updater@${{ steps.updater.outputs.digest }}
+        run: bash updater/smoke-test.sh "$UPDATER_IMAGE" linux/amd64 linux/arm64
 
       - name: Sign image (cosign keyless)
         uses: sigstore/cosign-installer@v3
@@ -136,6 +139,15 @@ jobs:
           COSIGN_IDENTITY=^https://github\\.com/${GITHUB_REPOSITORY}/\\.github/workflows/release\\.yml@refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+$
           EOF
           cp manifest.json manifest.sigstore.json sbom.spdx.json dist/
+
+      - name: Promote verified images to latest
+        env:
+          APP_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          APP_DIGEST: ${{ steps.build.outputs.digest }}
+          UPDATER_DIGEST: ${{ steps.updater.outputs.digest }}
+        run: |
+          docker buildx imagetools create --tag "$APP_IMAGE:latest" "$APP_IMAGE@$APP_DIGEST"
+          docker buildx imagetools create --tag "$APP_IMAGE-updater:latest" "$APP_IMAGE-updater@$UPDATER_DIGEST"
 
       - name: Publish GitHub Release with manifest
         uses: softprops/action-gh-release@v2

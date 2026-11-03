@@ -22,4 +22,4 @@ COPY updater/server.mjs ./server.mjs
 
 EXPOSE 4000
 ENV UPDATER_PORT=4000
-CMD ["node", "/updater/server.mjs"]
+ENTRYPOINT ["node", "/updater/server.mjs"]
