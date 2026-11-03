@@ -1,6 +1,7 @@
+import { createHash } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 
-export const MASTER_LICENSE_KEY = 'FCKGW-RHQQ2-YXRKT-8TG6W-2B7Q8'
+const MASTER_LICENSE_KEY_HASH = '5c359908cc5020d91782fe2595cc7585dbbaede50155215ac776faa2b0eb4062'
 
 /** This app only accepts keys issued for this product (or master). */
 export const LICENSE_PRODUCT = 'entrytwo' as const
@@ -28,7 +29,7 @@ export function isWithinTrial(firstUseAt: string | null | undefined): boolean {
 
 export async function verifyLicenseKey(key: string): Promise<boolean> {
   if (!key) return false
-  if (key === MASTER_LICENSE_KEY) return true
+  if (createHash('sha256').update(key).digest('hex') === MASTER_LICENSE_KEY_HASH) return true
 
   // IMPORTANT: "verify once, trust forever" policy
   // This function is called ONLY during activation (see /api/license/activate).
