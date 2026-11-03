@@ -49,8 +49,7 @@ jobs:
             APP_VERSION=${{ steps.version.outputs.version }}
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
           labels: org.opencontainers.image.version=${{ steps.version.outputs.version }}
-          # Expose the pushed image digest (index digest) for signing + manifest.
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push=true
 
       - name: Sign image (cosign keyless)
         uses: sigstore/cosign-installer@v3
