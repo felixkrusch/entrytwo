@@ -15,15 +15,64 @@ Optional but recommended:
 
 ---
 
-## 2. Quick Start (Recommended)
+## 2. Quick Start (two supported paths)
 
-Pull the published image directly — no repo clone needed (the repo is private):
+entrytwo can be installed either **from source** (clone + npm) or **from Docker** (pull image + compose). Choose whichever fits your workflow:
+
+### Option A — Git / npm (developers, AI coding enthusiasts)
+
+Best for: developers, AI coding enthusiasts, customization.
+
+Installation: clone, install dependencies, configure, run.
+Updates: `git pull` + rebuild/migrate.
+Customization: full source access.
+Database and Redis: must be provided separately (local Postgres or Docker Compose).
+
+```bash
+# 1. Clone
+git clone https://github.com/felixkrusch/entrytwo.git
+cd entrytwo/entrytwo_v1
+
+# 2. Install dependencies
+npm install
+
+# 3. Configure environment
+cp .env.example .env
+# Edit .env — set DATABASE_URL (local Postgres or Docker Compose on port 5432),
+# AUTH_SECRET, and any LLM/API keys you want.
+
+# 4. Start PostgreSQL (choose one)
+
+# Option A: Docker Compose (easiest)
+docker compose up -d db
+
+# Option B: Local Postgres
+# Make sure you have a database called "entrytwo" and update DATABASE_URL accordingly.
+
+# 5. Run migrations and seed
+npx prisma migrate dev
+npm run db:seed
+
+# 6. Start the app
+npm run dev
+```
+
+Open http://localhost:3000
+
+### Option B — Docker / Compose (self-hosters, businesses, server administrators)
+
+Best for: self-hosters, businesses, server administrators.
+
+Installation: pull image, configure, start.
+Updates: pull new image + migrate/restart.
+Customization: usually configuration-based.
+Database and Redis: included in Compose.
 
 ```bash
 # 1. Create a fresh directory
 mkdir entrytwo && cd entrytwo
 
-# 2. Download the public installation files
+# 2. Download public installation files
 RELEASE_URL=https://github.com/felixkrusch/entrytwo-releases/releases/latest/download
 curl -fL "$RELEASE_URL/compose.yaml" -o compose.yaml
 curl -fL "$RELEASE_URL/entrytwo.env.example" -o .env.example
@@ -33,10 +82,8 @@ umask 077
 cp .env.example .env
 # Edit .env — set DATABASE_URL, POSTGRES_PASSWORD, AUTH_SECRET, ENCRYPTION_KEY,
 # JOB_RUNNER_SECRET, AUTH_URL, AUTH_TRUST_HOST=true, SMTP/OAuth, LLM keys, etc.
-# Keep the release-provided COSIGN_IDENTITY and UPDATE_MANIFEST_URL defaults.
-# For local HTTP-only use set AUTH_ALLOW_HTTP=true; public servers need HTTPS.
 
-# 4. Start
+# 4. Validate, pull, and start
 docker compose config --quiet
 docker compose pull
 docker compose up -d
@@ -220,36 +267,45 @@ npm run dev
 
 ## 8. Docker (Full Stack)
 
-### Primary: Pull from GHCR (no clone required)
+Two supported install paths:
 
-The repo is private. Run the published image directly — built and signed on every `v*` tag:
+### Path A — Git / npm (clone + build locally)
+
+Best for: developers, AI coding enthusiasts, customization.
 
 ```bash
-# 1. Create a fresh directory
+git clone https://github.com/felixkrusch/entrytwo.git
+cd entrytwo/entrytwo_v1
+cp .env.example .env   # edit .env — set DATABASE_URL, AUTH_SECRET
+docker compose up -d --build
+# app entrypoint runs: prisma migrate deploy, then next start
+```
+
+### Path B — Docker Compose pull (pull published image, no clone)
+
+Best for: self-hosters, businesses, server administrators.
+
+```bash
 mkdir entrytwo && cd entrytwo
 
-# 2. Download public installation assets
 RELEASE_URL=https://github.com/felixkrusch/entrytwo-releases/releases/latest/download
 curl -fL "$RELEASE_URL/compose.yaml" -o compose.yaml
 curl -fL "$RELEASE_URL/entrytwo.env.example" -o .env.example
 
-# 3. Copy and edit environment
 umask 077
 cp .env.example .env
-# edit .env — set POSTGRES_PASSWORD, AUTH_SECRET, ENCRYPTION_KEY, JOB_RUNNER_SECRET,
-# AUTH_URL (public origin), AUTH_TRUST_HOST=true, SMTP/OAuth sign-in method,
-# and at least one LLM key if using AI/chat features.
+# edit .env — fill secrets, AUTH_URL, SMTP or OAuth, POSTGRES_PASSWORD
 
-# 4. Start
 docker compose config --quiet
 docker compose pull
 docker compose up -d
-
-# Migrations run automatically; keep COSIGN_IDENTITY and UPDATE_MANIFEST_URL defaults.
-
-# 6. Open http://localhost:3000
-# On first visit with no admin users, create the initial **ADMIN** account.
 ```
+
+# app entrypoint runs: prisma migrate deploy, then next start
+
+Open http://localhost:3000
+
+On first visit you should be able to create the initial **ADMIN** user if none exists (see "First Admin Bootstrap" below).
 
 ---
 

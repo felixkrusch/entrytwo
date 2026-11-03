@@ -41,14 +41,23 @@ openssl rand -base64 24   # POSTGRES_PASSWORD
 
 ## Docker deploy (single host)
 
-### Primary: Pull published image from GHCR (no clone needed)
+Two supported install paths, choose whichever fits your workflow:
 
-Use the maintained public installation instructions at
-https://entrytwo.com/docs/getting-started/installation. Download `compose.yaml`
-and `.env.example` from https://github.com/felixkrusch/entrytwo-releases/releases.
-These assets include the separate updater image, worker, and verification defaults.
+### Path A — Git / npm (clone + build locally)
 
-The repo is private. Run the published image directly — built and signed on every `v*` tag:
+Best for: developers, AI coding enthusiasts, customization.
+
+```bash
+git clone https://github.com/felixkrusch/entrytwo.git
+cd entrytwo
+cp .env.example .env   # edit .env — fill secrets, AUTH_URL, SMTP or OAuth, POSTGRES_PASSWORD
+docker compose up -d --build
+# app entrypoint runs: prisma migrate deploy, then next start
+```
+
+### Path B — Docker Compose pull (pull published image, no clone)
+
+Best for: self-hosters, businesses, server administrators.
 
 ```bash
 mkdir entrytwo && cd entrytwo
@@ -60,17 +69,17 @@ curl -fL "$RELEASE_URL/entrytwo.env.example" -o .env.example
 umask 077
 cp .env.example .env
 # edit .env — fill secrets, AUTH_URL, SMTP or OAuth, POSTGRES_PASSWORD
-# Keep the supplied COSIGN_IDENTITY and UPDATE_MANIFEST_URL.
 
 docker compose config --quiet
 docker compose pull
 docker compose up -d
+```
 
 # app entrypoint runs: prisma migrate deploy, then next start
 
+```bash
 curl -sS https://your.domain/api/health
 # expect: "ready": true, "status": "ok", auth.productionReady: true
-
 ```
 
 Open the site → bootstrap first **ADMIN** → complete **TOTP** → company settings.
