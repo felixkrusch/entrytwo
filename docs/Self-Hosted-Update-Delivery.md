@@ -13,9 +13,9 @@ software-update cryptography.
 ## 1. Goal & non-negotiables
 
 - **One instance per customer.** We never hold customer ledgers centrally.
-- **Source not publicly distributed; commercial license governs use.** We do *not*
-  publish the source on a public repo anyone can clone, and use is governed by a
-  commercial license — but we make **no claim to hide the source from the operator**.
+- **Source is publicly distributed; commercial license governs use.** We publish
+  the source on a public repo anyone can clone, and use is governed by a commercial
+  license — but we make **no claim to hide the source from the operator**.
   On a self-hosted box the server admin can always inspect the running image, so
   obscurity is not a control. The license is a *legal* instrument, not technical
   DRM. (They still *own their data* and their server — that is the promise.)
@@ -117,13 +117,11 @@ A single GitHub Actions `release` workflow, triggered on version tags (`v*`):
    and Cosign checks. Only version tags are pushed during the build; `latest`
    is promoted after smoke tests and signing succeed.
 3. **Attest** the SPDX SBOM with `cosign attest` in GHCR. BuildKit attaches
-   `mode=min` provenance to both images. This does not use GitHub's repository
-   attestation API, which is unavailable for user-owned private repositories.
+   `mode=min` provenance to both images.
 4. Publish a **signed release manifest** (a small JSON: version, image digest,
    minSupportedVersion, changelog ref, published-at) and its Sigstore bundle to
-   the public releases-only repository, alongside the SBOM, `compose.yaml`, and
-   `entrytwo.env.example` (downloaded locally as `.env.example`). The source
-   repository remains private.
+the public releases-only repository, alongside the SBOM, `compose.yaml`, and
+`entrytwo.env.example` (downloaded locally as `.env.example`).
 5. Optionally fire a **webhook** to notify instances a new version is available
    (see §7).
 
@@ -137,8 +135,8 @@ Guardrails:
 
 - Create and initialize the **public** repository `felixkrusch/entrytwo-releases`
   (an initial README commit is sufficient). Do not copy application source into it.
-- In the private source repository, add the Actions secret `RELEASE_TOKEN`: a
-  fine-grained token scoped only to that public repository with **Contents: read
+- In the source repository, add the Actions secret `RELEASE_TOKEN`: a
+  fine-grained token scoped only to the public releases repository with **Contents: read
   and write** permission. The built-in `GITHUB_TOKEN` cannot publish to a second
   repository. Alternatively use an equivalently scoped GitHub App token.
 - The optional Actions variable `RELEASE_REPOSITORY` overrides the default
@@ -147,10 +145,9 @@ Guardrails:
   before building.
 - After the first push, make **both** personal-account GHCR packages public:
   `entrytwo` and `entrytwo-updater`, under Package settings > Change visibility.
-  This does not make the source repository public. Public package visibility
-  cannot subsequently be reverted to private on GitHub.
+  Public package visibility cannot subsequently be reverted to private on GitHub.
 - If package permissions are managed separately, retain write access for the
-  private source repository under Manage Actions access.
+  source repository under Manage Actions access.
 - Push a stable `vMAJOR.MINOR.PATCH` tag containing the updated workflow. Both
   image packages receive version and `latest` tags for amd64 and arm64. Re-running
   an old failed run uses its old workflow, not the new file on the default branch.
@@ -238,15 +235,14 @@ entitles the customer to updates and support for that year.
 
 ### Licensing posture
 
-Source is **not publicly distributed** (no public repo anyone can clone) and use is
-governed by a **commercial license** — but we make **no technical obfuscation
-claims**. On a self-hosted box the server admin can always inspect the running
-image, so hiding the source is neither possible nor a control we rely on. The license
-is a **legal grant, not technical DRM**: it defines permitted use and binds
-support/maintenance, and it is enforced commercially (terms, invoices), not by code.
-This is exactly why entitlement gates *delivery of updates* and *support* — never the
-running app or the customer's data — and why we never attempt to remotely disable a
-purchased instance.
+Source is **publicly distributed**; use is governed by a **commercial license** —
+but we make **no technical obfuscation claims**. On a self-hosted box the server
+admin can always inspect the running image, so hiding the source is neither
+possible nor a control we rely on. The license is a **legal grant, not technical
+DRM**: it defines permitted use and binds support/maintenance, and it is enforced
+commercially (terms, invoices), not by code. This is exactly why entitlement gates
+*delivery of updates* and *support* — never the running app or the customer's data
+— and why we never attempt to remotely disable a purchased instance.
 
 ### Entitlement-aware delivery (how the model is enforced)
 
