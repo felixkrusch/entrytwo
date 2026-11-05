@@ -1,14 +1,26 @@
 # entrytwo - Setup & Deployment Guide
 
-This guide walks you through getting a local development instance of entrytwo running from scratch, including the database, seeding, and creating your first admin user.
+This guide walks you through a local entrytwo installation, including the database, first-administrator bootstrap, company onboarding, and verification without destructive seeding.
 
 ---
 
 ## 1. Prerequisites
 
-- Node.js 22 LTS and npm
+- Node.js 22.12+ (latest 22.x recommended) or 24.x, and npm; Node 20 is unsupported
 - PostgreSQL 16 (local or via Docker)
 - Git
+
+Install a supported Node version from https://nodejs.org/en/download and verify
+`node --version`. With nvm already installed, run `nvm install && nvm use` from
+the clone to use `.nvmrc`. npm lifecycle commands check the runtime early.
+Keep lockfile versions during installation: do not run `npm audit fix` or
+`--force`. Prisma's update-available banner is informational.
+
+For maintainers: scoped package overrides keep Auth.js on the patched Nodemailer
+10 transport despite its older optional peer range. SMTP delivery and a real
+magic-link round trip were verified. Run `npm run test:install`, authentication
+checks, and `npm audit` before changing these overrides; do not downgrade to
+satisfy the older peer range automatically.
 
 Optional but recommended:
 - Docker & Docker Compose (for the included compose files)
@@ -56,11 +68,20 @@ docker run --name entrytwo-dev-db \
 # Option B: Local Postgres
 # Make sure you have a database called "entrytwo" and update DATABASE_URL accordingly.
 
+# For the example Docker container only: bound the readiness wait to 30 attempts.
+attempt=0
+until docker exec entrytwo-dev-db pg_isready -U entrytwo -d entrytwo; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 30 ]; then docker logs entrytwo-dev-db; exit 1; fi
+  sleep 1
+done
+
 # 5. Wait for PostgreSQL, generate the client, and apply committed migrations
 npx prisma generate
 npx prisma migrate deploy
 
 # 6. Start the app
+mkdir -p .data/files .data/backups
 npm run dev
 ```
 
@@ -71,6 +92,12 @@ already running, skip the example container and configure its connection URL.
 The bundled Compose database does not publish a host port; `docker compose up
 -d db` alone cannot serve a native Node.js app. Generate each secret separately
 with `openssl rand -hex 32`. Complete company onboarding to initialize accounts.
+Generate each value separately; ENCRYPTION_KEY must be exactly 64 hex characters.
+The app also creates private storage at startup and fails clearly if it cannot
+access it. Keep `.data` writable and never commit its contents.
+
+For xAI, set `NEXT_LLM_PROVIDER=xai`, `XAI_API_KEY`, and `NEXT_LLM_MODEL` to an
+available model enabled for your xAI account. Leave `NEXT_LLM_BASE_URL` empty.
 
 **Never seed a real installation.** `npx prisma db seed` truncates application
 tables before inserting sample data. It is only for disposable development
@@ -275,6 +302,27 @@ entrytwo is designed so that the very first user created in a fresh installation
 - Roles are `ADMIN`, `ACCOUNTANT`, and `VIEWER`.
 - Production administrators must enroll TOTP before using the app. Instant
   developer email login is unavailable in production, including Docker.
+
+### Agent Verification (Local Development Only)
+
+Read-only readiness check:
+
+```bash
+curl --fail-with-body http://localhost:3000/api/health
+node scripts/check-install.mjs http://localhost:3000
+```
+
+For an intentionally fresh development database only, **before any login or
+browser onboarding**, this command explicitly creates the company and administrator:
+
+```bash
+node scripts/check-install.mjs http://localhost:3000 --bootstrap --email you@example.com --company "My Company"
+```
+
+It checks development providers first, refuses existing administrators, runs
+onboarding before dev login, and verifies the ADMIN session with cookies kept
+only in memory. Never use it against real data or as a production login path.
+Clone-only agents can read `llms.txt` and `skills/entrytwo/SKILL.md` locally.
 
 ---
 

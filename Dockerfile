@@ -1,7 +1,10 @@
 # ---- deps ----
-FROM node:20-bookworm-slim AS deps
+FROM node:22-bookworm-slim AS deps
 WORKDIR /app/entrytwo
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
+COPY scripts/check-node.mjs ./scripts/check-node.mjs
 RUN npm ci
 
 # ---- build ----
@@ -16,7 +19,7 @@ RUN npx prisma generate
 RUN npm run build
 
 # ---- runner ----
-FROM node:20-bookworm-slim AS runner
+FROM node:22-bookworm-slim AS runner
 WORKDIR /app/entrytwo
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -24,7 +27,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Docker operations are isolated in the updater sidecar. The app container only
 # needs wget for its health check and CA roots for outbound HTTPS.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget ca-certificates \
+    wget ca-certificates openssl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/entrytwo/node_modules ./node_modules

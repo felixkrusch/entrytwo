@@ -1,8 +1,12 @@
+import './check-node.mjs'
+
 const baseUrl = process.env.JOB_RUNNER_URL || 'http://127.0.0.1:3000'
 const secret = process.env.JOB_RUNNER_SECRET
 const intervalMs = Math.max(1000, Number(process.env.JOB_RUNNER_INTERVAL_MS || 5000))
 
 if (!secret) throw new Error('JOB_RUNNER_SECRET is required')
+
+console.info(`entrytwo: durable job worker started (${new URL(baseUrl).origin}, polling every ${intervalMs} ms)`)
 
 let stopping = false
 process.on('SIGTERM', () => { stopping = true })

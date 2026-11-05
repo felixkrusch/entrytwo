@@ -69,7 +69,7 @@ On first visit, create the admin account, enable TOTP, and complete company onbo
 
 ### Git / npm (Developers, Customization)
 
-Use Node.js 22 LTS, npm, Git, and PostgreSQL 16. This path runs the web app natively; the database may run locally or in Docker.
+Use Node.js **22.12+ (latest 22.x recommended) or 24.x**, npm, Git, and PostgreSQL 16. Node 20 is not supported. Install a supported version from [nodejs.org](https://nodejs.org/en/download) and check `node --version`. With nvm already installed, run `nvm install && nvm use` inside the clone to use `.nvmrc`. This path runs the web app natively; the database may run locally or in Docker.
 
 ```bash
 git clone https://github.com/felixkrusch/entrytwo.git
@@ -78,7 +78,9 @@ cp .env.example .env
 npm ci
 ```
 
-Edit `.env`: set `DATABASE_URL`, `AUTH_SECRET`, `ENCRYPTION_KEY`, `JOB_RUNNER_SECRET`, and your LLM provider/key. If you need a local development database, this example matches the template's `DATABASE_URL` and binds PostgreSQL to loopback only:
+Keep the locked dependency versions. Do not run `npm audit fix` or `--force` as an installation step; report security warnings upstream. Prisma's update-available banner is informational, not an instruction to upgrade during installation.
+
+Edit `.env`: set `DATABASE_URL`, `AUTH_SECRET`, `ENCRYPTION_KEY`, `JOB_RUNNER_SECRET`, and your LLM provider/key. Generate each secret independently with `openssl rand -hex 32`; `ENCRYPTION_KEY` must be exactly 64 hexadecimal characters. For xAI, set `NEXT_LLM_PROVIDER=xai`, `XAI_API_KEY`, and `NEXT_LLM_MODEL` to a valid model enabled for your account; leave `NEXT_LLM_BASE_URL` empty. If you need a local development database, this example matches the template's `DATABASE_URL` and binds PostgreSQL to loopback only:
 
 ```bash
 docker run --name entrytwo-dev-db \
@@ -93,14 +95,33 @@ docker run --name entrytwo-dev-db \
 The example credentials are for local development only. The repository's Compose `db` service does not publish a host port, so `docker compose up -d db` alone cannot serve a web app running on the host. If you already have PostgreSQL, skip the example container and point `DATABASE_URL` at your database instead. Wait for the database to be ready, then:
 
 ```bash
+# For the example container only: fail after about 30 seconds, not an endless wait.
+attempt=0
+until docker exec entrytwo-dev-db pg_isready -U entrytwo -d entrytwo; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 30 ]; then docker logs entrytwo-dev-db; exit 1; fi
+  sleep 1
+done
+
 npx prisma generate
 npx prisma migrate deploy
+mkdir -p .data/files .data/backups
 npm run dev
 ```
+
+The app also initializes these private directories at startup. They must remain writable; the health check verifies storage without modifying it.
 
 Open [http://localhost:3000](http://localhost:3000), create the first admin, and complete company onboarding to set up your accounts. Development mode supports instant email sign-in without SMTP. For background email jobs, run `node --env-file=.env scripts/job-worker.mjs` in a separate terminal; actual email delivery still needs SMTP.
 
 **Do not seed a real installation.** `npx prisma db seed` truncates existing application tables before inserting sample data. Use it only on a disposable development database. Use `prisma migrate dev` only when developing schema changes; `migrate deploy` applies the committed migrations.
+
+Check readiness with `curl --fail-with-body http://localhost:3000/api/health` or `node scripts/check-install.mjs http://localhost:3000`. For an intentionally fresh local development database, **instead of browser onboarding**, run:
+
+```bash
+node scripts/check-install.mjs http://localhost:3000 --bootstrap --email you@example.com --company "My Company"
+```
+
+This creates company/admin records before dev login, verifies the ADMIN session, refuses existing administrators and production providers, and keeps cookies only in memory. It is not a production login method.
 
 ## Pricing and License
 
@@ -118,6 +139,7 @@ entrytwo is **source-available, not open source**. You can read, clone, build an
 - [AI autonomy](https://entrytwo.com/docs/ai/ai-autonomy): when the AI posts on its own and when it asks
 - [Troubleshooting](https://entrytwo.com/docs/troubleshooting/common-issues)
 - In this repo: [setup](./docs/SETUP.md), [production](./docs/PRODUCTION.md), [authentication checklist](./docs/VPS-Auth-Install.md), [software license](./LICENSE)
+- Clone-only agents: [llms.txt](./llms.txt), [installation skill](./skills/entrytwo/SKILL.md), and [AGENTS.md](./AGENTS.md)
 
 ## Development
 
@@ -126,6 +148,7 @@ npm run dev                                # start the development web app
 node --env-file=.env scripts/job-worker.mjs # background jobs, using the same environment
 npm run build
 npm test                                   # requires a separate, disposable *_test database
+npm run test:install                       # storage, SMTP, and Node checks; no database needed
 npx prisma studio
 ```
 

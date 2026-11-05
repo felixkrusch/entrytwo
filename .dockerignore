@@ -1,6 +1,8 @@
 **/.classpath
 **/.dockerignore
-**/.env
+**/.env*
+!**/.env.example
+**/.data
 **/.git
 **/.gitignore
 **/.project
@@ -22,6 +24,7 @@
 **/secrets.dev.yaml
 **/values.dev.yaml
 **/.next
+**/tsconfig.tsbuildinfo
 LICENSE
 README.md
 docs

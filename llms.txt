@@ -1,0 +1,35 @@
+# entrytwo: local agent documentation
+
+Public source: https://github.com/felixkrusch/entrytwo
+Website: https://entrytwo.com
+License: LICENSE (proprietary source-available shareware, not open source).
+
+These instructions are available in a clone without fetching the website:
+- README.md: overview, pricing, Git/npm and Docker installation.
+- skills/entrytwo/SKILL.md: safe installation and verification runbook.
+- docs/SETUP.md: native development setup, secrets, database, and authentication.
+- docs/PRODUCTION.md: production deployment and backups.
+- docs/VPS-Auth-Install.md: production authentication checklist.
+- AGENTS.md: contributor and agent instructions.
+
+Runtime: Node.js 22.12+ (22.x) or 24.x. Use nvm install && nvm use, or install
+a supported version from https://nodejs.org/en/download and verify node --version.
+Run npm ci, not npm audit fix. Keep the lockfile versions; a Prisma upgrade
+banner is informational, not an installation instruction.
+
+The app initializes .data/files and .data/backups at startup. They must be writable.
+Onboarding initializes accounts. Never seed or reset an installation with real data.
+Use one database per company and keep ENCRYPTION_KEY with secure off-host backups.
+Generate required secrets independently with openssl rand -hex 32.
+
+Read-only readiness: node scripts/check-install.mjs http://localhost:3000
+Only on a deliberately fresh local development database, bootstrap before dev login:
+node scripts/check-install.mjs http://localhost:3000 --bootstrap --email you@example.com --company "My Company"
+This explicitly creates company/admin records, refuses existing administrators and
+production providers, and keeps the session cookie in memory. Never expose dev login
+to the internet or publish any secret/cookie. Run the worker with the same environment:
+node --env-file=.env scripts/job-worker.mjs
+
+Published web equivalents:
+https://entrytwo.com/llms.txt
+https://entrytwo.com/SKILL.md (redirects to /skills/entrytwo/SKILL.md)

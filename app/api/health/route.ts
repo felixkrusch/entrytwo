@@ -4,8 +4,7 @@ import { getRequestId } from '@/lib/correlation'
 import { rateLimit } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { authReadiness } from '@/lib/env'
-import { access } from 'fs/promises'
-import { join } from 'path'
+import { isStorageReady } from '@/lib/storage'
 
 export async function GET(request: NextRequest) {
   const requestId = getRequestId(request)
@@ -28,8 +27,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Basic storage reachability (no secret values)
-    let storageOk = true
-    try { await access(join(process.cwd(), '.data')) } catch { storageOk = false }
+    const storageOk = await isStorageReady()
 
     // Basic webhook secret presence (no values)
     const stripeWebhook = !!process.env.STRIPE_WEBHOOK_SECRET
