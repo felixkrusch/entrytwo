@@ -6,8 +6,8 @@ This guide walks you through getting a local development instance of entrytwo ru
 
 ## 1. Prerequisites
 
-- Node.js 20+
-- PostgreSQL 14+ (local or via Docker)
+- Node.js 22 LTS and npm
+- PostgreSQL 16 (local or via Docker)
 - Git
 
 Optional but recommended:
@@ -24,40 +24,57 @@ entrytwo can be installed either **from source** (clone + npm) or **from Docker*
 Best for: developers, AI coding enthusiasts, customization.
 
 Installation: clone, install dependencies, configure, run.
-Updates: `git pull` + rebuild/migrate.
+Updates: back up, review and select a source revision, then rebuild/migrate.
 Customization: full source access.
-Database and Redis: must be provided separately (local Postgres or Docker Compose).
+Provide a reachable PostgreSQL database separately. The included Compose `db`
+service does not publish a host port for a native Node.js app.
 
 ```bash
 # 1. Clone
 git clone https://github.com/felixkrusch/entrytwo.git
-cd entrytwo/entrytwo_v1
+cd entrytwo
 
 # 2. Install dependencies
-npm install
+npm ci
 
 # 3. Configure environment
 cp .env.example .env
-# Edit .env — set DATABASE_URL (local Postgres or Docker Compose on port 5432),
-# AUTH_SECRET, and any LLM/API keys you want.
+# Edit .env — set DATABASE_URL, AUTH_SECRET, ENCRYPTION_KEY,
+# JOB_RUNNER_SECRET, and your LLM provider/key.
 
 # 4. Start PostgreSQL (choose one)
 
-# Option A: Docker Compose (easiest)
-docker compose up -d db
+# Option A: loopback-only development container matching .env.example
+docker run --name entrytwo-dev-db \
+  -e POSTGRES_USER=entrytwo \
+  -e POSTGRES_PASSWORD=entrytwo_dev_password \
+  -e POSTGRES_DB=entrytwo \
+  -p 127.0.0.1:5432:5432 \
+  -v entrytwo_dev_postgres:/var/lib/postgresql/data \
+  -d postgres:16-alpine
 
 # Option B: Local Postgres
 # Make sure you have a database called "entrytwo" and update DATABASE_URL accordingly.
 
-# 5. Run migrations and seed
-npx prisma migrate dev
-npm run db:seed
+# 5. Wait for PostgreSQL, generate the client, and apply committed migrations
+npx prisma generate
+npx prisma migrate deploy
 
 # 6. Start the app
 npm run dev
 ```
 
 Open http://localhost:3000
+
+The example database password is for local development only. If PostgreSQL is
+already running, skip the example container and configure its connection URL.
+The bundled Compose database does not publish a host port; `docker compose up
+-d db` alone cannot serve a native Node.js app. Generate each secret separately
+with `openssl rand -hex 32`. Complete company onboarding to initialize accounts.
+
+**Never seed a real installation.** `npx prisma db seed` truncates application
+tables before inserting sample data. It is only for disposable development
+databases, not a normal installation or update step.
 
 ### Option B — Docker / Compose (self-hosters, businesses, server administrators)
 
@@ -91,7 +108,10 @@ docker compose up -d
 # Migrations run automatically. Bootstrap the initial admin in the browser.
 ```
 
-Open http://localhost:3000
+Open your configured HTTPS `AUTH_URL`. For localhost-only Docker labs, set
+`AUTH_URL=http://localhost:3000` and explicitly enable `AUTH_ALLOW_HTTP=true`.
+Never use that exception on a public server. Docker runs production mode even
+locally, so real SMTP/OAuth and administrator TOTP are required.
 
 On first visit you should be able to create the initial **ADMIN** user if none exists (see "First Admin Bootstrap" below).
 
@@ -107,18 +127,16 @@ DATABASE_URL="postgresql://user:password@localhost:5432/entrytwo"
 DATABASE_URL_TEST="postgresql://user:password@localhost:5432/entrytwo_test"
 
 # Auth.js
-AUTH_SECRET="change-this-in-production"
+AUTH_SECRET="" # generate separately with openssl rand -hex 32
+JOB_RUNNER_SECRET="" # generate separately with openssl rand -hex 32
 
-# Email for Magic Link (choose one)
+# Email for Magic Link
 # SMTP (works with any SMTP server)
 SMTP_HOST=""       # smtp.gmail.com, etc.
 SMTP_PORT="587"
 SMTP_USER=""
 SMTP_PASS=""
 SMTP_FROM="noreply@yourdomain.com"
-
-# Or Resend API (recommended for cloud)
-RESEND_API_KEY=""
 
 # OAuth providers (optional) — Google and/or Microsoft Entra ID
 GOOGLE_CLIENT_ID=""
@@ -131,7 +149,8 @@ AUTH_URL="http://localhost:3000"
 # Bank feed encryption (required for storing provider credentials)
 ENCRYPTION_KEY=""  # 64 hex characters (32 bytes)
 
-# Stripe webhook verification (required for production)
+# Stripe webhook verification (only if enabling the Stripe feed)
+STRIPE_SECRET_KEY=""
 STRIPE_WEBHOOK_SECRET=""
 
 # LLM keys (optional for Phase 1+)
@@ -186,7 +205,7 @@ In local development you can leave SMTP empty and use instant email sign-in (`/a
 ### PayPal (Payment Processor Feed)
 
 1. Create a REST application in the PayPal Developer Dashboard.
-2. Set `PAYPAL_CLIENT_ID` and `PAYPAL_SECRET` in `.env`.
+2. Set `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` in `.env`.
 3. Create a webhook pointing to `https://yourdomain.com/api/webhooks/paypal`.
 4. Set the resulting webhook ID as `PAYPAL_WEBHOOK_ID`.
 
@@ -196,25 +215,25 @@ Stripe and PayPal are the only supported live processor feeds. Other bank and ca
 
 ## 5. Database
 
-### Using Docker Compose (included)
+### Database Access: Host vs Container
 
-```bash
-docker compose up -d
-```
-
-This starts a Postgres container on port 5432 with the credentials from `compose.yaml`.
+The included Compose stack connects its app and worker to `db:5432` privately.
+It does not expose PostgreSQL on the host. For the native Node.js path, use
+the loopback-bound `docker run` example in Section 2 or a separate PostgreSQL
+server. Do not start the full Compose app just to obtain a host database.
 
 ### Manual Postgres
 
 Create a database:
 
 ```sql
-CREATE DATABASE entrytwo;
 CREATE USER entrytwo WITH PASSWORD 'entrytwo_dev_password';
-GRANT ALL PRIVILEGES ON DATABASE entrytwo TO entrytwo;
+CREATE DATABASE entrytwo OWNER entrytwo;
 ```
 
-Then set:
+Run the SQL as a PostgreSQL administrator. Ownership gives the application
+role the schema permissions needed for migrations. The password is a local
+development example only. Then set:
 
 ```env
 DATABASE_URL="postgresql://entrytwo:entrytwo_dev_password@localhost:5432/entrytwo"
@@ -223,21 +242,26 @@ DATABASE_URL="postgresql://entrytwo:entrytwo_dev_password@localhost:5432/entrytw
 ### Migrations
 
 ```bash
-npx prisma migrate dev
+npx prisma generate
+npx prisma migrate deploy
 ```
 
-### Seeding
+Apply committed migrations with `migrate deploy`; use `migrate dev` only when
+developing schema changes.
 
-The seed creates:
+### Seeding (Disposable Development Databases Only)
+
+The seed **truncates existing application tables**, then creates:
 - Standard chart of accounts
 - Common tax rates (DE 19%/7%, AT 20%, US-CA 8.25%)
 - A few sample contacts
 
 ```bash
-npm run db:seed
-# or
 npx prisma db seed
 ```
+
+Do not run this on an installation containing real data. Initial company
+onboarding supplies the chart of accounts; seeding is not required to install.
 
 ---
 
@@ -245,11 +269,12 @@ npx prisma db seed
 
 entrytwo is designed so that the very first user created in a fresh installation becomes an **ADMIN**.
 
-Current behavior (development):
-- If no `User` with role `ADMIN` exists, the system allows creating the first admin via a simple form (this will be surfaced in the Admin UI).
-- Subsequent users can be created with roles `ADMIN`, `ACCOUNTANT`, or `VIEWER`.
-
-In production this flow will be protected and usually triggered during initial onboarding.
+- The first sign-in bootstraps the initial administrator; complete company
+  onboarding to set language, company details, and the standard chart of accounts.
+- Subsequent users need invitations and must sign in with the invited email.
+- Roles are `ADMIN`, `ACCOUNTANT`, and `VIEWER`.
+- Production administrators must enroll TOTP before using the app. Instant
+  developer email login is unavailable in production, including Docker.
 
 ---
 
@@ -258,6 +283,15 @@ In production this flow will be protected and usually triggered during initial o
 ```bash
 npm run dev
 ```
+
+For native background jobs, start a second process with the same environment:
+
+```bash
+node --env-file=.env scripts/job-worker.mjs
+```
+
+Keep the worker running for invoice email jobs; configure SMTP for delivery
+even when OAuth handles sign-in.
 
 - Chat interface is on the left.
 - Dynamic panels (accounts, journal, reports, P&L, audit) on the right.
@@ -269,14 +303,14 @@ npm run dev
 
 Two supported install paths:
 
-### Path A — Git / npm (clone + build locally)
+### Build a Docker Image From Source
 
 Best for: developers, AI coding enthusiasts, customization.
 
 ```bash
 git clone https://github.com/felixkrusch/entrytwo.git
-cd entrytwo/entrytwo_v1
-cp .env.example .env   # edit .env — set DATABASE_URL, AUTH_SECRET
+cd entrytwo
+cp .env.example .env   # edit secrets, AUTH_URL, SMTP/OAuth, POSTGRES_PASSWORD
 docker compose up -d --build
 # app entrypoint runs: prisma migrate deploy, then next start
 ```
@@ -303,7 +337,8 @@ docker compose up -d
 
 # app entrypoint runs: prisma migrate deploy, then next start
 
-Open http://localhost:3000
+Use your configured HTTPS origin, or the explicit localhost-only HTTP exception
+described in Section 2. This is production mode, not native `npm run dev`.
 
 On first visit you should be able to create the initial **ADMIN** user if none exists (see "First Admin Bootstrap" below).
 
@@ -314,8 +349,6 @@ On first visit you should be able to create the initial **ADMIN** user if none e
 ```bash
 # Database
 npx prisma studio                 # Browse data
-npx prisma migrate reset          # Danger: resets DB
-npm run db:seed                   # Re-seed
 
 # Code quality
 npm run build
@@ -332,8 +365,8 @@ npm start
 ## 10. First Time Checklist
 
 - [ ] Database is running and `DATABASE_URL` is correct
-- [ ] `npx prisma migrate dev` succeeded
-- [ ] Seed completed (`npm run db:seed`)
+- [ ] `npx prisma generate` and `npx prisma migrate deploy` succeeded
+- [ ] Company onboarding completed; no destructive seed used
 - [ ] First ADMIN user created
 - [ ] You can see the chart of accounts and create a manual journal entry
 - [ ] You can upload a PDF and get a suggestion with currency + tax (if detected)
@@ -376,8 +409,10 @@ Full deploy guide: **[PRODUCTION.md](./PRODUCTION.md)**. Auth smoke table: **[VP
 - Check that Postgres is running and the host/port in `DATABASE_URL` are correct.
 - For Docker, make sure you're connecting to the service name (`db`) from inside the container or use `localhost` from the host.
 
-**Seed fails with unique constraint**
-- Run `npx prisma migrate reset` (this will wipe data).
+**Seed fails or unique constraint errors**
+- Do not reset or seed a database with real records. Investigate the specific
+  error and migrations first. Only discard a disposable development database
+  after explicitly confirming it contains no data that must be retained.
 
 **Prisma client out of date after schema change**
 ```bash
