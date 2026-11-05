@@ -13,7 +13,9 @@ These instructions are available in a clone without fetching the website:
 - AGENTS.md: contributor and agent instructions.
 
 Runtime: Node.js 22.12+ (22.x) or 24.x. Use nvm install && nvm use, or install
-a supported version from https://nodejs.org/en/download and verify node --version.
+a supported version using the verified Linux/macOS binary commands in docs/SETUP.md
+(Node Without nvm) and verify node --version. .nvmrc pins tested 22.23.4;
+22.12.0 is the minimum, not the recommended patch to install.
 Run npm ci, not npm audit fix. Keep the lockfile versions; a Prisma upgrade
 banner is informational, not an installation instruction.
 

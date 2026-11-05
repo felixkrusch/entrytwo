@@ -69,7 +69,7 @@ On first visit, create the admin account, enable TOTP, and complete company onbo
 
 ### Git / npm (Developers, Customization)
 
-Use Node.js **22.12+ (latest 22.x recommended) or 24.x**, npm, Git, and PostgreSQL 16. Node 20 is not supported. Install a supported version from [nodejs.org](https://nodejs.org/en/download) and check `node --version`. With nvm already installed, run `nvm install && nvm use` inside the clone to use `.nvmrc`. This path runs the web app natively; the database may run locally or in Docker.
+Use Node.js **22.12+ (latest 22.x recommended) or 24.x**, npm, Git, and PostgreSQL 16. Node 20 is not supported. With nvm already installed, run `nvm install && nvm use` inside the clone to use the exact tested patch in `.nvmrc` (**22.23.4**). Without nvm, use the [copyable Linux/macOS binary-install commands](./docs/SETUP.md#node-without-nvm-linux-and-macos) before `npm ci`, then check `node --version`. The supported minimum and the preferred tested patch are different: do not downgrade to 22.12 just to match the minimum. This path runs the web app natively; the database may run locally or in Docker.
 
 ```bash
 git clone https://github.com/felixkrusch/entrytwo.git

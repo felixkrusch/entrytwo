@@ -13,7 +13,10 @@ complete checkout, expose secrets, or bypass paid activation.
 ## Native Git / npm
 
 Use Git, npm, Node.js 22.12+ (22.x) or 24.x, and PostgreSQL 16. Install Node
-from https://nodejs.org/en/download, or use an existing nvm installation:
+using the checked, copyable Linux/macOS commands in `docs/SETUP.md` under
+"Node Without nvm", or use an existing nvm installation. `.nvmrc` pins the
+tested 22.23.4 patch, not the oldest supported 22.12.0. The nvm lines below
+apply only when nvm is already installed; otherwise complete the binary setup first:
 
 ```bash
 nvm install

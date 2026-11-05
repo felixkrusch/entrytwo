@@ -4,6 +4,8 @@ import createNextIntlPlugin from 'next-intl/plugin'
 const withNextIntl = createNextIntlPlugin('./i18n/request.ts')
 
 const nextConfig: NextConfig = {
+  // Keep the checked-in AGENTS.md stable instead of generating managed blocks.
+  agentRules: false,
   // Make pdf-parse + pdfjs-dist external on the server.
   // This prevents Next/Turbopack from bundling the pdf.js worker code,
   // which was causing: "Setting up fake worker failed: Cannot find module 'pdf.worker.mjs'"

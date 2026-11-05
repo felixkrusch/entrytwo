@@ -22,6 +22,50 @@ magic-link round trip were verified. Run `npm run test:install`, authentication
 checks, and `npm audit` before changing these overrides; do not downgrade to
 satisfy the older peer range automatically.
 
+### Node Without nvm (Linux and macOS)
+
+These commands install the official **22.23.4** binary (matching `.nvmrc`) into
+your home directory, verify its SHA-256 checksum, and use it in the current
+terminal. No sudo or version manager is required. Supported here: glibc Linux
+(Debian/Ubuntu) x64/ARM64 and macOS Intel/Apple Silicon; Alpine/musl needs a
+different build. Run this before `npm ci`, not in addition to an nvm install.
+Requires `curl`, `tar`, and `sha256sum` (Linux) or `shasum` (macOS).
+
+```bash
+NODE_VERSION=22.23.4
+case "$(uname -s)/$(uname -m)" in
+  Linux/x86_64) NODE_PLATFORM=linux-x64 ;;
+  Linux/aarch64|Linux/arm64) NODE_PLATFORM=linux-arm64 ;;
+  Darwin/x86_64) NODE_PLATFORM=darwin-x64 ;;
+  Darwin/arm64) NODE_PLATFORM=darwin-arm64 ;;
+  *) echo "Unsupported platform; use nodejs.org/en/download" >&2; exit 1 ;;
+esac
+NODE_HOME="$HOME/.local/share/node-v$NODE_VERSION-$NODE_PLATFORM"
+(
+  set -eu
+  NODE_TMP="$(mktemp -d)"
+  trap 'rm -rf "$NODE_TMP"' EXIT
+  cd "$NODE_TMP"
+  ARCHIVE="node-v$NODE_VERSION-$NODE_PLATFORM.tar.gz"
+  curl -fLO "https://nodejs.org/dist/v$NODE_VERSION/$ARCHIVE"
+  curl -fLO "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt"
+  grep "  $ARCHIVE$" SHASUMS256.txt > CHECKSUM
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum -c CHECKSUM
+  else
+    shasum -a 256 -c CHECKSUM
+  fi
+  mkdir -p "$NODE_HOME"
+  tar -xzf "$ARCHIVE" --strip-components=1 -C "$NODE_HOME"
+) && export PATH="$NODE_HOME/bin:$PATH" && node --version
+```
+
+For a new terminal, repeat `export PATH="<the installed NODE_HOME path>/bin:$PATH"`
+or add that exact export to your own `~/.bashrc` (Linux bash) or `~/.zshrc`
+(macOS zsh). These commands do not edit shell profiles. `22.12.0` is the minimum;
+the exact `.nvmrc` pin is the newer tested patch, not a request to install the
+oldest supported version. Update the pin and these examples together.
+
 Optional but recommended:
 - Docker & Docker Compose (for the included compose files)
 
