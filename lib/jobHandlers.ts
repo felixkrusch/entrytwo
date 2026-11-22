@@ -1,5 +1,5 @@
 import type { Prisma } from '@prisma/client'
-import { sendInvoiceEmail, sendInvitationEmail } from '@/lib/email'
+import { deliverInvitationEmail, sendInvoiceEmail } from '@/lib/email'
 import { deleteExpiredThreads } from '@/lib/chatThreadStore'
 import { generateRecurringJournalOccurrence } from '@/lib/accounting/recurringJobs'
 import { join } from 'path'
@@ -21,7 +21,7 @@ export async function dispatchJob(type: string, payloadValue: Prisma.JsonValue) 
     return processPayPalWebhook(requiredString(payload, 'webhookEventId'))
   }
   if (type === 'EMAIL_INVOICE') return sendInvoiceEmail({ invoiceId: requiredString(payload, 'invoiceId'), to: optionalString(payload.to), subject: optionalString(payload.subject), body: optionalString(payload.body) })
-  if (type === 'EMAIL_INVITATION') return sendInvitationEmail({ email: requiredString(payload, 'email'), token: requiredString(payload, 'token'), expiresAt: requiredString(payload, 'expiresAt') })
+  if (type === 'EMAIL_INVITATION') return deliverInvitationEmail({ email: requiredString(payload, 'email'), token: requiredString(payload, 'token'), expiresAt: requiredString(payload, 'expiresAt'), invitationId: optionalString(payload.invitationId) })
   if (type === 'CLEANUP_CHAT_THREADS') return deleteExpiredThreads()
   if (type === 'RECURRING_JOURNAL') return generateRecurringJournalOccurrence(requiredString(payload, 'recurringId'), requiredString(payload, 'dueAt'))
   if (type === 'BACKUP_CREATE') return runBackupJob(payload)

@@ -4,31 +4,13 @@ import { z } from 'zod'
 import { requireUser } from '@/lib/authz'
 import { logger } from '@/lib/logger'
 import { getCompanyProfile } from '@/lib/companyProfile'
-
-const ALLOWED_TYPES = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'] as const
+import { ACCOUNT_TYPES, isMalformedAccount } from '@/lib/chartOfAccounts'
 
 const createAccountSchema = z.object({
   code: z.string().min(1).max(20).regex(/^[A-Za-z0-9._-]+$/, 'Code must be alphanumeric with optional . _ -'),
   name: z.string().min(1).max(100),
-  type: z.enum(['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE']),
+  type: z.enum(ACCOUNT_TYPES),
 })
-
-// Hard guard against the historical "code + type" corruption pattern
-// (e.g. "10102738334ASSET" appearing in both code and name).
-// We never want to allow codes or names that look like concatenation of a code and an account type.
-function isMalformedAccount(code: string, name: string, type: string): boolean {
-  const upperCode = code.toUpperCase()
-  const upperName = name.toUpperCase()
-  const t = type.toUpperCase()
-  if (ALLOWED_TYPES.includes(t as any) && upperCode.endsWith(t)) return true
-  if (ALLOWED_TYPES.includes(t as any) && upperName.endsWith(t) && upperName.includes(upperCode)) return true
-  // obvious concat without separator
-  if (upperName.replace(/\s+/g, '') === upperCode + t) return true
-  if (upperName.replace(/\s+/g, '') === t + upperCode) return true
-  // name exactly equals code (common symptom of bad creation)
-  if (upperName.replace(/\s+/g, '') === upperCode) return true
-  return false
-}
 
 export async function GET(request: Request) {
   if (!await requireUser()) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
@@ -93,7 +75,7 @@ export async function GET(request: Request) {
       const t = acc.type.toUpperCase()
       const cUp = acc.code.toUpperCase()
       const nUp = (acc.name || '').toUpperCase().replace(/\s+/g, '')
-      const malformed = ALLOWED_TYPES.includes(t as any) && (
+      const malformed = (ACCOUNT_TYPES as readonly string[]).includes(t) && (
         cUp.endsWith(t) ||
         nUp === cUp + t ||
         nUp === cUp ||

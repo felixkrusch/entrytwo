@@ -2,6 +2,7 @@ import { NextResponse, NextRequest } from 'next/server'
 import { requireUser } from '@/lib/authz'
 import { prisma } from '@/lib/prisma'
 import { getRequestId } from '@/lib/correlation'
+import { INVITATION_EMAIL_KEY_PREFIX, latestDeliveryByInvitation } from '@/lib/invitationDelivery'
 
 export async function GET(request: NextRequest) {
   const requestId = getRequestId(request)
@@ -15,11 +16,19 @@ export async function GET(request: NextRequest) {
     select: { id: true, email: true, role: true, createdAt: true, expiresAt: true, acceptedAt: true },
   })
   const deliveryJobs = await prisma.durableJob.findMany({
-    where: { idempotencyKey: { startsWith: 'invitation-email:' } },
+    where: { idempotencyKey: { startsWith: INVITATION_EMAIL_KEY_PREFIX } },
     select: { idempotencyKey: true, status: true, lastError: true },
+    orderBy: { createdAt: 'desc' },
   })
-  const byInvitation = new Map(deliveryJobs.map(job => [job.idempotencyKey.slice('invitation-email:'.length), job]))
-  const res = NextResponse.json(invitations.map(invitation => ({ ...invitation, delivery: byInvitation.get(invitation.id) || null, requestId })))
+  const byInvitation = latestDeliveryByInvitation(deliveryJobs)
+  const res = NextResponse.json(invitations.map(invitation => {
+    const job = byInvitation.get(invitation.id)
+    return {
+      ...invitation,
+      delivery: job ? { status: job.status, lastError: job.lastError } : null,
+      requestId,
+    }
+  }))
   res.headers.set('x-request-id', requestId)
   return res
 }

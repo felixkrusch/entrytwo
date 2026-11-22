@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
       },
       webhooks: { stripe: stripeWebhook ? 'configured' : 'missing', paypal: paypalWebhook ? 'configured' : 'missing' },
       jobs: { pending: jobsPending, deadLetter: jobsDead },
-      version: process.env.npm_package_version || 'unknown',
+      version: process.env.APP_VERSION?.trim() || process.env.npm_package_version || 'unknown',
       requestId,
       ...(missingProdSecrets.length ? { missingProdSecrets } : {}),
     }

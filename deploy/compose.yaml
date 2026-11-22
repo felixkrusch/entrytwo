@@ -9,9 +9,10 @@ services:
       APP_IMAGE: ghcr.io/felixkrusch/entrytwo:latest
       COMPOSE_FILE: ${PWD:?run compose from the installation directory}/compose.yaml
       UPDATE_SERVICE: app
-      APP_PUBLIC_URL: http://app:3000
+      UPDATE_APP_HEALTH_URL: http://app:3000/api/health
       UPDATER_URL: http://updater:4000
       UPDATER_TOKEN: ${UPDATER_TOKEN:?required}
+      UPDATE_MANIFEST_URL: ${UPDATE_MANIFEST_URL:-https://github.com/felixkrusch/entrytwo-releases/releases/latest/download/manifest.json}
     ports:
       - "127.0.0.1:3000:3000"
     volumes:
@@ -52,7 +53,10 @@ services:
       UPDATER_PORT: 4000
       UPDATER_TOKEN: ${UPDATER_TOKEN:?required}
       UPDATE_VERIFY_SIGNATURE: "true"
-      COSIGN_IDENTITY: ${COSIGN_IDENTITY:?required}
+      COSIGN_IDENTITY: "${COSIGN_IDENTITY:-^https://github\\.com/felixkrusch/entrytwo/\\.github/workflows/release\\.yml@refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+$}"
+      COSIGN_OIDC_ISSUER: ${COSIGN_OIDC_ISSUER:-https://token.actions.githubusercontent.com}
+      COSIGN_PUBLIC_KEY: ${COSIGN_PUBLIC_KEY:-}
+      COSIGN_VERIFY_ARGS: ${COSIGN_VERIFY_ARGS:-}
       UPDATE_WORKER_SERVICE: worker
       PWD: ${PWD}
     volumes:

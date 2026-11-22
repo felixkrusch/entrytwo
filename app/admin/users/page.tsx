@@ -26,31 +26,37 @@ interface Invitation {
 interface CreatedInvitation {
   inviteLink?: string
   deliveryJobId?: string | null
+  error?: string
 }
 
 export default function UsersPage() {
   const tForm = useTranslations('app.usersForm')
-  const t = useTranslations('app.adminPages')
 
   const [users, setUsers] = useState<User[]>([])
   const [invitations, setInvitations] = useState<Invitation[]>([])
   const [loading, setLoading] = useState(true)
+  const [usersLoadError, setUsersLoadError] = useState(false)
+  const [invitesLoadError, setInvitesLoadError] = useState(false)
+  const [actionError, setActionError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [mutating, setMutating] = useState(false)
 
   const [newEmail, setNewEmail] = useState('')
-  const [newName, setNewName] = useState('')
   const [newRole, setNewRole] = useState<'ADMIN' | 'ACCOUNTANT' | 'VIEWER'>('ACCOUNTANT')
 
   const fetchData = async () => {
-    try {
-      const [res, invitationResponse] = await Promise.all([fetch('/api/users'), fetch('/api/users/invitations')])
-      const [u, invitationData] = await Promise.all([res.json(), invitationResponse.json()])
-      setUsers(Array.isArray(u) ? u : [])
-      setInvitations(Array.isArray(invitationData) ? invitationData : [])
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false)
+    const loadList = async (url: string) => {
+      const response = await fetch(url, { cache: 'no-store' })
+      if (!response.ok) throw new Error('List request failed')
+      const rows = await response.json()
+      if (!Array.isArray(rows)) throw new Error('Invalid list response')
+      return rows
     }
+    await Promise.all([
+      loadList('/api/users').then(rows => { setUsers(rows); setUsersLoadError(false) }).catch(() => setUsersLoadError(true)),
+      loadList('/api/users/invitations').then(rows => { setInvitations(rows); setInvitesLoadError(false) }).catch(() => setInvitesLoadError(true)),
+    ])
+    setLoading(false)
   }
 
   useEffect(() => {
@@ -58,45 +64,48 @@ export default function UsersPage() {
     return () => clearTimeout(id)
   }, [])
 
-  const createUser = async () => {
-    if (!newEmail) return
-    const res = await fetch('/api/users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: newEmail, name: newName || undefined, role: newRole }),
-    })
-    const data: CreatedInvitation = await res.json().catch(() => ({}))
-    if (data?.inviteLink) {
-      // Show the direct link (dev or when SMTP not configured)
-      window.prompt('Invitation link (copy now — only shown once):', data.inviteLink)
+  const mutate = async (url: string, method: 'POST' | 'PATCH' | 'DELETE', body?: object) => {
+    if (mutating) return null
+    setMutating(true)
+    setActionError('')
+    setNotice('')
+    try {
+      const res = await fetch(url, {
+        method,
+        ...(body && { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+      })
+      const data: CreatedInvitation = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setActionError(data.error || tForm('actionFailed'))
+        return null
+      }
+      await fetchData()
+      return data
+    } catch {
+      setActionError(tForm('actionFailed'))
+      return null
+    } finally {
+      setMutating(false)
     }
-    setNewEmail('')
-    setNewName('')
-    fetchData()
   }
 
-  const changeRole = async (id: string, role: User['role']) => {
-    await fetch(`/api/users/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role }),
-    })
-    fetchData()
+  const showDelivery = (data: CreatedInvitation) => {
+    if (data.deliveryJobId) setNotice(tForm('inviteQueued'))
+    else if (data.inviteLink) {
+      setNotice(tForm('inviteManual'))
+      window.prompt(tForm('copyInviteLink'), data.inviteLink)
+    }
+  }
+
+  const createUser = async () => {
+    const data = await mutate('/api/users', 'POST', { email: newEmail.trim(), role: newRole })
+    if (!data) return
+    setNewEmail('')
+    showDelivery(data)
   }
 
   const deleteUser = async (id: string) => {
-    if (!confirm('Delete this user?')) return
-    await fetch(`/api/users/${id}`, { method: 'DELETE' })
-    fetchData()
-  }
-
-  const toggleDisabled = async (id: string, nextDisabled: boolean) => {
-    await fetch(`/api/users/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ disabled: nextDisabled }),
-    })
-    fetchData()
+    if (confirm(tForm('confirmDelete'))) await mutate(`/api/users/${id}`, 'DELETE')
   }
 
   if (loading) {
@@ -109,6 +118,8 @@ export default function UsersPage() {
         <h1 className="text-xl font-semibold">{tForm('title')}</h1>
         <p className="text-xs text-zinc-500">{tForm('subtitle')}</p>
       </div>
+      {actionError && <p role="alert" className="mb-3 text-sm text-rose-400">{actionError}</p>}
+      {notice && <p role="status" className="mb-3 text-sm text-emerald-400">{notice}</p>}
 
       <div className="space-y-2 text-sm max-w-3xl">
         {users.map(u => (
@@ -117,10 +128,11 @@ export default function UsersPage() {
               {u.email} {u.name ? `(${u.name})` : ''} — <span className="text-zinc-400">{u.role}</span>
               {u.disabled && <span className="ml-2 text-[10px] text-red-400">{tForm('disabled')}</span>}
             </div>
-            <div className="flex items-center gap-2">
+            <fieldset disabled={mutating} className="flex items-center gap-2">
               <select
                 value={u.role}
-                onChange={e => changeRole(u.id, e.target.value as User['role'])}
+                aria-label={tForm('roleFor', { email: u.email })}
+                onChange={e => void mutate(`/api/users/${u.id}`, 'PATCH', { role: e.target.value })}
                 className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs"
               >
                 <option value="ADMIN">ADMIN</option>
@@ -128,34 +140,34 @@ export default function UsersPage() {
                 <option value="VIEWER">VIEWER</option>
               </select>
               <button
-                onClick={() => toggleDisabled(u.id, !u.disabled)}
+                onClick={() => void mutate(`/api/users/${u.id}`, 'PATCH', { disabled: !u.disabled })}
                 className="text-xs text-amber-400 hover:text-amber-300"
               >
                 {u.disabled ? 'Enable' : 'Disable'}
               </button>
               <button onClick={() => deleteUser(u.id)} className="text-xs text-rose-400 hover:text-rose-300">{tForm('delete')}</button>
-            </div>
+            </fieldset>
           </div>
         ))}
-        {users.length === 0 && <div className="text-zinc-500">{tForm('empty')}</div>}
+        {usersLoadError && <p role="alert" className="text-rose-400">{tForm('usersLoadFailed')} <button onClick={() => void fetchData()} className="underline">{tForm('retry')}</button></p>}
+        {!usersLoadError && users.length === 0 && <div className="text-zinc-500">{tForm('empty')}</div>}
       </div>
 
       <div className="mt-6 max-w-xl">
         <div className="font-medium mb-2">{tForm('inviteUser')}</div>
-        <div className="flex flex-wrap gap-2">
+        <form onSubmit={event => { event.preventDefault(); void createUser() }}>
+        <fieldset disabled={mutating} className="flex flex-wrap gap-2">
           <input
+            type="email"
+            required
+            aria-label={tForm('emailPh')}
             placeholder={tForm('emailPh')}
             value={newEmail}
             onChange={e => setNewEmail(e.target.value)}
             className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-sm"
           />
-          <input
-            placeholder={tForm("namePh")}
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-sm"
-          />
           <select
+            aria-label={tForm('inviteRole')}
             value={newRole}
             onChange={e => setNewRole(e.target.value as 'ADMIN' | 'ACCOUNTANT' | 'VIEWER')}
             className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm"
@@ -164,12 +176,16 @@ export default function UsersPage() {
             <option value="ACCOUNTANT">ACCOUNTANT</option>
             <option value="VIEWER">VIEWER</option>
           </select>
-          <button onClick={createUser} className="px-3 py-1 rounded bg-white text-black text-sm">{tForm('invite')}</button>
-        </div>
+          <button type="submit" className="px-3 py-1 rounded bg-white text-black text-sm">{tForm('invite')}</button>
+        </fieldset>
+        </form>
       </div>
 
       <div className="mt-8 max-w-3xl">
-        <div className="font-medium mb-2">{tForm('invitations')}</div>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="font-medium">{tForm('invitations')}</div>
+          <button type="button" onClick={() => void fetchData()} disabled={mutating} className="text-xs text-zinc-400 underline">{tForm('refreshDelivery')}</button>
+        </div>
         <div className="space-y-2 text-sm">
           {invitations.map(invitation => {
             const expired = !invitation.acceptedAt && new Date(invitation.expiresAt) < new Date()
@@ -180,26 +196,26 @@ export default function UsersPage() {
                   <div><span className="font-medium">{invitation.email}</span> <span className="text-zinc-500">{invitation.role}</span></div>
                   <div className="flex items-center gap-3 text-xs text-zinc-400">
                     <span>{status}</span>
-                    <span>Delivery: {invitation.delivery?.status || 'not configured'}</span>
-                    <span>Expires {new Date(invitation.expiresAt).toLocaleDateString()}</span>
+                    <span>{tForm('delivery', { status: invitation.delivery?.status || tForm('notQueued') })}</span>
+                    <span>{tForm('expires', { date: new Date(invitation.expiresAt).toLocaleDateString() })}</span>
                   </div>
                 </div>
                 {invitation.delivery?.lastError && <div className="mt-1 text-xs text-red-400">{invitation.delivery.lastError}</div>}
-                <button
+                {!invitation.acceptedAt && <button
+                  disabled={mutating}
                   onClick={async () => {
-                    const r = await fetch(`/api/users/invitations/${invitation.id}/link`, { method: 'POST' })
-                    const d = await r.json().catch(() => ({}))
-                    if (d?.inviteLink) window.prompt('New invitation link:', d.inviteLink)
-                    else fetchData()
+                    const data = await mutate(`/api/users/invitations/${invitation.id}/link`, 'POST')
+                    if (data) showDelivery(data)
                   }}
                   className="mt-2 text-[10px] px-2 py-0.5 border border-zinc-700 rounded hover:bg-zinc-900"
                 >
-                  Regenerate link
-                </button>
+                  {tForm('resendInvite')}
+                </button>}
               </div>
             )
           })}
-          {!invitations.length && <div className="text-zinc-500">{tForm('noInvitations')}</div>}
+          {invitesLoadError && <p role="alert" className="text-rose-400">{tForm('invitesLoadFailed')} <button onClick={() => void fetchData()} className="underline">{tForm('retry')}</button></p>}
+          {!invitesLoadError && !invitations.length && <div className="text-zinc-500">{tForm('noInvitations')}</div>}
         </div>
       </div>
     </div>

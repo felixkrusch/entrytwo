@@ -132,12 +132,19 @@ jobs:
           mkdir -p dist
           cp deploy/compose.yaml dist/compose.yaml
           cp .env.example dist/entrytwo.env.example
-          cat >> dist/entrytwo.env.example <<EOF
-
-          # Public distribution defaults for this release.
-          UPDATE_MANIFEST_URL=https://github.com/${RELEASE_REPOSITORY}/releases/latest/download/manifest.json
-          COSIGN_IDENTITY=^https://github\\.com/${GITHUB_REPOSITORY}/\\.github/workflows/release\\.yml@refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+$
-          EOF
+          manifest_url="https://github.com/${RELEASE_REPOSITORY}/releases/latest/download/manifest.json"
+          identity="^https://github\\.com/${GITHUB_REPOSITORY}/\\.github/workflows/release\\.yml@refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+$"
+          set_kv() {
+            local key="$1" value="$2" file="dist/entrytwo.env.example"
+            VALUE="$value" awk -v key="$key" '
+              BEGIN { val=ENVIRON["VALUE"]; done=0 }
+              index($0, key "=") == 1 { print key "=" val; done=1; next }
+              { print }
+              END { if (!done) print key "=" val }
+            ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+          }
+          set_kv UPDATE_MANIFEST_URL "$manifest_url"
+          set_kv COSIGN_IDENTITY "$identity"
           cp manifest.json manifest.sigstore.json sbom.spdx.json dist/
 
       - name: Promote verified images to latest
@@ -165,8 +172,9 @@ jobs:
 
             Signed image: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}`
 
-            Set `UPDATE_MANIFEST_URL` on your instance to the raw `manifest.json` below
-            (or pin `APP_IMAGE` to the digest) to receive this update.
+            Official Docker Compose defaults `UPDATE_MANIFEST_URL` and `COSIGN_IDENTITY`
+            to this signed feed. Override `UPDATE_MANIFEST_URL` only for a custom
+            manifest. Git/npm installs leave it empty until a feed is configured.
 
             **Verification policy**
             - Keyless (default): identity `https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}`, issuer `https://token.actions.githubusercontent.com`

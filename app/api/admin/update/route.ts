@@ -9,21 +9,18 @@ import { getRequestId } from '@/lib/correlation'
 import { rateLimit } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { getLicenseStatus } from '@/lib/license'
+import {
+  configuredManifestUrl,
+  manifestLoadErrorMessage,
+  resolveUpdateFeed,
+  type UpdateManifest,
+  type UpdateSourceError,
+} from '@/lib/updateSource'
 
 const execAsync = promisify(exec)
 
 const LOCK_FILE = join(process.cwd(), '.update-lock')
 const BACKUP_DIR = join(process.cwd(), 'backups')
-
-interface UpdateManifest {
-  version: string
-  image: string
-  digest: string
-  minSupportedVersion?: string
-  channel?: string
-  publishedAt?: string
-  changelogUrl?: string
-}
 
 interface UpdateState {
   status: 'idle' | 'updating' | 'success' | 'error'
@@ -137,7 +134,7 @@ async function createFullBackup(): Promise<{ path: string; success: boolean }> {
 }
 
 function runningVersion(): string {
-  return process.env.APP_VERSION || 'unknown'
+  return process.env.APP_VERSION?.trim() || process.env.npm_package_version || 'unknown'
 }
 
 function composeFile(): string {
@@ -227,12 +224,21 @@ async function waitForHealth(maxAttempts = 20, intervalMs = 3000): Promise<boole
   return false
 }
 
-async function fetchManifest(): Promise<UpdateManifest | null> {
-  const manifestUrl = process.env.UPDATE_MANIFEST_URL
-  if (!manifestUrl) return null
-  const res = await fetch(manifestUrl, { cache: 'no-store' })
-  if (!res.ok) return null
-  return (await res.json()) as UpdateManifest
+async function fetchManifest(): Promise<
+  | { ok: true; manifest: UpdateManifest }
+  | { ok: false; reason: UpdateSourceError }
+> {
+  const manifestUrl = configuredManifestUrl()
+  if (!manifestUrl) return { ok: false, reason: 'unconfigured' }
+  try {
+    const res = await fetch(manifestUrl, { cache: 'no-store' })
+    if (!res.ok) return { ok: false, reason: 'unreachable' }
+    const manifest = (await res.json()) as UpdateManifest
+    if (!manifest || typeof manifest !== 'object') return { ok: false, reason: 'invalid' }
+    return { ok: true, manifest }
+  } catch {
+    return { ok: false, reason: 'unreachable' }
+  }
 }
 
 // When UPDATER_URL is set, the app delegates all Docker operations to the
@@ -266,7 +272,7 @@ async function sidecarKickoff(
         appImage,
         service: updateService(),
         composeFile: composeFile(),
-        appHealthUrl: `${process.env.APP_PUBLIC_URL || 'http://localhost:3000'}/api/health`,
+        appHealthUrl: process.env.UPDATE_APP_HEALTH_URL || `${process.env.APP_PUBLIC_URL || 'http://localhost:3000'}/api/health`,
       }),
     })
     if (res.ok) return null
@@ -324,42 +330,37 @@ export async function GET(request: NextRequest) {
     const currentVersion = runningVersion()
     const appImage = process.env.APP_IMAGE || ''
 
-    let latestVersion = ''
-    let targetDigest = ''
-    let channel = ''
-    let changelogUrl = ''
-    let updateAvailable = false
-
     // "verify once, trust forever" — only checks stored flag, no re-verify
     const lic = await getLicenseStatus().catch(() => null)
     const canUpdate = !lic || lic.isLicensed || lic.inTrial
 
-    const manifest = await fetchManifest().catch(() => null)
-    if (manifest) {
-      latestVersion = manifest.version || ''
-      targetDigest = manifest.digest || ''
-      channel = manifest.channel || ''
-      changelogUrl = manifest.changelogUrl || ''
-      if (latestVersion && currentVersion && latestVersion !== currentVersion && canUpdate) {
-        updateAvailable = true
-      }
+    const fetched = await fetchManifest()
+    const manifest = fetched.ok ? fetched.manifest : null
+    const feed = resolveUpdateFeed({
+      currentVersion,
+      canUpdate,
+      manifest,
+      sourceError: fetched.ok ? undefined : fetched.reason,
+    })
+
+    const base = {
+      currentVersion,
+      latestVersion: feed.latestVersion,
+      targetDigest: feed.targetDigest,
+      channel: feed.channel,
+      changelogUrl: feed.changelogUrl,
+      appImage,
+      updateAvailable: feed.updateAvailable,
+      sourceConfigured: feed.sourceConfigured,
+      sourceError: feed.sourceError,
+      requestId,
+      lastChecked: new Date().toISOString(),
+      licensed: lic ? lic.isLicensed : false,
+      inTrial: lic ? lic.inTrial : true,
     }
 
     if (SIDEKICK_ENABLED) {
       const s = await sidecarStatus()
-      const base = {
-        currentVersion,
-        latestVersion,
-        targetDigest,
-        channel,
-        changelogUrl,
-        appImage,
-        updateAvailable,
-        requestId,
-        lastChecked: new Date().toISOString(),
-        licensed: lic ? lic.isLicensed : false,
-        inTrial: lic ? lic.inTrial : true,
-      }
       if (s && s.status && s.status !== 'idle') {
         if (s.status === 'success' && manifest) await maybeAuditSidecar(manifest)
         return NextResponse.json({
@@ -381,39 +382,21 @@ export async function GET(request: NextRequest) {
 
     if (updateState.status === 'updating') {
       return NextResponse.json({
-        currentVersion,
-        latestVersion,
-        targetDigest,
-        channel,
-        changelogUrl,
-        appImage,
-        updateAvailable,
-        lastChecked: new Date().toISOString(),
+        ...base,
         status: 'updating',
         progress: updateState.progress,
-        licensed: lic ? lic.isLicensed : false,
-        inTrial: lic ? lic.inTrial : true,
       })
     }
 
     const updating = await isLocked()
 
     return NextResponse.json({
-      currentVersion,
-      latestVersion,
-      targetDigest,
-      channel,
-      changelogUrl,
-      appImage,
-      updateAvailable,
-      lastChecked: new Date().toISOString(),
+      ...base,
       status: updating ? 'updating' : updateState.status,
       progress: updateState.progress,
       error: updateState.error,
       message: updateState.message,
       backupPath: updateState.backupPath,
-      licensed: lic ? lic.isLicensed : false,
-      inTrial: lic ? lic.inTrial : true,
     })
   } catch (error) {
     return NextResponse.json(
@@ -429,12 +412,13 @@ async function runUpdate(): Promise<void> {
   try {
     await writeProgress('Resolving target from signed manifest…')
 
-    const manifest = await fetchManifest()
-    if (!manifest) {
-      updateState = { status: 'error', progress: '', error: 'UPDATE_MANIFEST_URL is not configured or unreachable.' }
+    const fetched = await fetchManifest()
+    if (!fetched.ok) {
+      updateState = { status: 'error', progress: '', error: manifestLoadErrorMessage(fetched.reason) }
       await releaseLock()
       return
     }
+    const manifest = fetched.manifest
     const { version: targetVersion, image: imageRepo, digest: targetDigest, minSupportedVersion, changelogUrl } = manifest
     if (!targetVersion || !imageRepo || !targetDigest) {
       updateState = { status: 'error', progress: '', error: 'Update manifest is missing version/image/digest.' }
@@ -594,13 +578,14 @@ export async function POST(request: NextRequest) {
     if (s && s.status === 'updating') {
       return NextResponse.json({ error: 'Update already in progress.' }, { status: 409 })
     }
-    const manifest = await fetchManifest()
-    if (!manifest) {
+    const fetched = await fetchManifest()
+    if (!fetched.ok) {
       return NextResponse.json(
-        { error: 'UPDATE_MANIFEST_URL is not configured or unreachable.' },
+        { error: manifestLoadErrorMessage(fetched.reason) },
         { status: 400 }
       )
     }
+    const manifest = fetched.manifest
     const { version: targetVersion, image: imageRepo, digest: targetDigest, minSupportedVersion } = manifest
     if (!targetVersion || !imageRepo || !targetDigest) {
       return NextResponse.json({ error: 'Update manifest is missing version/image/digest.' }, { status: 400 })

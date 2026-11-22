@@ -2,7 +2,11 @@ import nodemailer from 'nodemailer'
 import { prisma } from '@/lib/prisma'
 import { generateInvoicePDF } from '@/lib/pdf/invoice'
 import { isSmtpConfigured } from '@/lib/smtp'
-import { publicAuthBaseUrl } from '@/lib/env'
+import {
+  buildInviteLink,
+  hashInvitationToken,
+  invitationDeliveryDecision,
+} from '@/lib/invitationDelivery'
 
 export { isSmtpConfigured }
 
@@ -22,10 +26,6 @@ function transporter() {
 
 function fromAddress() {
   return process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@entrytwo.local'
-}
-
-function baseUrl() {
-  return publicAuthBaseUrl() || 'http://localhost:3000'
 }
 
 export async function sendInvoiceEmail(input: {
@@ -58,20 +58,39 @@ export async function sendInvoiceEmail(input: {
   return { sentTo: recipient }
 }
 
+export async function deliverInvitationEmail(input: {
+  email: string
+  token: string
+  expiresAt: string
+  invitationId?: string
+}) {
+  const tokenHash = hashInvitationToken(input.token)
+  const invitation = input.invitationId
+    ? await prisma.userInvitation.findUnique({ where: { id: input.invitationId } })
+    : await prisma.userInvitation.findFirst({ where: { tokenHash } })
+  const decision = invitationDeliveryDecision(invitation, input)
+  if (decision !== 'send' || !invitation) return { skipped: decision }
+  await sendInvitationEmail({
+    email: invitation.email,
+    token: input.token,
+    expiresAt: invitation.expiresAt.toISOString(),
+  })
+  return { skipped: null }
+}
+
 export async function sendInvitationEmail(input: {
   email: string
   token: string
   expiresAt: string
 }) {
-  const inviteUrl = new URL('/auth/invite', baseUrl())
-  inviteUrl.searchParams.set('token', input.token)
+  const inviteUrl = buildInviteLink(input.token)
   const expires = new Date(input.expiresAt).toLocaleString()
   const text = [
     'You have been invited to entrytwo.',
     '',
     `Accept your invitation for ${input.email} before ${expires}:`,
     '',
-    String(inviteUrl),
+    inviteUrl,
     '',
     'Sign in with Google, Microsoft, or email magic link using exactly this address.',
   ].join('\n')
@@ -83,7 +102,7 @@ export async function sendInvitationEmail(input: {
         Accept your invitation for <strong>${escapeHtml(input.email)}</strong> before ${escapeHtml(expires)}.
       </p>
       <p style="margin:0 0 24px">
-        <a href="${escapeAttr(String(inviteUrl))}"
+        <a href="${escapeAttr(inviteUrl)}"
            style="display:inline-block;background:#f59e0b;color:#000;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;font-size:14px">
           Accept invitation
         </a>
@@ -91,7 +110,7 @@ export async function sendInvitationEmail(input: {
       <p style="margin:0;color:#71717a;font-size:12px;line-height:1.4">
         Then sign in with Google, Microsoft, or email magic link using the same address.
         If the button does not work, paste this URL into your browser:<br/>
-        <span style="word-break:break-all">${escapeHtml(String(inviteUrl))}</span>
+        <span style="word-break:break-all">${escapeHtml(inviteUrl)}</span>
       </p>
     </div>
   `

@@ -3,6 +3,7 @@ import QRCode from 'qrcode'
 import sharp from 'sharp'
 import { logger } from '../logger'
 import { prisma } from '@/lib/prisma'
+import { readCompanyBank } from '@/lib/companyBank'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 
@@ -29,15 +30,10 @@ export async function generateInvoicePDF(invoiceId: string): Promise<Buffer> {
   const setting = new Map(settings.map(item => [item.key, valueOf(item.value)]))
   const companyName = text(setting.get('company.name')) || 'Your Company'
   const address = (setting.get('company.address') || {}) as JsonRecord
-  const bank = (setting.get('company.bank') || {}) as JsonRecord
+  const { iban, bic, bankName, routing, accountNumber } = readCompanyBank(setting.get('company.bank'))
   const logoData = text(setting.get('company.logo'))
   const sellerTaxId = text(setting.get('company.taxId'))
   const registrationNumber = text(setting.get('company.registrationNumber'))
-  const iban = text(bank.iban)
-  const bic = text(bank.bic)
-  const bankName = text(bank.bankName)
-  const routing = text(bank.routing || bank.transit)
-  const accountNumber = text(bank.accountNumber || bank.account)
   const currency = (invoice.currency || 'EUR').toUpperCase()
   const german = (invoice.language || 'en').toLowerCase().startsWith('de')
 

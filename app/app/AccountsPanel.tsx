@@ -20,9 +20,10 @@ interface AccountsPanelProps {
   selectedAccountCode?: string
   branch?: string
   asOf?: string
+  allowCreate?: boolean
 }
 
-export default function AccountsPanel({ onSelectAccount, selectedAccountId, selectedAccountCode, branch = 'main', asOf }: AccountsPanelProps) {
+export default function AccountsPanel({ onSelectAccount, selectedAccountId, selectedAccountCode, branch = 'main', asOf, allowCreate = false }: AccountsPanelProps) {
   const t = useTranslations('app.panels.accounts')
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
@@ -54,6 +55,13 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
   const [editType, setEditType] = useState<'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE'>('ASSET')
   const [editError, setEditError] = useState('')
   const [isSavingEdit, setIsSavingEdit] = useState(false)
+
+  const [showAdd, setShowAdd] = useState(false)
+  const [newCode, setNewCode] = useState('')
+  const [newName, setNewName] = useState('')
+  const [newType, setNewType] = useState<'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE'>('ASSET')
+  const [createError, setCreateError] = useState('')
+  const [isCreating, setIsCreating] = useState(false)
 
   const fetchAccounts = async () => {
     setLoading(true)
@@ -101,6 +109,39 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
     window.addEventListener('journal-updated', handler)
     return () => window.removeEventListener('journal-updated', handler)
   }, [branch, asOf])
+
+  const createAccount = async () => {
+    if (isCreating) return
+    const code = newCode.trim()
+    const name = newName.trim()
+    if (!code || !name) {
+      setCreateError(t('errorGeneric'))
+      return
+    }
+    setIsCreating(true)
+    setCreateError('')
+    try {
+      const res = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, name, type: newType }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setCreateError(res.status === 409 ? t('errorCodeExists') : (data.error || t('errorGeneric')))
+        return
+      }
+      setNewCode('')
+      setNewName('')
+      setNewType('ASSET')
+      setShowAdd(false)
+      fetchAccounts()
+    } catch {
+      setCreateError(t('errorGeneric'))
+    } finally {
+      setIsCreating(false)
+    }
+  }
 
   const cancelEdit = () => {
     setEditingId(null)
@@ -176,6 +217,20 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
           ) : null}
         </div>
         <div className="flex items-center gap-2">
+          {allowCreate && (
+            <button
+              type="button"
+              aria-expanded={showAdd}
+              disabled={isCreating}
+              onClick={() => {
+                setShowAdd(open => !open)
+                setCreateError('')
+              }}
+              className="text-xs px-2 py-1 rounded bg-white text-black"
+            >
+              {showAdd ? t('cancel') : t('addAccount')}
+            </button>
+          )}
           <div className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">
             {search ? `${filteredAccounts.length} / ` : ''}{t('count', { count: accounts.length })}
           </div>
@@ -192,7 +247,50 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
         />
       </div>
 
-      {/* Add Account Form hidden on public/dashboard view (edit in /admin/chart-of-accounts) */}
+      {allowCreate && showAdd && (
+        <form onSubmit={event => { event.preventDefault(); void createAccount() }} className="mb-3 p-3 bg-zinc-950 border border-zinc-800 rounded-lg">
+          <div className="text-xs text-zinc-400 mb-1">{t('addTitle')}</div>
+          <fieldset disabled={isCreating} className="grid gap-2 sm:grid-cols-[minmax(5rem,1fr)_minmax(0,3fr)_minmax(6rem,1fr)_auto]">
+            <input
+              aria-label={t('code')}
+              required
+              maxLength={20}
+              value={newCode}
+              onChange={e => setNewCode(e.target.value)}
+              placeholder={t('codePlaceholder')}
+              className="min-w-0 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm font-mono"
+            />
+            <input
+              aria-label={t('name')}
+              required
+              maxLength={100}
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              placeholder={t('namePlaceholder')}
+              className="min-w-0 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm"
+            />
+            <select
+              aria-label={t('type')}
+              value={newType}
+              onChange={e => setNewType(e.target.value as 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE')}
+              className="min-w-0 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm"
+            >
+              <option value="ASSET">ASSET</option>
+              <option value="LIABILITY">LIABILITY</option>
+              <option value="EQUITY">EQUITY</option>
+              <option value="REVENUE">REVENUE</option>
+              <option value="EXPENSE">EXPENSE</option>
+            </select>
+            <button
+              type="submit"
+              className="px-2 py-1 text-xs rounded bg-white text-black disabled:opacity-50"
+            >
+              {isCreating ? t('creating') : t('create')}
+            </button>
+          </fieldset>
+          {createError && <div role="alert" className="mt-1 text-xs text-rose-400">{createError}</div>}
+        </form>
+      )}
 
       {loading ? (
         <div className="text-zinc-500 text-sm">{t('loading')}</div>

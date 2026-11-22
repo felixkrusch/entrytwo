@@ -481,7 +481,7 @@
       "history": "Commit History",
       "license": "Lizenz",
       "licenseTitle": "Lizenzschlüssel eingeben oder ändern",
-      "footer": "Änderungen werden sofort gespeichert und auditiert.",
+      "footer": "Gespeicherte Änderungen werden im Auditprotokoll erfasst.",
       "companyTitle": "Firmeneinstellungen",
       "companySubtitle": "Standort steuert vorgeschlagene Währung und Steuerjurisdiktion. Beides kann überschrieben werden.",
       "defaultLanguage": "Standardsprache",
@@ -953,6 +953,11 @@
       "taxId": "USt-IdNr. / Steuer-ID",
       "regNumber": "Handelsregister / Firmennummer",
       "bankDetails": "Bankverbindung",
+      "accountNumber": "Kontonummer",
+      "saveBankDetails": "Bankverbindung speichern",
+      "bankSaved": "Bankverbindung gespeichert.",
+      "bankSaveFailed": "Bankverbindung konnte nicht gespeichert werden. Versuche es erneut, bevor du Rechnungen versendest.",
+      "bankLoadFailed": "Bankverbindung konnte nicht geladen werden. Lade die Seite erneut.",
       "bankName": "Bankname",
       "iban": "IBAN",
       "bic": "BIC / SWIFT",
@@ -960,7 +965,7 @@
       "accountNumber": "Kontonummer",
       "logo": "Logo",
       "logoHelp": "Erscheint auf Rechnungen",
-      "footer": "Alle Änderungen werden sofort gespeichert und auditiert."
+      "footer": "Bankverbindung, Steuer-ID, Adresse und Logo erscheinen auf Rechnungen. Verwende Bankverbindung speichern, um Änderungen zu übernehmen."
     },
     "taxForm": {
       "title": "Steuereinstellungen",
@@ -1001,7 +1006,20 @@
       "delivery": "Zustellung: {status}",
       "notConfigured": "nicht konfiguriert",
       "expires": "Läuft ab {date}",
-      "noInvitations": "Noch keine Einladungen."
+      "noInvitations": "Noch keine Einladungen.",
+      "usersLoadFailed": "Benutzer konnten nicht geladen werden.",
+      "invitesLoadFailed": "Einladungen konnten nicht geladen werden.",
+      "retry": "Erneut versuchen",
+      "actionFailed": "Die Aktion konnte nicht abgeschlossen werden. Versuche es erneut.",
+      "inviteQueued": "Die Einladungs-E-Mail wurde zur Zustellung eingeplant. Den Status siehst du unten.",
+      "inviteManual": "Die Einladung wurde erstellt, aber nicht per E-Mail eingeplant. Teile den Link manuell.",
+      "copyInviteLink": "Einladungslink (wird nur einmal angezeigt):",
+      "roleFor": "Rolle für {email}",
+      "inviteRole": "Rolle für den eingeladenen Benutzer",
+      "refreshDelivery": "Zustellstatus aktualisieren",
+      "notQueued": "nicht eingeplant",
+      "confirmDelete": "Diesen Benutzer löschen?",
+      "resendInvite": "Einladung erneut senden"
     },
     "aiForm": {
       "title": "KI / LLM-Anbieter",
@@ -1042,7 +1060,10 @@
       "success": "Update erfolgreich abgeschlossen!",
       "backup": "Backup: {path}",
       "failed": "Update fehlgeschlagen",
-      "setManifest": "UPDATE_MANIFEST_URL auf ein signiertes Release-Manifest setzen, um Updates zu aktivieren."
+      "setManifest": "UPDATE_MANIFEST_URL auf ein signiertes Release-Manifest setzen, um Updates zu aktivieren.",
+      "sourceNotConfigured": "Update-Quelle nicht konfiguriert",
+      "manifestUnreachable": "Update-Manifest nicht erreichbar.",
+      "manifestInvalid": "Update-Manifest ist ungültig."
     }
   }
 }

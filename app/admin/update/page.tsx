@@ -19,6 +19,8 @@ type UpdateStatus = {
   backupPath?: string
   licensed?: boolean
   inTrial?: boolean
+  sourceConfigured?: boolean
+  sourceError?: 'unconfigured' | 'unreachable' | 'invalid'
 }
 
 export default function UpdatePage() {
@@ -231,7 +233,7 @@ export default function UpdatePage() {
             </div>
           </div>
 
-          {!status.updateAvailable && status && (
+          {status.sourceConfigured && !status.sourceError && status.latestVersion === status.currentVersion && (
             <div className="border border-zinc-800 rounded-lg p-4 bg-zinc-950">
               <div className="text-sm text-emerald-400">
                 ✓ {t('upToDate')}
@@ -242,13 +244,35 @@ export default function UpdatePage() {
             </div>
           )}
 
-          {!status.updateAvailable && !status.latestVersion && (
+          {!status.sourceConfigured && (
             <div className="border border-zinc-800 rounded-lg p-4 bg-zinc-950">
               <div className="text-sm text-amber-400">
-                Update source not configured
+                {tForm('sourceNotConfigured')}
               </div>
               <div className="text-xs text-zinc-500 mt-1">
-                Set <code className="font-mono">UPDATE_MANIFEST_URL</code> to a signed release manifest to enable updates.
+                {tForm('setManifest')}
+              </div>
+            </div>
+          )}
+
+          {status.sourceError === 'unreachable' && (
+            <div className="border border-zinc-800 rounded-lg p-4 bg-zinc-950">
+              <div className="text-sm text-amber-400">
+                {tForm('manifestUnreachable')}
+              </div>
+              <div className="text-xs text-zinc-500 mt-1">
+                {tForm('setManifest')}
+              </div>
+            </div>
+          )}
+
+          {status.sourceError === 'invalid' && (
+            <div className="border border-zinc-800 rounded-lg p-4 bg-zinc-950">
+              <div className="text-sm text-amber-400">
+                {tForm('manifestInvalid')}
+              </div>
+              <div className="text-xs text-zinc-500 mt-1">
+                {tForm('setManifest')}
               </div>
             </div>
           )}

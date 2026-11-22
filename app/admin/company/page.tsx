@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useTranslations } from 'next-intl'
 import { COUNTRIES, getRegionsForCountry, getSuggestedCurrency } from '@/lib/countries'
+import { companyBankRecord, readCompanyBank } from '@/lib/companyBank'
 
 type SettingsValue = { value?: string } | Record<string, unknown>
 
@@ -30,22 +31,19 @@ export default function CompanySettingsPage() {
   const [address, setAddress] = useState<Address>({})
   const [baseCurrency, setBaseCurrency] = useState('EUR')
   const [defaultTaxJurisdiction, setDefaultTaxJurisdiction] = useState('')
-  const [bank, setBank] = useState<Record<string, string>>({})
+  const [bank, setBank] = useState<Record<string, unknown> | null>(null)
+  const [bankStatus, setBankStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [taxId, setTaxId] = useState('')
   const [regNumber, setRegNumber] = useState('')
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
   const [defaultLanguage, setDefaultLanguage] = useState<'en' | 'de'>('en')
 
-  // Bank detail fields (internationalized: IBAN+BIC for EU, routing+account for US/CA)
-  const [bankName, setBankName] = useState('')
-  const [iban, setIban] = useState('')
-  const [bic, setBic] = useState('')
-  const [routing, setRouting] = useState('')
-  const [accountNumber, setAccountNumber] = useState('')
+  const bankFields = readCompanyBank(bank)
 
-  const fetchData = async () => {
+  const fetchData = async (loadBank = false) => {
     try {
       const res = await fetch('/api/settings')
+      if (!res.ok) return
       const s = await res.json()
       if (!Array.isArray(s)) return
 
@@ -57,19 +55,15 @@ export default function CompanySettingsPage() {
       const addrRaw = s.find((x: { key: string; value: SettingsValue }) => x.key === 'company.address')?.value as SettingsValue
       const addr: Address = (addrRaw && typeof addrRaw === 'object' && !Array.isArray(addrRaw)) ? addrRaw as Address : {}
 
-      const bankRaw = s.find((x: { key: string; value: SettingsValue }) => x.key === 'company.bank')?.value as SettingsValue
-      const bankObj: Record<string, string> = (bankRaw && typeof bankRaw === 'object' && !Array.isArray(bankRaw)) ? bankRaw as Record<string, string> : {}
+      if (loadBank) {
+        const bankRaw = s.find((x: { key: string }) => x.key === 'company.bank')?.value
+        setBank(companyBankRecord(bankRaw))
+      }
 
       setCompanyName(getSettingValue('company.name'))
       setAddress(addr)
       setBaseCurrency(getSettingValue('baseCurrency') || 'EUR')
       setDefaultTaxJurisdiction(getSettingValue('defaultTaxJurisdiction'))
-      setBank(bankObj)
-      setBankName((bankObj.bankName as string) || '')
-      setIban((bankObj.iban as string) || '')
-      setBic((bankObj.bic as string) || '')
-      setRouting((bankObj.routing as string) || (bankObj.transit as string) || '')
-      setAccountNumber((bankObj.accountNumber as string) || (bankObj.account as string) || '')
       setTaxId(getSettingValue('company.taxId'))
       setRegNumber(getSettingValue('company.registrationNumber'))
       const lang = getSettingValue('company.defaultLanguage') || 'en'
@@ -86,7 +80,7 @@ export default function CompanySettingsPage() {
   }
 
   useEffect(() => {
-    const id = setTimeout(() => { void fetchData() }, 0)
+    const id = setTimeout(() => { void fetchData(true) }, 0)
     return () => clearTimeout(id)
   }, [])
 
@@ -144,14 +138,20 @@ export default function CompanySettingsPage() {
     void save('defaultTaxJurisdiction', val.toUpperCase())
   }
 
-  const saveBank = (partial: Record<string, string>) => {
-    const next = { ...bank, ...partial }
-    setBank(next)
-    void fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: 'company.bank', value: next }),
-    }).then(() => fetchData())
+  const saveBank = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!bank || bankStatus === 'saving') return
+    setBankStatus('saving')
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'company.bank', value: bank }),
+      })
+      setBankStatus(response.ok ? 'saved' : 'error')
+    } catch {
+      setBankStatus('error')
+    }
   }
 
   const updateAddressField = (field: keyof Address | 'street' | 'city' | 'zip' | 'line2' | 'state', value: string) => {
@@ -400,29 +400,35 @@ export default function CompanySettingsPage() {
           </div>
 
           {/* International bank details: EU (IBAN+BIC) or US/CA (routing+account) */}
-          <div className="pt-2">
-            <div className="text-sm font-medium mb-2 text-zinc-300">{tForm('bankDetails')}</div>
-            <div className="flex items-center gap-3 mb-2">
-              <label className="w-48 text-zinc-400">{tForm('bankName')}</label>
-              <input value={bankName} onChange={e => setBankName(e.target.value)} onBlur={e => { setBankName(e.target.value); saveBank({ bankName: e.target.value }) }} className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1" placeholder="Deutsche Bank / Chase" />
-            </div>
-            <div className="flex items-center gap-3 mb-2">
-              <label className="w-48 text-zinc-400">{tForm('iban')}</label>
-              <input value={iban} onChange={e => setIban(e.target.value)} onBlur={e => { setIban(e.target.value); saveBank({ iban: e.target.value }) }} className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 font-mono text-sm" placeholder="DE44 3704 0044 ..." />
-            </div>
-            <div className="flex items-center gap-3 mb-2">
-              <label className="w-48 text-zinc-400">{tForm('bic')}</label>
-              <input value={bic} onChange={e => setBic(e.target.value)} onBlur={e => { setBic(e.target.value); saveBank({ bic: e.target.value }) }} className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 font-mono text-sm" placeholder="DEUTDEFF" />
-            </div>
-            <div className="flex items-center gap-3 mb-2">
-              <label className="w-48 text-zinc-400">{tForm('routing')}</label>
-              <input value={routing} onChange={e => setRouting(e.target.value)} onBlur={e => { setRouting(e.target.value); saveBank({ routing: e.target.value }) }} className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 font-mono text-sm" placeholder="021000021 (US) / 12345-678 (CA)" />
-            </div>
-            <div className="flex items-center gap-3">
-              <label className="w-48 text-zinc-400">Account Number</label>
-              <input value={accountNumber} onChange={e => setAccountNumber(e.target.value)} onBlur={e => { setAccountNumber(e.target.value); saveBank({ accountNumber: e.target.value }) }} className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 font-mono text-sm" placeholder="1234567890" />
-            </div>
-          </div>
+          <form className="pt-2" onSubmit={saveBank}>
+            <fieldset disabled={!bank || bankStatus === 'saving'} className="space-y-2">
+              <legend className="mb-2 text-sm font-medium text-zinc-300">{tForm('bankDetails')}</legend>
+              {([
+                ['bankName', tForm('bankName'), 'Deutsche Bank / Chase'],
+                ['iban', tForm('iban'), 'DE44 3704 0044 ...'],
+                ['bic', tForm('bic'), 'DEUTDEFF'],
+                ['routing', tForm('routing'), '021000021 (US) / 12345-678 (CA)'],
+                ['accountNumber', tForm('accountNumber'), '1234567890'],
+              ] as const).map(([field, label, placeholder]) => (
+                <label key={field} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+                  <span className="w-48 shrink-0 text-zinc-400">{label}</span>
+                  <input type="text" value={bankFields[field]} placeholder={placeholder}
+                    onChange={event => {
+                      const value = event.target.value
+                      setBank(current => current && { ...current, [field]: value })
+                      setBankStatus('idle')
+                    }}
+                    className="min-w-0 flex-1 rounded border border-zinc-800 bg-zinc-950 px-2 py-1 font-mono text-sm" />
+                </label>
+              ))}
+              <button type="submit" className="rounded bg-zinc-800 px-3 py-1.5 text-sm hover:bg-zinc-700 disabled:opacity-50">
+                {tForm('saveBankDetails')}
+              </button>
+            </fieldset>
+            {bankStatus === 'saved' && <p role="status" className="mt-2 text-xs text-emerald-400">{tForm('bankSaved')}</p>}
+            {bankStatus === 'error' && <p role="alert" className="mt-2 text-xs text-red-400">{tForm('bankSaveFailed')}</p>}
+            {!bank && <p role="alert" className="mt-2 text-xs text-red-400">{tForm('bankLoadFailed')}</p>}
+          </form>
 
            <div className="flex items-start gap-3">
              <label className="w-48 text-zinc-400 pt-1">Company Logo (PNG/JPG/SVG)</label>
@@ -466,7 +472,7 @@ export default function CompanySettingsPage() {
           </div>
         </div>
 
-      <div className="text-[10px] text-zinc-500 mt-6">All changes are saved immediately and audited. Bank details (IBAN+BIC or routing+account), Tax ID, address and Logo are used for branded, jurisdiction-compliant invoices. Due date is shown on invoices; no default terms text.</div>
+      <div className="text-[10px] text-zinc-500 mt-6">{tForm('footer')}</div>
     </div>
   )
 }

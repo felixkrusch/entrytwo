@@ -19,6 +19,7 @@ services:
       # When set, the app never mounts the Docker socket and cannot self-modify.
       - UPDATER_URL=${UPDATER_URL:-http://updater:4000}
       - UPDATER_TOKEN=${UPDATER_TOKEN:?UPDATER_TOKEN is required}
+      - UPDATE_APP_HEALTH_URL=http://app:3000/api/health
     ports:
       - "3000:3000"
     volumes:
@@ -74,7 +75,6 @@ services:
       - APP_IMAGE=${APP_IMAGE:-entrytwo:latest}
       - UPDATE_SERVICE=app
       - COMPOSE_FILE=/app/entrytwo/compose.yaml
-      - APP_PUBLIC_URL=http://app:3000
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./compose.yaml:/app/entrytwo/compose.yaml:ro

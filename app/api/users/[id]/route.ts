@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { requireUser } from '@/lib/authz'
 import { getRequestId } from '@/lib/correlation'
+import { adminUserFields } from '@/lib/adminUserFields'
 
 const updateUserSchema = z.object({
   role: z.enum(['ADMIN', 'ACCOUNTANT', 'VIEWER']).optional(),
@@ -49,7 +50,7 @@ export async function PATCH(
       if (role !== undefined) { data.role = role; data.sessionVersion = { increment: 1 } }
       if (disabled !== undefined) { data.disabled = disabled; data.sessionVersion = { increment: 1 } }
 
-      const updated = await tx.user.update({ where: { id }, data })
+      const updated = await tx.user.update({ where: { id }, data, select: adminUserFields })
       await tx.event.create({
         data: {
           eventType: 'MANUAL_ADJUSTMENT', entityType: 'User', entityId: updated.id,

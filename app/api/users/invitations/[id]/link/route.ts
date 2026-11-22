@@ -1,24 +1,37 @@
 import { NextResponse } from 'next/server'
-import { randomBytes, createHash } from 'crypto'
+import { randomBytes } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/authz'
+import { enqueueJob } from '@/lib/jobs'
+import { getRequestId } from '@/lib/correlation'
+import {
+  buildInviteLink,
+  hashInvitationToken,
+  queueInvitationEmail,
+} from '@/lib/invitationDelivery'
 
 export async function POST(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
+  const requestId = getRequestId(request)
   const session = await requireUser(['ADMIN'])
-  if (!session) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+  if (!session) {
+    const res = NextResponse.json({ error: 'Admin access required', requestId }, { status: 403 })
+    res.headers.set('x-request-id', requestId)
+    return res
+  }
 
   const { id } = await context.params
   const invitation = await prisma.userInvitation.findUnique({ where: { id } })
   if (!invitation || invitation.acceptedAt) {
-    return NextResponse.json({ error: 'Invitation not found or already accepted' }, { status: 404 })
+    const res = NextResponse.json({ error: 'Invitation not found or already accepted', requestId }, { status: 404 })
+    res.headers.set('x-request-id', requestId)
+    return res
   }
 
-  // Rotate to a fresh token (old links become invalid)
   const token = randomBytes(32).toString('base64url')
-  const tokenHash = createHash('sha256').update(token).digest('hex')
+  const tokenHash = hashInvitationToken(token)
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
 
   await prisma.userInvitation.update({
@@ -26,20 +39,18 @@ export async function POST(
     data: { tokenHash, expiresAt },
   })
 
-  const baseUrl = process.env.APP_PUBLIC_URL || process.env.AUTH_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
-  const inviteLink = `${baseUrl.replace(/\/$/, '')}/auth/invite?token=${encodeURIComponent(token)}`
-
-  // Optionally re-enqueue email job if SMTP configured
-  let deliveryJobId: string | null = null
-  if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
-    const { enqueueJob } = await import('@/lib/jobs')
-    const job = await enqueueJob('EMAIL_INVITATION', `invitation-email:${id}`, {
+  const inviteLink = buildInviteLink(token)
+  const deliveryJobId = await queueInvitationEmail(
+    (type, key, payload) => enqueueJob(type, key, payload),
+    {
+      invitationId: id,
       email: invitation.email,
       token,
       expiresAt: expiresAt.toISOString(),
-    })
-    deliveryJobId = job.id
-  }
+    },
+  )
 
-  return NextResponse.json({ inviteLink, deliveryJobId })
+  const res = NextResponse.json({ inviteLink, deliveryJobId, requestId })
+  res.headers.set('x-request-id', requestId)
+  return res
 }

@@ -481,7 +481,7 @@
       "history": "Commit History",
       "license": "License",
       "licenseTitle": "Enter or change license key",
-      "footer": "Changes are saved immediately and audited.",
+      "footer": "Saved changes are recorded in the audit log.",
       "companyTitle": "Company Settings",
       "companySubtitle": "Location drives suggested currency and tax jurisdiction. Both can be overridden.",
       "defaultLanguage": "Default language",
@@ -953,6 +953,11 @@
       "taxId": "VAT / Tax ID",
       "regNumber": "Registration / Company Number",
       "bankDetails": "Bank Details",
+      "accountNumber": "Account Number",
+      "saveBankDetails": "Save bank details",
+      "bankSaved": "Bank details saved.",
+      "bankSaveFailed": "Could not save bank details. Try again before sending invoices.",
+      "bankLoadFailed": "Could not load bank details. Reload the page to try again.",
       "bankName": "Bank Name",
       "iban": "IBAN",
       "bic": "BIC / SWIFT",
@@ -960,7 +965,7 @@
       "accountNumber": "Account Number",
       "logo": "Logo",
       "logoHelp": "Will appear on invoices",
-      "footer": "All changes are saved immediately and audited."
+      "footer": "Bank details, tax ID, address and logo appear on invoices. Use Save bank details to apply bank changes."
     },
     "taxForm": {
       "title": "Tax Settings",
@@ -1001,7 +1006,20 @@
       "delivery": "Delivery: {status}",
       "notConfigured": "not configured",
       "expires": "Expires {date}",
-      "noInvitations": "No invitations yet."
+      "noInvitations": "No invitations yet.",
+      "usersLoadFailed": "Could not load users.",
+      "invitesLoadFailed": "Could not load invitations.",
+      "retry": "Retry",
+      "actionFailed": "The action could not be completed. Try again.",
+      "inviteQueued": "Invitation email queued. Check Delivery below for its status.",
+      "inviteManual": "The invitation was created but not queued for email. Share the link manually.",
+      "copyInviteLink": "Invitation link (shown only once):",
+      "roleFor": "Role for {email}",
+      "inviteRole": "Role for the invited user",
+      "refreshDelivery": "Refresh delivery status",
+      "notQueued": "not queued",
+      "confirmDelete": "Delete this user?",
+      "resendInvite": "Resend invitation"
     },
     "aiForm": {
       "title": "AI / LLM Provider",
@@ -1042,7 +1060,10 @@
       "success": "Update completed successfully!",
       "backup": "Backup: {path}",
       "failed": "Update failed",
-      "setManifest": "Set UPDATE_MANIFEST_URL to a signed release manifest to enable updates."
+      "setManifest": "Set UPDATE_MANIFEST_URL to a signed release manifest to enable updates.",
+      "sourceNotConfigured": "Update source not configured",
+      "manifestUnreachable": "Could not reach the update manifest.",
+      "manifestInvalid": "The update manifest is invalid."
     }
   }
 }

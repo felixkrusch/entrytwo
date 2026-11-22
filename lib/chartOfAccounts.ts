@@ -2,6 +2,22 @@ import type { AccountType } from '@prisma/client'
 
 export type LocaleCode = 'en' | 'de'
 
+export const ACCOUNT_TYPES = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'] as const
+
+export type AccountTypeCode = (typeof ACCOUNT_TYPES)[number]
+
+export function isMalformedAccount(code: string, name: string, type: string): boolean {
+  const upperCode = code.toUpperCase()
+  const upperName = name.toUpperCase()
+  const t = type.toUpperCase()
+  if ((ACCOUNT_TYPES as readonly string[]).includes(t) && upperCode.endsWith(t)) return true
+  if ((ACCOUNT_TYPES as readonly string[]).includes(t) && upperName.endsWith(t) && upperName.includes(upperCode)) return true
+  if (upperName.replace(/\s+/g, '') === upperCode + t) return true
+  if (upperName.replace(/\s+/g, '') === t + upperCode) return true
+  if (upperName.replace(/\s+/g, '') === upperCode) return true
+  return false
+}
+
 export type StandardAccount = {
   code: string
   type: AccountType
