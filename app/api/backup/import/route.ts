@@ -5,7 +5,7 @@ import { join } from 'path'
 import { Readable } from 'stream'
 import * as tar from 'tar'
 import { auth } from '@/lib/auth'
-import { BACKUP_EXTENSION, restoreBackupDirectory, validateBackupDirectory } from '@/lib/backup'
+import { BACKUP_EXTENSION, BACKUP_FILES_DIRECTORY, restoreBackupDirectory, validateBackupDirectory } from '@/lib/backup'
 import { rateLimit } from '@/lib/rate-limit'
 import { NextRequest } from 'next/server'
 import { logger } from '@/lib/logger'
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
         extractedBytes += entry.size
         if (extractedBytes > maxExtractedBytes) throw new Error(`Expanded backup exceeds the configured ${maxExtractedBytes} byte limit`)
       },
-      filter: path => path === 'manifest.json' || path === 'data' || path.startsWith('data/') || path === 'receipts' || path.startsWith('receipts/'),
+      filter: path => path === 'manifest.json' || path === 'data' || path.startsWith('data/') || path === BACKUP_FILES_DIRECTORY || path.startsWith(`${BACKUP_FILES_DIRECTORY}/`),
     })
     const manifest = await validateBackupDirectory(contentRoot)
     const imported = await restoreBackupDirectory(contentRoot, manifest)

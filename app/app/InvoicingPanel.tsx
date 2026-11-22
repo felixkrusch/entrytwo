@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { appViewHref } from '@/app/lib/booksContext'
 import { formatCurrency } from '@/lib/utils'
 import { useTranslations } from 'next-intl'
 
@@ -79,6 +80,7 @@ interface Invoice {
 export default function InvoicingPanel() {
   const t = useTranslations('app.views.invoicing')
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'SENT' | 'PAID' | 'OVERDUE' | 'CANCELLED'>('ALL')
@@ -906,7 +908,7 @@ export default function InvoicingPanel() {
                   <button
                     type="button"
                     onClick={() => {
-                      router.push('/app?view=contacts')
+                      router.push(appViewHref('contacts', searchParams))
                       // open the add-contact form in the contacts view
                       setTimeout(() => {
                         window.dispatchEvent(new CustomEvent('open-contact-form', { detail: { prefill: {} } }))

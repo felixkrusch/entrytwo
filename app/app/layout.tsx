@@ -26,6 +26,7 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { Search } from 'lucide-react'
 import LicenseGate from './LicenseGate'
 import LicenseModal from './LicenseModal'
+import { appViewHref } from '@/app/lib/booksContext'
 
 interface Account {
   id: string
@@ -50,10 +51,10 @@ function AppContent({ children }: { children: ReactNode }) {
   const [showLicenseModal, setShowLicenseModal] = useState(false)
 
   useEffect(() => {
-    if (pathname === '/reports') router.replace('/app?view=reports')
-    else if (pathname === '/contacts') router.replace('/app?view=contacts')
-    else if (pathname === '/invoicing') router.replace('/app?view=invoicing')
-  }, [pathname, router])
+    if (pathname === '/reports') router.replace(appViewHref('reports', searchParams))
+    else if (pathname === '/contacts') router.replace(appViewHref('contacts', searchParams))
+    else if (pathname === '/invoicing') router.replace(appViewHref('invoicing', searchParams))
+  }, [pathname, router, searchParams])
 
   const rawView = searchParams?.get('view')
   const hasAccountParam = !!(searchParams?.get('accountCode') || searchParams?.get('account'))
@@ -297,7 +298,7 @@ function AppContent({ children }: { children: ReactNode }) {
                       <div className="text-sm font-medium text-zinc-300">{tShell('recentEntries')}</div>
                       <div className="flex items-center gap-2">
                          <button
-                           onClick={() => router.push('/app?view=journal')}
+                           onClick={() => router.push(appViewHref('journal', searchParams))}
                            className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
                            title="Open the full journal with pagination"
                          >

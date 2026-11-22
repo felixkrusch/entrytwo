@@ -7,6 +7,7 @@ import { useNewEntry, NewEntrySuggestion } from './NewEntryContext'
 import { useTranslations } from 'next-intl'
 import { useRouter } from 'next/navigation'
 import { JournalLineInput } from '@/lib/chat/validation'
+import { appViewHref, chatRequestBooksContext } from '@/app/lib/booksContext'
 import AmberTerminalThinking from './AmberTerminalThinking'
 
 interface Message {
@@ -298,9 +299,7 @@ export default function ChatPage() {
 
     try {
       // Pass current Git view (branch / asOf) so autonomous actions respect the viewed state
-      const sp = new URLSearchParams(window.location.search)
-      const branch = sp.get('branch') || 'main'
-      const asOf = sp.get('asOf') || sp.get('asof') || undefined
+      const { branch, asOf } = chatRequestBooksContext(window.location.search)
 
       // Collect any pending attachments (files + their saved server paths) for *this message*.
       const pending = window.__pendingAttachments || []
@@ -423,28 +422,29 @@ export default function ChatPage() {
         const act = String(d.action || '').toUpperCase().trim()
         const hasEntryId = !!(d.entryId || (d as any).entityId)
 
+        const booksSearch = window.location.search
         if (act === 'CREATE_CONTACT') {
-          navigate = { label: 'View contacts', href: '/app?view=contacts' }
+          navigate = { label: 'View contacts', href: appViewHref('contacts', booksSearch) }
         } else if (act === 'CREATE_EXPENSE_CLAIM_DRAFT') {
-          navigate = { label: 'Review claim', href: '/app?view=claims' }
+          navigate = { label: 'Review claim', href: appViewHref('claims', booksSearch) }
         } else if (act === 'CREATE_INVOICE_DRAFT' || act === 'GENERATE_RECURRING_DRAFT') {
-          navigate = { label: 'View invoices', href: '/app?view=invoicing' }
+          navigate = { label: 'View invoices', href: appViewHref('invoicing', booksSearch) }
         } else if (act.includes('REVERSE')) {
-          navigate = { label: 'View entries', href: '/app?view=dashboard' }
+          navigate = { label: 'View entries', href: appViewHref('dashboard', booksSearch) }
         } else if (act === 'CREATE_JOURNAL' || act === 'CREATE_JOURNAL_BATCH' || act === 'MATCH_FEED_TRANSACTION' || hasEntryId) {
           // Explicit journal creation (including when user uploads a vendor invoice PDF to create a journal entry)
-          navigate = { label: 'View entries', href: '/app?view=dashboard' }
+          navigate = { label: 'View entries', href: appViewHref('dashboard', booksSearch) }
         } else if (!act) {
           // Weak fallback only when no action type is present
           const resp = String(d.response || '').toLowerCase()
           if (/contact/i.test(resp)) {
-            navigate = { label: 'View contacts', href: '/app?view=contacts' }
+            navigate = { label: 'View contacts', href: appViewHref('contacts', booksSearch) }
           } else if (/claim/i.test(resp)) {
-            navigate = { label: 'Review claim', href: '/app?view=claims' }
+            navigate = { label: 'Review claim', href: appViewHref('claims', booksSearch) }
           } else if (/invoice draft|created invoice|generate.*invoice/i.test(resp)) {
-            navigate = { label: 'View invoices', href: '/app?view=invoicing' }
+            navigate = { label: 'View invoices', href: appViewHref('invoicing', booksSearch) }
           } else if (/journal|entry|posted|autonomously/i.test(resp)) {
-            navigate = { label: 'View entries', href: '/app?view=dashboard' }
+            navigate = { label: 'View entries', href: appViewHref('dashboard', booksSearch) }
           }
         }
       }
@@ -498,7 +498,7 @@ export default function ChatPage() {
           prefill: { name: (d.response || '').replace(/^(Created|Updated) contact.*?:\s*/i, '').trim() }
         }
         setTimeout(() => {
-          router.push('/app?view=contacts')
+          router.push(appViewHref('contacts', window.location.search))
           setTimeout(() => {
             window.dispatchEvent(new CustomEvent('open-contact-form', {
               detail: window.__pendingContactForm
@@ -514,7 +514,7 @@ export default function ChatPage() {
       }
 
       if (isJournalBatchProposal) {
-        setTimeout(() => router.push('/app?view=journal'), 80)
+        setTimeout(() => router.push(appViewHref('journal', window.location.search)), 80)
       }
 
       // Auto-switch the right panel for autonomous creates (contacts / invoices / journals)
@@ -628,7 +628,7 @@ export default function ChatPage() {
           })
           if (createRes.ok) {
             const inv = await createRes.json()
-            router.push('/app?view=invoicing')
+            router.push(appViewHref('invoicing', window.location.search))
             // Open the newly created invoice details
             setTimeout(() => {
               window.dispatchEvent(new CustomEvent('open-invoice-details', { detail: { id: inv.id } }))
@@ -642,7 +642,7 @@ export default function ChatPage() {
     }
 
     // Fallback: open panel + prefill form (user still clicks Create)
-    router.push('/app?view=invoicing')
+    router.push(appViewHref('invoicing', window.location.search))
     setTimeout(() => {
       window.dispatchEvent(new CustomEvent('prefill-invoice', { detail: prefill || {} }))
     }, 120)
@@ -661,9 +661,7 @@ export default function ChatPage() {
     }
 
     try {
-      const sp = new URLSearchParams(window.location.search)
-      const branch = sp.get('branch') || 'main'
-      const asOf = sp.get('asOf') || undefined
+      const { branch, asOf } = chatRequestBooksContext(window.location.search)
 
         const res = await fetch('/api/chat', {
           method: 'POST',

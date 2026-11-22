@@ -4,8 +4,7 @@ import { deleteExpiredThreads } from '@/lib/chatThreadStore'
 import { generateRecurringJournalOccurrence } from '@/lib/accounting/recurringJobs'
 import { join } from 'path'
 import { mkdir } from 'fs/promises'
-import { buildBackupDirectory, BACKUP_EXTENSION } from '@/lib/backup'
-import * as tar from 'tar'
+import { buildBackupDirectory, writeBackupArchive, BACKUP_EXTENSION } from '@/lib/backup'
 import { createHash } from 'crypto'
 import { stat, rm } from 'fs/promises'
 
@@ -37,7 +36,7 @@ async function runBackupJob(payload: Payload) {
   const archivePath = join(outDir, `backup-${ts}${BACKUP_EXTENSION}`)
   try {
     const manifest = await buildBackupDirectory(contentRoot)
-    await tar.c({ gzip: true, cwd: contentRoot, file: archivePath, portable: true }, ['manifest.json', 'data', 'receipts'])
+    await writeBackupArchive(contentRoot, archivePath)
     const size = (await stat(archivePath)).size
     const hash = createHash('sha256')
     hash.update(JSON.stringify(manifest))

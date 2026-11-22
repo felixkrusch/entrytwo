@@ -59,6 +59,7 @@ Edit `.env` before starting. Set fresh `POSTGRES_PASSWORD`, `AUTH_SECRET`, `ENCR
 
 ```bash
 docker compose config --quiet
+install -d -m 700 .data
 docker compose pull
 docker compose up -d
 ```
@@ -66,6 +67,8 @@ docker compose up -d
 The containers run in production mode. For a public server, configure an HTTPS reverse proxy to `127.0.0.1:3000` and open your configured `AUTH_URL`. For a localhost-only lab install, use `AUTH_URL=http://localhost:3000` and explicitly set `AUTH_ALLOW_HTTP=true`; never use that exception on the public internet. Real SMTP/OAuth is required even for local production containers.
 
 On first visit, create the admin account, enable TOTP, and complete company onboarding to set up your accounts. Migrations run automatically. Keep the worker running for outbound invoice emails, and configure SMTP if you need email delivery even when using OAuth for sign-in.
+
+If upgrading from a Compose file without a `.data` mount, [preserve files from the existing app container](./docs/SETUP.md#preserve-docker-files-before-upgrading) before recreating it.
 
 ### Git / npm (Developers, Customization)
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslations, useFormatter } from 'next-intl'
 import { useRouter } from 'next/navigation'
+import { appViewHref } from '@/app/lib/booksContext'
 
 interface ReportItem {
   code: string
@@ -54,10 +55,7 @@ export default function ProfitLossPanel({ currentFilterCode, branch = 'main', as
   const handleClickAccount = (code?: string) => {
     if (!code) return
     // Strong preference: open the dedicated ledger view
-    const params = new URLSearchParams()
-    params.set('view', 'ledger')
-    params.set('accountCode', code)
-    router.push(`/app?${params.toString()}`)
+    router.push(appViewHref('ledger', { branch, asOf }, { accountCode: code }))
   }
 
   const loadPL = async () => {

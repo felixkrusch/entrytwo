@@ -1,15 +1,26 @@
 import { mkdtemp, mkdir, rm, writeFile, readFile } from 'fs/promises'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BACKUP_TABLES, BACKUP_VERSION, buildBackupDirectory, validateBackupDirectory, restoreBackupDirectory } from '../backup'
 import { prisma } from '@/lib/prisma'
-import { storeAttachmentBuffer } from '@/lib/attachments'
 
 const tempRoots: string[] = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(tempRoots.splice(0).map(root => rm(root, { recursive: true, force: true })))
+})
+
+async function makeTempRoot(prefix = 'entrytwo-backup-test-') {
+  const root = await mkdtemp(join(tmpdir(), prefix))
+  tempRoots.push(root)
+  return root
+}
+
+beforeEach(async () => {
+  vi.spyOn(process, 'cwd').mockReturnValue(await makeTempRoot('entrytwo-backup-storage-'))
 })
 
 function emptyBackupClient() {
@@ -18,8 +29,7 @@ function emptyBackupClient() {
 
 describe('portable backup manifest', () => {
   it('builds and validates every table in an empty installation', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'entrytwo-backup-test-'))
-    tempRoots.push(root)
+    const root = await makeTempRoot()
 
     const manifest = await buildBackupDirectory(root, emptyBackupClient())
     const validated = await validateBackupDirectory(root)
@@ -30,8 +40,7 @@ describe('portable backup manifest', () => {
   })
 
   it('rejects a modified table after export', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'entrytwo-backup-test-'))
-    tempRoots.push(root)
+    const root = await makeTempRoot()
     await buildBackupDirectory(root, emptyBackupClient())
     await writeFile(join(root, 'data', 'accounts.ndjson'), '{"tampered":true}\n')
 
@@ -39,8 +48,7 @@ describe('portable backup manifest', () => {
   })
 
   it('rejects receipt path traversal in a manifest', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'entrytwo-backup-test-'))
-    tempRoots.push(root)
+    const root = await makeTempRoot()
     const manifest = await buildBackupDirectory(root, emptyBackupClient())
     await mkdir(join(root, 'receipts'), { recursive: true })
     manifest.receipts = [{ path: 'receipts/../secret', bytes: 0, mtime: new Date().toISOString(), sha256: '' }]
@@ -50,35 +58,26 @@ describe('portable backup manifest', () => {
   })
 
   it('round-trips a backup with file assets and restores into the test DB', async () => {
-    const dbUrl = process.env.DATABASE_URL || ''
-    if (!dbUrl || !dbUrl.includes('_test')) {
-      // In environments without a dedicated _test DB the destructive round-trip cannot run.
-      // The test still proves the export/validate path; full restore is covered in CI where DATABASE_URL_TEST is configured.
-      return
-    }
+    const dbUrl = new URL(process.env.DATABASE_URL || '')
+    if (!dbUrl.pathname.endsWith('_test')) throw new Error('Backup restore tests require a disposable *_test database')
 
-    // Create a minimal owner user (FileAsset.createdById is required).
-    let owner: { id: string }
-    try {
-      owner = await prisma.user.create({
-        data: { email: 'backup-test@example.com', name: 'Backup Tester', role: 'ADMIN' } as any,
-      })
-    } catch {
-      // Schema not current on this DB (e.g. missing disabled column). Skip round-trip.
-      return
-    }
+    const owner = await prisma.user.create({
+      data: { email: 'backup-test@example.com', name: 'Backup Tester', role: 'ADMIN' },
+    })
+    const period = await prisma.accountingPeriod.create({ data: {
+      name: 'January close', startDate: new Date('2026-01-01'), endDate: new Date('2026-01-31'),
+      status: 'CLOSED', closedAt: new Date('2026-02-01'), closedById: owner.id,
+    } })
 
-    // Create a small file asset + DB rows, export, wipe, restore, and verify integrity.
-    // Use a minimal valid PNG (allowed attachment type; text/plain is rejected).
-    const buffer = Buffer.from([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
-      0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
-      0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, 0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00,
-      0x00, 0x00, 0x03, 0x00, 0x01, 0x00, 0x05, 0xfe, 0xd4, 0xef, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
-      0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
-    ])
-    const asset = await storeAttachmentBuffer(buffer, 'receipt.png', 'image/png', owner.id)
-    const fileAsset = await prisma.fileAsset.findUniqueOrThrow({ where: { id: asset.id } })
+    const buffer = Buffer.from('date,amount\n2026-02-01,1.00\n')
+    const storageKey = 'receipt.csv'
+    const files = join(process.cwd(), '.data', 'files')
+    await mkdir(files, { recursive: true })
+    await writeFile(join(files, storageKey), buffer)
+    const fileAsset = await prisma.fileAsset.create({ data: {
+      storageKey, originalName: storageKey, mimeType: 'text/csv', size: buffer.length,
+      sha256: createHash('sha256').update(buffer).digest('hex'), createdById: owner.id,
+    } })
 
     // Ensure there is at least one account (restore order needs it) and a journal entry to carry the asset.
     await prisma.account.upsert({
@@ -97,11 +96,10 @@ describe('portable backup manifest', () => {
       },
     })
     await prisma.journalAttachment.create({
-      data: { journalEntryId: je.id, fileAssetId: asset.id, source: 'test', createdBy: owner.id },
+      data: { journalEntryId: je.id, fileAssetId: fileAsset.id, source: 'test', createdBy: owner.id },
     })
 
-    const root = await mkdtemp(join(tmpdir(), 'entrytwo-backup-roundtrip-'))
-    tempRoots.push(root)
+    const root = await makeTempRoot('entrytwo-backup-roundtrip-')
 
     const manifest = await buildBackupDirectory(root)
     expect(manifest.database.tables.find(t => t.name === 'fileAsset')?.rows).toBeGreaterThanOrEqual(1)
@@ -112,32 +110,22 @@ describe('portable backup manifest', () => {
 
     // Validate manifest + files
     await validateBackupDirectory(root)
+    await rm(join(files, storageKey))
 
-    // Reset the test DB (mirrors vitest.setup) and restore
-    await prisma.$executeRawUnsafe(`TRUNCATE TABLE
-      "ExpenseClaimLineReceipt", "ExpenseClaimApproval", "ExpenseClaimActivity", "ExpenseClaimReimbursement",
-      "ExpenseClaimReceipt", "ExpenseClaimLine", "ExpenseClaim", "TotpRecoveryCode",
-      "ChatMessageAttachment", "ChatMessage", "ChatThread",
-      "JournalAttachment", "FileAsset", "InvoiceLine", "FeedTransaction", "BankConnection",
-      "RecurringInvoice", "JournalLine", "Invoice", "RecurringJournalEntry",
-      "Template", "Setting", "AgentMemory", "AccountingBranch", "Snapshot",
-      "JournalEntry", "Event", "TaxRate", "Contact", "Account", "User"
-      RESTART IDENTITY CASCADE`)
-
+    // Restore over the existing rows to exercise foreign-key deletion order too.
     const counts = await restoreBackupDirectory(root, manifest)
     expect(counts.fileAsset).toBeGreaterThanOrEqual(1)
     expect(counts.journalAttachment).toBeGreaterThanOrEqual(1)
+    expect(counts.accountingPeriod).toBe(1)
+    expect(await prisma.accountingPeriod.findUnique({ where: { id: period.id } })).toEqual(period)
 
     // Verify restored content
-    const restoredAsset = await prisma.fileAsset.findUnique({ where: { id: asset.id } })
+    const restoredAsset = await prisma.fileAsset.findUnique({ where: { id: fileAsset.id } })
     expect(restoredAsset).toBeTruthy()
     const restoredBytes = await readFile(join(process.cwd(), '.data', 'files', restoredAsset!.storageKey))
     expect(Buffer.compare(restoredBytes, buffer)).toBe(0)
 
     const restoredJe = await prisma.journalEntry.findUnique({ where: { id: je.id }, include: { attachments: true } })
     expect(restoredJe?.attachments.length).toBe(1)
-
-    // Cleanup the synthetic owner
-    await prisma.user.delete({ where: { id: owner.id } }).catch(() => {})
   })
 })

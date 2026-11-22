@@ -22,6 +22,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
+      - ./.data:/app/entrytwo/.data
       - ./backups:/app/entrytwo/backups
       - ./logs:/app/entrytwo/logs
       - ./uploads:/app/entrytwo/public/uploads
@@ -45,6 +46,8 @@ services:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/entrytwo
       - JOB_RUNNER_URL=http://app:3000
+    volumes:
+      - ./.data:/app/entrytwo/.data
     depends_on:
       app:
         condition: service_healthy

@@ -3,9 +3,8 @@ import { mkdtemp, rm, stat } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { Readable } from 'stream'
-import * as tar from 'tar'
 import { auth } from '@/lib/auth'
-import { BACKUP_CONTENT_TYPE, BACKUP_EXTENSION, buildBackupDirectory } from '@/lib/backup'
+import { BACKUP_CONTENT_TYPE, BACKUP_EXTENSION, buildBackupDirectory, writeBackupArchive } from '@/lib/backup'
 import { prisma } from '@/lib/prisma'
 import { logger } from '@/lib/logger'
 
@@ -24,7 +23,7 @@ export async function GET() {
       tx => buildBackupDirectory(contentRoot, tx),
       { isolationLevel: 'RepeatableRead', maxWait: 60_000, timeout: Number(process.env.BACKUP_TRANSACTION_TIMEOUT_MS || 2 * 60 * 60_000) },
     )
-    await tar.c({ gzip: true, cwd: contentRoot, file: archivePath, portable: true }, ['manifest.json', 'data', 'receipts'])
+    await writeBackupArchive(contentRoot, archivePath)
     const archiveSize = (await stat(archivePath)).size
     const filename = `entrytwo-full-backup-${manifest.exportedAt.slice(0, 10)}${BACKUP_EXTENSION}`
     const stream = createReadStream(archivePath)

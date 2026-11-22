@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useTranslations, useFormatter } from 'next-intl'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { appViewHref } from '@/app/lib/booksContext'
 
 interface Summary {
   baseCurrency: string
@@ -108,7 +109,7 @@ export default function SummaryBar() {
           )}
         </span>
         <Link
-          href={asOf ? `/app?view=reports&branch=${encodeURIComponent(branch)}&asOf=${encodeURIComponent(asOf)}` : `/app?view=reports`}
+          href={appViewHref('reports', searchParams)}
           className="text-[10px] px-2 py-0.5 rounded border border-zinc-600 text-zinc-200 hover:bg-zinc-800"
           title="Open the full Reports page (Balance Sheet, P&L, by-currency)"
         >

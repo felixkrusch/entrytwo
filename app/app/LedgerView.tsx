@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useFormatter, useTranslations } from 'next-intl'
+import { appViewHref } from '@/app/lib/booksContext'
 
 interface Line {
   id: string
@@ -281,7 +282,7 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
   }, [entries, accountCode, openingBalance, baseCurrency])
 
   const goToDashboard = () => {
-    router.push('/app?view=dashboard')
+    router.push(appViewHref('dashboard', { branch, asOf }))
   }
 
   const clearFilters = () => {
@@ -292,10 +293,7 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
   }
 
   const openJournalForEntry = (entryNumber?: string | null) => {
-    const params = new URLSearchParams()
-    params.set('view', 'journal')
-    if (entryNumber) params.set('entryRef', entryNumber)
-    router.push(`/app?${params.toString()}`)
+    router.push(appViewHref('journal', { branch, asOf }, entryNumber ? { entryRef: entryNumber } : undefined))
   }
 
   const toggleCleared = async (lineId: string, next: boolean) => {

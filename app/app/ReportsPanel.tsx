@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useTranslations, useFormatter } from 'next-intl'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { appViewHref } from '@/app/lib/booksContext'
 
 // Local interfaces mirroring the JSON returned by /api/reports/*.
 // NOTE: we intentionally do NOT import from '@/lib/reports' (server-only, prisma).
@@ -214,12 +215,7 @@ export default function ReportsPanel() {
   const fmtPct = (fraction: number) => format.number(fraction, { style: 'percent', maximumFractionDigits: 1 })
 
   const openLedger = (code: string) => {
-    const params = new URLSearchParams()
-    params.set('view', 'ledger')
-    params.set('accountCode', code)
-    if (branch && branch !== 'main') params.set('branch', branch)
-    if (asOf) params.set('asOf', asOf)
-    router.push(`/app?${params.toString()}`)
+    router.push(appViewHref('ledger', { branch, asOf }, { accountCode: code }))
   }
 
   const exportCsv = (report: string) => {

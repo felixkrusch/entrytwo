@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
+import { appViewHref } from '@/app/lib/booksContext'
 
 export default function InvoicingLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -9,7 +10,7 @@ export default function InvoicingLayout({ children }: { children: React.ReactNod
   
   useEffect(() => {
     if (pathname === '/invoicing') {
-      router.replace('/app?view=invoicing')
+      router.replace(appViewHref('invoicing', window.location.search))
     }
   }, [pathname, router])
 

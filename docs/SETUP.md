@@ -173,6 +173,7 @@ cp .env.example .env
 
 # 4. Validate, pull, and start
 docker compose config --quiet
+install -d -m 700 .data
 docker compose pull
 docker compose up -d
 
@@ -528,12 +529,14 @@ npx prisma generate
 ## 13. Data Export/Import (Backup & Migration)
 
 **Implemented:** Portable full-system backup and restore via Admin → Backup:
-- A compressed `.etbackup` archive contains every database table and uploaded receipt/statement.
-- SHA-256 checksums and row counts are validated before restore.
+- A version 5 `.etbackup` contains the portable database tables, including accounting periods, plus uploaded files such as receipts and statements.
+- File and table checksums are verified before replacement; row counts are checked during the restore transaction.
 - Restore is a complete replacement intended for disaster recovery or migration to a fresh installation.
 - The destination must use the original `ENCRYPTION_KEY` so encrypted bank credentials remain usable.
 
-For complete database backup, use standard PostgreSQL tools:
+Version 4 archives omit accounting periods and may also omit files. The importer rejects them rather than silently restoring incomplete books. If the original installation is available, preserve its files, update it, and make a new export.
+
+For whole-instance recovery, keep a PostgreSQL dump, a separate copy of `.data`, and the original `ENCRYPTION_KEY` stored securely. `pg_dump` does not capture attachment bytes:
 ```bash
 # Export
 pg_dump entrytwo > backup.sql
@@ -541,3 +544,17 @@ pg_dump entrytwo > backup.sql
 # Import  
 psql entrytwo < backup.sql
 ```
+
+### Preserve Docker Files Before Upgrading
+
+The current Compose templates bind-mount the installation directory's `./.data` into the app and worker. If your old Compose file lacked this mount, receipts and saved backups can still be inside the old app container. **Do not recreate or remove it before copying the files out.**
+
+From the installation directory, stop the worker and app without removing them. Copy the container data to a new, private staging directory:
+
+```bash
+docker compose stop worker app
+recovered="$(mktemp -d ./.data-recovery.XXXXXX)"
+docker compose cp app:/app/entrytwo/.data/. "$recovered/"
+```
+
+Check that the copy contains your expected files and keep a separate backup. If `.data` does not already exist, move the recovered directory to `.data`. If it does exist, inspect and merge the copies without overwriting newer files. Only then recreate the app and worker with the updated Compose file and verify that receipt downloads still work. A mount cannot recover files from a container that has already been removed.

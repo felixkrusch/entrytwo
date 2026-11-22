@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Paperclip, RefreshCw, Upload } from 'lucide-react'
 import { calculateFxBalance } from '@/lib/accounting/fxBalance'
 import { isAuthoritativeBankFeed, getFxSourceLabel } from '@/lib/fxSources'
+import { appViewHref } from '@/app/lib/booksContext'
 
 interface JournalLine {
   id: string
@@ -213,10 +214,7 @@ export default function JournalEntriesPanel({
   }
 
   const openLedgerForAccount = (code: string) => {
-    const params = new URLSearchParams()
-    params.set('view', 'ledger')
-    params.set('accountCode', code)
-    router.push(`/app?${params.toString()}`)
+    router.push(appViewHref('ledger', { branch, asOf }, { accountCode: code }))
   }
 
   const addAttachments = async (entryId: string, files: FileList | null) => {
@@ -491,10 +489,7 @@ export default function JournalEntriesPanel({
                           onClick={(ev) => {
                             ev.stopPropagation()
                             // Primary action: open the full dedicated ledger for this account (consistent with AccountsPanel, Reports, etc.)
-                            const params = new URLSearchParams()
-                            params.set('view', 'ledger')
-                            params.set('accountCode', line.account.code)
-                            router.push(`/app?${params.toString()}`)
+                            router.push(appViewHref('ledger', { branch, asOf }, { accountCode: line.account.code }))
                           }}
                           title={`Open ledger for ${line.account.code}`}
                         >

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useRouter } from 'next/navigation'
+import { appViewHref } from '@/app/lib/booksContext'
 
 interface Account {
   id: string
@@ -154,12 +155,7 @@ export default function AccountsPanel({ onSelectAccount, selectedAccountId, sele
     // Open dedicated ledger experience (strong replacement on right side)
     // Keep using the view system for now (as decided).
     // Git Model: propagate branch/asOf to ledger
-    const params = new URLSearchParams()
-    params.set('view', 'ledger')
-    params.set('accountCode', account.code)
-    if (branch && branch !== 'main') params.set('branch', branch)
-    if (asOf) params.set('asOf', asOf)
-    router.push(`/app?${params.toString()}`)
+    router.push(appViewHref('ledger', { branch, asOf }, { accountCode: account.code }))
   }
 
   return (

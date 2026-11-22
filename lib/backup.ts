@@ -3,13 +3,19 @@ import { createReadStream } from 'fs'
 import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'fs/promises'
 import { basename, join } from 'path'
 import { createInterface } from 'readline'
+import { c as createTar } from 'tar'
 import { prisma } from '@/lib/prisma'
 import { encryptionKeyFingerprint } from '@/lib/encryption'
 
-export const BACKUP_VERSION = 4
+export const BACKUP_VERSION = 5
 export const BACKUP_EXTENSION = '.etbackup'
 export const BACKUP_CONTENT_TYPE = 'application/gzip'
 export const BACKUP_PAGE_SIZE = 1000
+export const BACKUP_FILES_DIRECTORY = 'files'
+
+export function writeBackupArchive(contentRoot: string, archivePath: string) {
+  return createTar({ gzip: true, cwd: contentRoot, file: archivePath, portable: true }, ['manifest.json', 'data', BACKUP_FILES_DIRECTORY])
+}
 
 type BackupDelegate = {
   findMany(args: Record<string, unknown>): Promise<Record<string, unknown>[]>
@@ -28,6 +34,7 @@ type TableDefinition = {
 // and Git-model pointer remains valid on a fresh installation.
 export const BACKUP_TABLES: TableDefinition[] = [
   { file: 'users', delegate: 'user', orderBy: { id: 'asc' }, dateFields: ['createdAt', 'updatedAt'] },
+  { file: 'accounting-periods', delegate: 'accountingPeriod', orderBy: { id: 'asc' }, dateFields: ['startDate', 'endDate', 'closedAt', 'createdAt', 'updatedAt'] },
   { file: 'totp-recovery-codes', delegate: 'totpRecoveryCode', orderBy: { id: 'asc' }, dateFields: ['createdAt'] },
   { file: 'file-assets', delegate: 'fileAsset', orderBy: { id: 'asc' }, dateFields: ['createdAt'] },
   { file: 'chat-threads', delegate: 'chatThread', orderBy: { id: 'asc' }, dateFields: ['createdAt', 'updatedAt', 'expiresAt', 'archivedAt'] },
@@ -66,7 +73,7 @@ const DELETE_ORDER = [
   'chatMessageAttachment', 'chatMessage', 'chatThread',
   'invoiceLine', 'feedTransaction', 'bankConnection', 'recurringInvoice', 'journalAttachment', 'journalLine',
   'invoice', 'recurringJournalEntry', 'template', 'setting', 'agentMemory',
-  'accountingBranch', 'snapshot', 'journalEntry', 'event', 'fileAsset', 'taxRate', 'contact', 'account', 'user',
+  'accountingBranch', 'snapshot', 'journalEntry', 'event', 'fileAsset', 'taxRate', 'contact', 'account', 'accountingPeriod', 'user',
 ]
 
 export type BackupManifest = {
@@ -96,7 +103,7 @@ async function sha256File(path: string): Promise<string> {
 
 export async function buildBackupDirectory(root: string, client: unknown = prisma): Promise<BackupManifest> {
   const dataDir = join(root, 'data')
-  const receiptsOut = join(root, 'files')
+  const receiptsOut = join(root, BACKUP_FILES_DIRECTORY)
   await mkdir(dataDir, { recursive: true })
   await mkdir(receiptsOut, { recursive: true })
 
@@ -130,7 +137,7 @@ export async function buildBackupDirectory(root: string, client: unknown = prism
     if (!info?.isFile()) continue
     const target = join(receiptsOut, name)
     await copyFile(source, target)
-    receipts.push({ path: `files/${name}`, bytes: info.size, mtime: info.mtime.toISOString(), sha256: await sha256File(target) })
+    receipts.push({ path: `${BACKUP_FILES_DIRECTORY}/${name}`, bytes: info.size, mtime: info.mtime.toISOString(), sha256: await sha256File(target) })
   }
 
   const copiedReceiptNames = new Set(receipts.map(receipt => basename(receipt.path)))
@@ -155,6 +162,9 @@ export async function buildBackupDirectory(root: string, client: unknown = prism
 
 export async function validateBackupDirectory(root: string): Promise<BackupManifest> {
   const manifest = JSON.parse(await readFile(join(root, 'manifest.json'), 'utf8')) as BackupManifest
+  if (manifest.format === 'entrytwo-portable-backup' && manifest.version === 4) {
+    throw new Error('Version 4 backups omit accounting periods and can omit attachments. Export a new backup from the updated source installation before replacing data.')
+  }
   if (manifest.format !== 'entrytwo-portable-backup' || manifest.version !== BACKUP_VERSION) {
     throw new Error(`Unsupported backup format or version (expected ${BACKUP_VERSION})`)
   }

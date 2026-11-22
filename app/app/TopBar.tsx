@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { signOut } from '@/lib/auth-client'
+import { appViewHref } from '@/app/lib/booksContext'
 
 interface TopBarProps {
   showSettings?: boolean
@@ -103,7 +104,7 @@ export default function TopBar({ showSettings = false, onOpenLicenseModal }: Top
   return (
     <div className="h-11 border-b border-zinc-800 bg-zinc-950 flex items-center px-4 justify-between shrink-0">
       <div className="flex items-center gap-2">
-        <Link href="/app" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+        <Link href={appViewHref('dashboard', searchParams)} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
           <img src="/entrytwo-logo.svg" alt="entrytwo" className="h-5 w-auto" />
         </Link>
 
@@ -128,7 +129,7 @@ export default function TopBar({ showSettings = false, onOpenLicenseModal }: Top
             return (
               <button
                 key={item.view}
-                onClick={() => router.push(`/app?view=${item.view}`)}
+                onClick={() => router.push(appViewHref(item.view, searchParams))}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors ${
                   active ? 'bg-zinc-800 text-zinc-200' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
                 }`}
@@ -192,7 +193,7 @@ export default function TopBar({ showSettings = false, onOpenLicenseModal }: Top
                   </>
                 )}
 
-                <Link href="/app?view=history" className="flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-900 text-zinc-300" onClick={() => setShowAdminMenu(false)}>
+                <Link href={appViewHref('history', searchParams)} className="flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-900 text-zinc-300" onClick={() => setShowAdminMenu(false)}>
                   <History className="w-4 h-4" /> {tAdmin('history')}
                 </Link>
 

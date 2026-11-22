@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { appViewHref } from '@/app/lib/booksContext'
 
 interface Branch {
   id: string
@@ -638,7 +639,7 @@ export default function GitModelControls() {
 
         { (searchParams.get('view') || '').toLowerCase() !== 'history' && (
           <Link
-            href="/app?view=history"
+            href={appViewHref('history', searchParams)}
             className="text-[10px] px-2 py-0.5 rounded border border-zinc-700 hover:bg-zinc-800"
             title="Open the full commit history (GitHub-style list of all commits)"
           >
