@@ -41,6 +41,7 @@ export async function GET(request: Request) {
   try {
     const baseCurrency = (await getCompanyProfile()).baseCurrency.toUpperCase()
     const { searchParams } = new URL(request.url)
+    const entryRef = searchParams.get('entryRef')?.trim()
 
     const accountCode = searchParams.get('accountCode') || searchParams.get('account')
     const search = (searchParams.get('search') || '').trim()
@@ -76,7 +77,7 @@ export async function GET(request: Request) {
       const br = await prisma.accountingBranch.findUnique({ where: { name: targetBranch } })
       visibleEntryIds = await getVisibleJournalEntryIds(br?.headEventId)
       // Only restrict if ancestry gave us a non-empty set. For legacy data with no parents yet, show all for current view.
-      restrictToVisible = visibleEntryIds.length > 0
+      restrictToVisible = visibleEntryIds.length > 0 || Boolean(entryRef && targetBranch !== 'main')
     }
 
     const where: Record<string, unknown> = {}
@@ -89,14 +90,16 @@ export async function GET(request: Request) {
     }
     // else: no ancestry restriction → show all (legacy current main or no head yet)
 
-    if (from || to) {
+    if (entryRef) where.entryNumber = entryRef
+
+    if (!entryRef && (from || to)) {
       const dateFilter: Record<string, Date> = {}
       if (from) dateFilter.gte = new Date(from)
       if (to) dateFilter.lte = new Date(to)
       where.date = dateFilter
     }
 
-    if (accountCode) {
+    if (!entryRef && accountCode) {
       where.lines = {
         some: {
           account: { code: accountCode }
@@ -104,7 +107,7 @@ export async function GET(request: Request) {
       }
     }
 
-    if (search) {
+    if (!entryRef && search) {
       where.OR = [
         { description: { contains: search, mode: 'insensitive' } },
         {
@@ -117,13 +120,12 @@ export async function GET(request: Request) {
       ]
     }
 
-    const [total, entries] = await Promise.all([
-      prisma.journalEntry.count({ where }),
+    const [listTotal, entries] = await Promise.all([
+      entryRef ? null : prisma.journalEntry.count({ where }),
       prisma.journalEntry.findMany({
         where,
-        orderBy,
-        skip: (page - 1) * limit,
-        take: limit,
+        take: entryRef ? 1 : limit,
+        ...(entryRef ? {} : { orderBy, skip: (page - 1) * limit }),
         include: {
           lines: {
             include: {
@@ -138,6 +140,7 @@ export async function GET(request: Request) {
     ])
 
     // Resolve the creating user for each entry (accountability metadata).
+    const total = listTotal ?? entries.length
     const creatorIds = Array.from(new Set(entries.map(e => e.createdBy).filter(Boolean))) as string[]
     const creators = creatorIds.length
       ? await prisma.user.findMany({
@@ -196,9 +199,9 @@ export async function GET(request: Request) {
     return NextResponse.json({
       entries: mappedEntries,
       total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit) || 1,
+      page: entryRef ? 1 : page,
+      limit: entryRef ? 1 : limit,
+      totalPages: entryRef ? 1 : Math.ceil(total / limit) || 1,
       // Git model context echoed back
       branch: targetBranch,
       asOf: asOf || null,

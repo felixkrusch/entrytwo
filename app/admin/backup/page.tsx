@@ -118,7 +118,7 @@ export default function BackupPage() {
             className="mt-auto inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-medium text-zinc-950 transition hover:bg-emerald-400"
           >
             <FileArchive className="h-4 w-4" />
-            Download full backup
+            {tForm('downloadArchive')}
           </button>
         </section>
 
@@ -128,7 +128,7 @@ export default function BackupPage() {
               <Upload className="h-4 w-4 text-rose-400" />
               Restore complete archive
             </h2>
-            <p className="mt-2 text-xs leading-5 text-zinc-500">Designed for a fresh installation or a deliberate full rollback.</p>
+            <p className="mt-2 text-xs leading-5 text-zinc-500">{tForm('restoreArchiveHelp')}</p>
           </div>
 
           <div className="my-5 flex gap-3 rounded-lg border border-rose-900/60 bg-rose-950/25 p-3">
@@ -141,7 +141,7 @@ export default function BackupPage() {
           <label className="block cursor-pointer rounded-lg border border-dashed border-zinc-700 bg-zinc-900/40 p-5 text-center transition hover:border-zinc-600 hover:bg-zinc-900">
             <FileArchive className="mx-auto h-6 w-6 text-zinc-500" />
             <div className="mt-2 text-sm text-zinc-300">{selectedFile ? selectedFile.name : 'Choose an entrytwo backup archive'}</div>
-            <div className="mt-1 text-[11px] text-zinc-500">{selectedFile ? formatBytes(selectedFile.size) : '.etbackup files only'}</div>
+            <div className="mt-1 text-[11px] text-zinc-500">{selectedFile ? formatBytes(selectedFile.size) : tForm('archiveFileType')}</div>
             <input
               ref={fileRef}
               type="file"

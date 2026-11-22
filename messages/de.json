@@ -78,6 +78,8 @@
         "loading": "Lade Buchungen…",
         "empty": "Noch keine Journalbuchungen{filter}.",
         "emptyFilter": " für dieses Konto",
+        "entryNotFound": "Der Journaleintrag {ref} ist in dieser Ansicht nicht verfügbar.",
+        "backToJournal": "Zurück zum vollständigen Journal",
         "visible": "Sichtbare Buchungen: {count}",
         "totals": "Soll gesamt: {debits} • Haben gesamt: {credits}",
         "reverse": "Stornieren",
@@ -1035,7 +1037,10 @@
       "completeDb": "Vollständige Datenbank",
       "allDocs": "Alle Dokumente",
       "allDocsHelp": "Belege, Rechnungen, Kartenauszüge und Kontoauszüge.",
-      "downloadHelp": "Der Download ist komprimiert und wird direkt auf die Festplatte gestreamt.",
+      "downloadHelp": "Der Download ist eine komprimierte .etbackup-Datei, keine ZIP-Datei. Bewahre die Originaldatei für die Wiederherstellung auf.",
+      "downloadArchive": "Vollständige Sicherung herunterladen (.etbackup)",
+      "restoreArchiveHelp": "Wähle die ursprünglich heruntergeladene .etbackup-Datei aus. Entpacke oder packe sie nicht neu. ZIP-Dateien werden nicht unterstützt.",
+      "archiveFileType": "Ursprünglich heruntergeladene .etbackup-Datei",
       "footer": "Bei VPS- und Docker-Installationen das Uploads-Volume zwischen Container-Ersetzungen persistent halten."
     },
     "bankFeedsForm": {

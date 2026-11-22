@@ -47,7 +47,10 @@ it('round-trips closed periods and attachment bytes through the download and upl
 
   const download = await GET()
   expect(download.status).toBe(200)
+  expect(download.headers.get('content-disposition')).toMatch(/^attachment; filename="entrytwo-full-backup-\d{4}-\d{2}-\d{2}\.etbackup"$/)
+  expect(download.headers.get('content-type')).toBe('application/gzip')
   const archive = await download.arrayBuffer()
+  expect([...new Uint8Array(archive, 0, 2)]).toEqual([0x1f, 0x8b])
   await rm(join(files, storageKey))
 
   const restored = await POST(new NextRequest('http://localhost/api/backup/import', {

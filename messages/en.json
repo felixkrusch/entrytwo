@@ -78,6 +78,8 @@
         "loading": "Loading entries...",
         "empty": "No journal entries{filter} yet.",
         "emptyFilter": " for this account",
+        "entryNotFound": "Journal entry {ref} is not available in these books.",
+        "backToJournal": "Back to full journal",
         "visible": "Visible entries: {count}",
         "totals": "Total Debits: {debits} • Total Credits: {credits}",
         "reverse": "Reverse",
@@ -1035,7 +1037,10 @@
       "completeDb": "Complete database",
       "allDocs": "All documents",
       "allDocsHelp": "Receipts, invoices, card statements, and bank statements.",
-      "downloadHelp": "The download is compressed and streamed directly to disk.",
+      "downloadHelp": "The download is a compressed .etbackup file, not a ZIP. Keep the original file intact for restore.",
+      "downloadArchive": "Download full backup (.etbackup)",
+      "restoreArchiveHelp": "Select the original .etbackup file from Download full backup. Do not unzip, extract, or repackage it. ZIP files are not supported.",
+      "archiveFileType": "Original .etbackup download",
       "footer": "For VPS and Docker installations, keep the uploads volume persistent between container replacements."
     },
     "bankFeedsForm": {

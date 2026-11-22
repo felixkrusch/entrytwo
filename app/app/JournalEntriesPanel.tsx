@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import { useNewEntry } from './NewEntryContext'
 import toast from 'react-hot-toast'
 import { useTranslations, useFormatter } from 'next-intl'
-import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Paperclip, RefreshCw, Upload } from 'lucide-react'
 import { calculateFxBalance } from '@/lib/accounting/fxBalance'
 import { isAuthoritativeBankFeed, getFxSourceLabel } from '@/lib/fxSources'
@@ -55,6 +56,7 @@ interface JournalEntry {
 }
 
 export interface JournalEntriesPanelProps {
+  entryRef?: string
   filterAccountId?: string
   branch?: string
   asOf?: string
@@ -63,6 +65,7 @@ export interface JournalEntriesPanelProps {
 }
 
 export default function JournalEntriesPanel({
+  entryRef,
   filterAccountId,
   branch = 'main',
   asOf,
@@ -73,8 +76,8 @@ export default function JournalEntriesPanel({
   const t = useTranslations('app.panels.journal')
   const tJ = useTranslations('app.views.journal')
   const format = useFormatter()
-  const searchParams = useSearchParams()
-  const entryRef = searchParams?.get('entryRef') || ''
+  const focused = Boolean(entryRef)
+  const paginate = showPagination && !focused
 
   const [entries, setEntries] = useState<JournalEntry[]>([])
   const [reversedMap, setReversedMap] = useState<Map<string, string>>(new Map())
@@ -97,58 +100,56 @@ export default function JournalEntriesPanel({
   const [totalPages, setTotalPages] = useState(1)
   const pageSize = 25
 
-  const fetchEntries = () => {
+  const fetchEntries = (signal: AbortSignal) => {
     const params = new URLSearchParams()
-    if (filterAccountId) params.set('accountCode', filterAccountId)
-    else if (accountFilter) params.set('accountCode', accountFilter)
     if (branch) params.set('branch', branch)
     if (asOf) params.set('asOf', asOf)
-    if (search) params.set('search', search)
-    if (from) params.set('from', from)
-    if (to) params.set('to', to)
-
-    // When a hard limit is provided (dashboard "5 recent"), we still ask the API for a larger page
-    // and then slice client-side so we always get the freshest N.
-    // When showPagination is true we use normal server pagination.
-    if (limit && !showPagination) {
-      params.set('limit', String(Math.max(limit, 100)))
-      params.set('page', '1')
-    } else if (showPagination) {
-      params.set('limit', String(pageSize))
-      params.set('page', String(page))
+    if (entryRef) {
+      params.set('entryRef', entryRef)
+    } else {
+      if (filterAccountId || accountFilter) params.set('accountCode', filterAccountId || accountFilter)
+      if (search) params.set('search', search)
+      if (from) params.set('from', from)
+      if (to) params.set('to', to)
+      if (limit && !showPagination) {
+        params.set('limit', String(Math.max(limit, 100)))
+        params.set('page', '1')
+      } else if (paginate) {
+        params.set('limit', String(pageSize))
+        params.set('page', String(page))
+      }
     }
 
-    fetch(`/api/journal-entries?${params.toString()}`)
+    fetch(`/api/journal-entries?${params.toString()}`, { signal })
       .then(res => {
         if (!res.ok) throw new Error('Failed to load journal')
         return res.json()
       })
       .then(data => {
+        if (signal.aborted) return
+        setError(null)
         if (typeof data?.baseCurrency === 'string') setBaseCurrency(data.baseCurrency.toUpperCase())
         let list: JournalEntry[] = []
         if (Array.isArray(data)) list = data
         else if (data && Array.isArray(data.entries)) list = data.entries
 
-        if (limit && !showPagination) {
+        if (entryRef) {
+          setEntries(list.filter(entry => entry.entryNumber === entryRef))
+        } else if (limit && !showPagination) {
           // Keep only the most recent N (API returns newest first with date:desc)
           setEntries(list.slice(0, limit))
         } else {
           setEntries(list)
         }
 
-        // Auto-expand a specific entry when arriving from the ledger via ?entryRef=JE-...
-        if (entryRef) {
-          const match = list.find(e => e.entryNumber === entryRef)
-          if (match) setExpanded(match.id)
-        }
-
         if (data && typeof data.totalPages === 'number') setTotalPages(data.totalPages || 1)
       })
       .catch(() => {
+        if (signal.aborted) return
         setError('Could not load journal entries')
         setEntries([])
       })
-      .finally(() => setLoading(false))
+      .finally(() => { if (!signal.aborted) setLoading(false) })
   }
 
   const fetchReversals = () => {
@@ -169,10 +170,11 @@ export default function JournalEntriesPanel({
   }
 
   useEffect(() => {
-    let mounted = true
+    let controller: AbortController | undefined
     const doFetch = () => {
-      if (!mounted) return
-      fetchEntries()
+      controller?.abort()
+      controller = new AbortController()
+      fetchEntries(controller.signal)
       fetchReversals()
       setLastUpdated(new Date())
     }
@@ -181,12 +183,12 @@ export default function JournalEntriesPanel({
     const handler = () => doFetch()
     window.addEventListener('journal-updated', handler)
     return () => {
-      mounted = false
+      controller?.abort()
       window.removeEventListener('journal-updated', handler)
     }
-  }, [filterAccountId, branch, asOf, limit, showPagination, page, search, from, to, accountFilter])
+  }, [filterAccountId, branch, asOf, limit, showPagination, entryRef, page, search, from, to, accountFilter])
 
-  const filteredEntries = filterAccountId
+  const filteredEntries = !focused && filterAccountId
     ? entries.filter(entry =>
         entry.lines.some(line => line.account.code === filterAccountId)
       )
@@ -208,9 +210,8 @@ export default function JournalEntriesPanel({
 
   const refresh = () => {
     setError(null)
-    fetchEntries()
-    fetchReversals()
-    setLastUpdated(new Date())
+    setLoading(true)
+    window.dispatchEvent(new CustomEvent('journal-updated'))
   }
 
   const openLedgerForAccount = (code: string) => {
@@ -241,7 +242,7 @@ export default function JournalEntriesPanel({
       <div className="flex items-center justify-between mb-4">
         <div className="text-sm text-zinc-500 flex items-center gap-2">
           {t('title')}
-          {filterAccountId && (
+          {!focused && filterAccountId && (
             <button
               onClick={() => window.dispatchEvent(new CustomEvent('clear-account-filter'))}
               className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 hover:bg-emerald-900"
@@ -259,26 +260,34 @@ export default function JournalEntriesPanel({
           </button>
         </div>
         <div className="flex items-center gap-2">
-          {filterAccountId && (
-            <button
-              onClick={() => window.dispatchEvent(new CustomEvent('clear-account-filter'))}
-              className="text-xs px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600"
-            >
-              {t('clearFilter')}
-            </button>
+          {focused ? (
+            <Link href={appViewHref('journal', { branch, asOf })} className="text-xs px-2 py-1 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800">
+              {t('backToJournal')}
+            </Link>
+          ) : (
+            <>
+              {filterAccountId && (
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('clear-account-filter'))}
+                  className="text-xs px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600"
+                >
+                  {t('clearFilter')}
+                </button>
+              )}
+              <button
+                onClick={() => openNewEntry()}
+                className="text-xs px-3 py-1 rounded bg-white text-black hover:bg-zinc-200 transition font-medium"
+              >
+                {t('newEntry')}
+              </button>
+              <button
+                onClick={() => setExpandAll(!expandAll)}
+                className="text-xs px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+              >
+                {expandAll ? 'Collapse all' : 'Expand all'}
+              </button>
+            </>
           )}
-            <button 
-            onClick={() => openNewEntry()}
-            className="text-xs px-3 py-1 rounded bg-white text-black hover:bg-zinc-200 transition font-medium"
-          >
-            {t('newEntry')}
-          </button>
-          <button
-            onClick={() => setExpandAll(!expandAll)}
-            className="text-xs px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800"
-          >
-            {expandAll ? 'Collapse all' : 'Expand all'}
-          </button>
         </div>
       </div>
       {lastUpdated && (
@@ -287,7 +296,7 @@ export default function JournalEntriesPanel({
         </div>
       )}
 
-      {showPagination && (
+      {paginate && (
         <div className="mb-4 flex flex-wrap items-end gap-3">
           <div>
             <label className="text-xs text-zinc-400 block mb-1">{tJ('search')}</label>
@@ -340,13 +349,13 @@ export default function JournalEntriesPanel({
         <div className="text-rose-400 text-sm">{error}</div>
       ) : filteredEntries.length === 0 ? (
         <div className="text-zinc-500 text-sm">
-          {t('empty', { filter: filterAccountId ? t('emptyFilter') : '' })}
+          {entryRef ? t('entryNotFound', { ref: entryRef }) : t('empty', { filter: filterAccountId ? t('emptyFilter') : '' })}
         </div>
       ) : (
         <>
           <div className="space-y-4">
             {filteredEntries.map(entry => {
-              const isOpen = expandAll || expanded === entry.id
+              const isOpen = focused || expandAll || expanded === entry.id
                const entryBalance = calculateFxBalance(entry.lines, baseCurrency)
                const balanced = entryBalance.balanced
               const isReversal = !!entry.reversalOfEntryNumber || entry.description?.startsWith('Reversal of')
@@ -355,8 +364,8 @@ export default function JournalEntriesPanel({
               return (
                 <div
                   key={entry.id}
-                  className={`border rounded-xl p-4 bg-zinc-950 cursor-pointer transition-colors ${isReversal ? 'border-rose-900/40 bg-zinc-950/70' : hasBeenReversed ? 'border-rose-900/30' : 'border-zinc-800'}`}
-                  onClick={() => setExpanded(isOpen ? null : entry.id)}
+                   className={`border rounded-xl p-4 bg-zinc-950 transition-colors ${focused ? '' : 'cursor-pointer'} ${isReversal ? 'border-rose-900/40 bg-zinc-950/70' : hasBeenReversed ? 'border-rose-900/30' : 'border-zinc-800'}`}
+                   onClick={focused ? undefined : () => setExpanded(isOpen ? null : entry.id)}
                 >
                   <div className="flex justify-between text-sm mb-2 flex-wrap gap-2">
                      <div className="font-medium flex items-center gap-2 flex-wrap">
@@ -574,7 +583,7 @@ export default function JournalEntriesPanel({
                               {t('debitsCredits', { debits: entryBalance.debitBase.toFixed(2), credits: entryBalance.creditBase.toFixed(2) })}
                               <span className="ml-2 text-zinc-500">({baseCurrency})</span>
                             </div>
-                            <div className="text-zinc-500">{t('clickToCollapse')}</div>
+                             {!focused && <div className="text-zinc-500">{t('clickToCollapse')}</div>}
                           </div>
 
                        {/* FX metadata per line when present */}
@@ -609,9 +618,9 @@ export default function JournalEntriesPanel({
                           </div>
                         )}
 
-                        {entry.createdByUser && (
+                         {(entry.createdByUser || entry.createdBy) && (
                           <div className="text-zinc-500">
-                            Created by {entry.createdByUser.name || entry.createdByUser.email || entry.createdBy}
+                             Created by {entry.createdByUser?.name || entry.createdByUser?.email || entry.createdBy}
                             {entry.updatedAt ? ` · ${new Date(entry.updatedAt).toLocaleString()}` : ''}
                           </div>
                         )}
@@ -623,7 +632,7 @@ export default function JournalEntriesPanel({
           </div>
 
           {/* Pagination controls (full journal view only) */}
-          {showPagination && (
+           {paginate && (
             <div className="flex items-center justify-between mt-6 text-sm">
               <button
                 disabled={page <= 1}
@@ -646,12 +655,12 @@ export default function JournalEntriesPanel({
           )}
 
           {/* Totals footer for visible entries */}
-          <div className="mt-4 pt-3 border-t border-zinc-800 flex justify-between text-sm text-zinc-400">
-            <div>{t('visible', { count: filteredEntries.length })}</div>
-            <div>
-              {t('totals', { debits: totalDebits.toFixed(2), credits: totalCredits.toFixed(2) })}
+          {!focused && (
+            <div className="mt-4 pt-3 border-t border-zinc-800 flex justify-between text-sm text-zinc-400">
+              <div>{t('visible', { count: filteredEntries.length })}</div>
+              <div>{t('totals', { debits: totalDebits.toFixed(2), credits: totalCredits.toFixed(2) })}</div>
             </div>
-          </div>
+          )}
         </>
       )}
     </div>

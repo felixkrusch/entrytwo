@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useFormatter, useTranslations } from 'next-intl'
 import { appViewHref } from '@/app/lib/booksContext'
@@ -292,9 +293,6 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
     setPage(1)
   }
 
-  const openJournalForEntry = (entryNumber?: string | null) => {
-    router.push(appViewHref('journal', { branch, asOf }, entryNumber ? { entryRef: entryNumber } : undefined))
-  }
 
   const toggleCleared = async (lineId: string, next: boolean) => {
     // Optimistic local update so the list does not reload / scroll to top.
@@ -442,13 +440,15 @@ export default function LedgerView({ accountCode, branch = 'main', asOf }: Props
                 >
                   <div className="flex justify-between text-sm mb-2 flex-wrap gap-2">
                     <div className="font-medium flex items-center gap-2 flex-wrap">
-                      <button
-                        onClick={() => openJournalForEntry(entry.entryNumber)}
-                        className="font-mono text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700"
-                        title="Open in Journal"
-                      >
-                        {entry.entryNumber || '—'}
-                      </button>
+                      {entry.entryNumber ? (
+                        <Link
+                          href={appViewHref('journal', { branch, asOf }, { entryRef: entry.entryNumber })}
+                          prefetch={false}
+                          className="font-mono text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700"
+                        >
+                          {entry.entryNumber}
+                        </Link>
+                      ) : <span className="text-zinc-500">—</span>}
                       <span className={isReversal ? 'line-through text-zinc-500' : ''}>
                         {entry.description || 'Untitled entry'}
                       </span>

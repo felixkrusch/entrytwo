@@ -43,6 +43,7 @@ function AppContent({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const journalEntryRef = searchParams?.get('entryRef')?.trim() || undefined
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
   const [showRecurring, setShowRecurring] = useState(false)
   const [needsBootstrap, setNeedsBootstrap] = useState<boolean | null>(null)
@@ -389,20 +390,22 @@ function AppContent({ children }: { children: ReactNode }) {
                           <h1 className="text-xl font-semibold">{tShell('journalTitle')}</h1>
                           <p className="text-xs text-zinc-500 mt-1">{tShell('journalSubtitle')}</p>
                         </div>
-                        <button
+                        {!journalEntryRef && <button
                           onClick={() => setShowRecurring(v => !v)}
                           className="text-xs px-3 py-1 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800"
                         >
                           {showRecurring ? tShell('showEntries') : tShell('recurringSchedules')}
-                        </button>
+                        </button>}
                       </div>
-                      {showRecurring ? (
+                      {showRecurring && !journalEntryRef ? (
                         <ErrorBoundary>
                           <RecurringJournalPanel />
                         </ErrorBoundary>
                       ) : (
                         <ErrorBoundary>
                           <JournalEntriesPanel
+                            key={journalEntryRef ? JSON.stringify([journalEntryRef, currentBranch, asOf]) : 'journal-list'}
+                            entryRef={journalEntryRef}
                             filterAccountId={selectedAccount?.code}
                             branch={currentBranch}
                             asOf={asOf}
